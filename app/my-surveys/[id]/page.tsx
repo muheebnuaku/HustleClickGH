@@ -2,7 +2,6 @@
 
 // ...existing code...
 import { Document, Packer, Paragraph, Table, TableCell, TableRow, TextRun } from "docx";
-// @ts-expect-error: file-saver types are not fully compatible with ESM imports
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 
