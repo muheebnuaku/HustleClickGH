@@ -1,0 +1,120 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id              String        @id @default(cuid())
+  userId          String        @unique // Auto-generated user ID for login
+  fullName        String
+  email           String        @unique
+  phone           String
+  password        String
+  image           String?       // Profile image URL or base64
+  nationalId      String?
+  role            String        @default("user") // user or admin
+  status          String        @default("active") // active, suspended
+  balance         Float         @default(0)
+  totalEarned     Float         @default(0)
+  referralCode    String        @unique
+  referredBy      String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  // Relations
+  surveyResponses SurveyResponse[]
+  withdrawals     Withdrawal[]
+  referrals       Referral[]      @relation("Referrer")
+  referredUsers   Referral[]      @relation("Referred")
+}
+
+model Survey {
+  id                  String           @id @default(cuid())
+  title               String
+  description         String
+  headerImage         String?          // Optional header image URL/base64 displayed at top of survey
+  backgroundImage     String?          // Optional background image URL/base64 displayed behind survey form
+  reward              Float            @default(0) // 0 for user surveys, > 0 for admin surveys
+  maxRespondents      Int
+  currentRespondents  Int              @default(0)
+  visibility          String           @default("public")
+  status              String           @default("active") // active, expired, paused
+  surveyType          String           @default("admin") // admin or user
+  shareCode           String?          @unique // Unique code for sharing user surveys
+  expiresAt           DateTime
+  createdBy           String
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  
+  // Relations
+  questions           SurveyQuestion[]
+  responses           SurveyResponse[]
+}
+
+model SurveyQuestion {
+  id              String   @id @default(cuid())
+  surveyId        String
+  questionText    String
+  questionType    String   // text, multiple-choice, rating, etc.
+  options         String?  // JSON string for options
+  required        Boolean  @default(true)
+  order           Int
+  createdAt       DateTime @default(now())
+  
+  // Relations
+  survey          Survey   @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+}
+
+model SurveyResponse {
+  id              String   @id @default(cuid())
+  surveyId        String
+  userId          String
+  answers         String   // JSON string of answers
+  rewarded        Boolean  @default(false)
+  submittedAt     DateTime @default(now())
+  
+  // Relations
+  survey          Survey   @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([surveyId, userId])
+}
+
+model Withdrawal {
+  id              String   @id @default(cuid())
+  userId          String
+  amount          Float
+  paymentMethod   String
+  mobileNumber    String
+  accountName     String
+  status          String   @default("pending") // pending, approved, rejected
+  requestedAt     DateTime @default(now())
+  processedAt     DateTime?
+  processedBy     String?
+  notes           String?
+  
+  // Relations
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Referral {
+  id              String   @id @default(cuid())
+  referrerId      String
+  referredId      String
+  earned          Float    @default(1.0)
+  createdAt       DateTime @default(now())
+  
+  // Relations
+  referrer        User     @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referred        User     @relation("Referred", fields: [referredId], references: [id], onDelete: Cascade)
+  
+  @@unique([referrerId, referredId])
+}
