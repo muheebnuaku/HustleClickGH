@@ -14,15 +14,12 @@ import type { HandleUploadBody } from "@vercel/blob/client";
 // Local dev (no BLOB_READ_WRITE_TOKEN): accept FormData, write to public/uploads/
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-  }
-
   const contentType = request.headers.get("content-type") || "";
 
   if (process.env.BLOB_READ_WRITE_TOKEN && !contentType.includes("multipart/form-data")) {
     // ── Vercel Blob client upload (production) ────────────────────────────
+    // Auth is checked inside onBeforeGenerateToken so that Vercel's CDN
+    // completion callback (no user cookies) can reach onUploadCompleted.
     try {
       const { handleUpload } = await import("@vercel/blob/client");
       const body = await request.json() as HandleUploadBody;
@@ -31,6 +28,10 @@ export async function POST(request: Request): Promise<NextResponse> {
         body,
         request,
         onBeforeGenerateToken: async () => {
+          const session = await getServerSession(authOptions);
+          if (!session?.user) {
+            throw new Error("Unauthorized");
+          }
           return {
             allowedContentTypes: [
               "audio/mpeg", "audio/wav", "audio/x-m4a", "audio/m4a",
@@ -57,6 +58,11 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   // ── Local dev: FormData upload → public/uploads/ ──────────────────────
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;

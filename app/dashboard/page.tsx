@@ -110,10 +110,49 @@ export default function DashboardPage() {
   if (status === "loading" || isLoading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-blue-200 dark:border-blue-900 rounded-full"></div>
-            <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
+        <div className="space-y-6 animate-pulse">
+          {/* Welcome header skeleton */}
+          <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-500 rounded-2xl p-6">
+            <div className="flex items-center justify-between">
+              <div className="h-6 w-40 bg-white/30 rounded-lg" />
+              <div className="h-9 w-9 bg-white/30 rounded-md" />
+            </div>
+          </div>
+
+          {/* Quick Actions skeleton */}
+          <div>
+            <div className="h-6 w-32 bg-zinc-200 dark:bg-zinc-700 rounded mb-4" />
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="rounded-xl border-2 border-zinc-200 dark:border-zinc-700 p-4 space-y-3">
+                  <div className="w-12 h-12 rounded-xl bg-zinc-200 dark:bg-zinc-700" />
+                  <div className="h-4 w-24 bg-zinc-200 dark:bg-zinc-700 rounded" />
+                  <div className="h-3 w-20 bg-zinc-100 dark:bg-zinc-800 rounded" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Recent Activity skeleton */}
+          <div>
+            <div className="h-6 w-36 bg-zinc-200 dark:bg-zinc-700 rounded mb-4" />
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden divide-y divide-zinc-200 dark:divide-zinc-700">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-700 flex-shrink-0" />
+                    <div className="space-y-2">
+                      <div className="h-4 w-32 bg-zinc-200 dark:bg-zinc-700 rounded" />
+                      <div className="h-3 w-20 bg-zinc-100 dark:bg-zinc-800 rounded" />
+                    </div>
+                  </div>
+                  <div className="space-y-2 text-right">
+                    <div className="h-4 w-16 bg-zinc-200 dark:bg-zinc-700 rounded ml-auto" />
+                    <div className="h-3 w-12 bg-zinc-100 dark:bg-zinc-800 rounded ml-auto" />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </DashboardLayout>
