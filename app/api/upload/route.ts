@@ -16,7 +16,10 @@ import type { HandleUploadBody } from "@vercel/blob/client";
 export async function POST(request: Request): Promise<NextResponse> {
   const contentType = request.headers.get("content-type") || "";
 
-  if (process.env.BLOB_READ_WRITE_TOKEN && !contentType.includes("multipart/form-data")) {
+  // In production always use Vercel Blob regardless of whether BLOB_READ_WRITE_TOKEN
+  // is visible here — routing on the env var caused fallthrough to FormData when the
+  // var wasn't present at runtime, producing a confusing "Content-Type" TypeError.
+  if (process.env.NODE_ENV === "production" && !contentType.includes("multipart/form-data")) {
     // ── Vercel Blob client upload (production) ────────────────────────────
     // Auth is checked inside onBeforeGenerateToken so that Vercel's CDN
     // completion callback (no user cookies) can reach onUploadCompleted.
