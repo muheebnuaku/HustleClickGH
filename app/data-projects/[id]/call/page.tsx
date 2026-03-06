@@ -27,10 +27,15 @@ type Phase =
   | "submitting"
   | "done";
 
-const ICE_SERVERS = [
+const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
+  // TURN relays — required for mobile carrier NAT (MTN/Vodafone/AirtelTigo)
+  { urls: "turn:openrelay.metered.ca:80",    username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443",   username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:3478",  username: "openrelayproject", credential: "openrelayproject" },
 ];
 
 // Best supported audio MIME type for MediaRecorder
@@ -72,6 +77,7 @@ export default function CallRecordingPage() {
   const callCodeRef = useRef("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seenInitIce = useRef(0);
   const seenRecvIce = useRef(0);
   const alreadySetAnswer = useRef(false);
@@ -79,10 +85,12 @@ export default function CallRecordingPage() {
   // ── Helpers ───────────────────────────────────────────────────────────────
   const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
   const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
+  const clearConnectTimeout = () => { if (connectTimeoutRef.current) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null; } };
 
   const cleanup = useCallback(() => {
     stopPoll();
     stopTimer();
+    clearConnectTimeout();
     if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
@@ -122,9 +130,12 @@ export default function CallRecordingPage() {
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") {
+        stopPoll(); // no more DB polling needed once peer-to-peer is up
+        clearConnectTimeout();
         startRecording();
       }
       if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+        clearConnectTimeout();
         setError("Connection lost. Please try again.");
         setPhase("ended");
         stopPoll();
@@ -155,6 +166,9 @@ export default function CallRecordingPage() {
   // ── Poll for signaling updates ────────────────────────────────────────────
   const startPolling = (code: string, asInitiator: boolean) => {
     pollRef.current = setInterval(async () => {
+      // If WebRTC is already up, polling is no longer needed
+      if (!pollRef.current) return;
+
       try {
         const res = await fetch(`/api/calls/${code}`);
         if (!res.ok) return;
@@ -170,27 +184,26 @@ export default function CallRecordingPage() {
             await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
             setPhase("connecting");
           }
-          // Initiator: apply incoming ICE from receiver
-          const newRecvIce: RTCIceCandidateInit[] = data.receiverIce.slice(seenRecvIce.current);
-          for (const c of newRecvIce) {
-            if (pc.remoteDescription) await pc.addIceCandidate(new RTCIceCandidate(c));
+          // Initiator: apply incoming ICE from receiver — only increment counter when applied
+          if (pc.remoteDescription) {
+            const newRecvIce: RTCIceCandidateInit[] = data.receiverIce.slice(seenRecvIce.current);
+            for (const c of newRecvIce) {
+              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+            }
+            seenRecvIce.current += newRecvIce.length;
           }
-          seenRecvIce.current += newRecvIce.length;
         } else {
-          // Receiver: apply incoming ICE from initiator
-          const newInitIce: RTCIceCandidateInit[] = data.initiatorIce.slice(seenInitIce.current);
-          for (const c of newInitIce) {
-            if (pc.remoteDescription) await pc.addIceCandidate(new RTCIceCandidate(c));
+          // Receiver: apply incoming ICE from initiator — only increment counter when applied
+          if (pc.remoteDescription) {
+            const newInitIce: RTCIceCandidateInit[] = data.initiatorIce.slice(seenInitIce.current);
+            for (const c of newInitIce) {
+              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+            }
+            seenInitIce.current += newInitIce.length;
           }
-          seenInitIce.current += newInitIce.length;
-        }
-
-        // Stop polling once recording or ended
-        if (data.status === "completed" && phase !== "recording") {
-          stopPoll();
         }
       } catch { /* ignore transient errors */ }
-    }, 2500);
+    }, 4000); // 4s interval — much gentler on the DB connection pool
   };
 
   // ── START CALL (initiator) ────────────────────────────────────────────────
@@ -228,6 +241,15 @@ export default function CallRecordingPage() {
       setMyCallCode(data.callCode);
       setPhase("waiting-for-partner");
       startPolling(data.callCode, true);
+
+      // 90 s timeout — if partner never joins, bail out
+      connectTimeoutRef.current = setTimeout(() => {
+        if (pcRef.current && pcRef.current.connectionState !== "connected") {
+          setError("No one joined in time. Share your code and try again.");
+          setPhase("ended");
+          cleanup();
+        }
+      }, 90_000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start call");
       setPhase("idle");
@@ -283,6 +305,15 @@ export default function CallRecordingPage() {
 
       setPhase("connecting");
       startPolling(code, false);
+
+      // 30 s timeout — if peer-to-peer never reaches "connected", bail out
+      connectTimeoutRef.current = setTimeout(() => {
+        if (pcRef.current && pcRef.current.connectionState !== "connected") {
+          setError("Could not connect to the caller. Check your network and try again.");
+          setPhase("ended");
+          cleanup();
+        }
+      }, 30_000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to join call");
       setPhase("idle");
