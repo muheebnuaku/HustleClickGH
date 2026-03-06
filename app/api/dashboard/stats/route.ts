@@ -57,10 +57,11 @@ export async function GET() {
           select: {
             id: true,
             amount: true,
+            paymentMethod: true,
             status: true,
-            createdAt: true,
+            requestedAt: true,
           },
-          orderBy: { createdAt: "desc" },
+          orderBy: { requestedAt: "desc" },
           take: 3,
         }),
       ]);
@@ -82,10 +83,10 @@ export async function GET() {
       ...recentWithdrawals.map((w) => ({
         id: w.id,
         type: "withdrawal" as const,
-        title: "Withdrawal",
+        title: `Withdrawal via ${w.paymentMethod}`,
         amount: w.amount,
         status: w.status as "pending" | "approved" | "rejected",
-        date: new Date(w.createdAt).toLocaleDateString(),
+        date: new Date(w.requestedAt).toLocaleDateString(),
       })),
     ]
       .sort((a, b) => (a.date < b.date ? 1 : -1))
