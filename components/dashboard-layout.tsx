@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { LogOut, LayoutDashboard, User, Wallet, Users, Menu, X, Home, ClipboardList, FileEdit, Database } from "lucide-react";
@@ -87,11 +88,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             {/* Profile Image */}
             <Link href="/profile" className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-full overflow-hidden bg-zinc-100 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700">
-                {profileImage ? (
-                  <img 
-                    src={profileImage} 
-                    alt="Profile" 
+              {profileImage ? (
+                  <Image
+                    src={profileImage}
+                    alt="Profile"
+                    width={36}
+                    height={36}
                     className="w-full h-full object-cover"
+                    unoptimized
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
@@ -148,10 +152,13 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           >
             <div className="w-12 h-12 rounded-full overflow-hidden bg-zinc-200 dark:bg-zinc-700 border-2 border-zinc-300 dark:border-zinc-600">
               {profileImage ? (
-                <img 
-                  src={profileImage} 
-                  alt="Profile" 
+                <Image
+                  src={profileImage}
+                  alt="Profile"
+                  width={48}
+                  height={48}
                   className="w-full h-full object-cover"
+                  unoptimized
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">

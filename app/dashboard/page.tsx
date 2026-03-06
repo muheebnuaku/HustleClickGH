@@ -176,7 +176,7 @@ export default function DashboardPage() {
     },
     {
       title: "Take Surveys",
-      description: `0 available`,
+      description: `${stats.availableSurveys} available`,
       icon: ClipboardList,
       href: "/surveys",
       color: "purple",
