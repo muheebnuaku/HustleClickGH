@@ -2,75 +2,89 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { put } from "@vercel/blob";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 import { nanoid } from "nanoid";
+import type { HandleUploadBody } from "@vercel/blob/client";
 
-const MAX_SIZE_MB = 50;
+// Production: handle the client-side Vercel Blob token exchange
+// The browser calls @vercel/blob/client upload() which sends a JSON body here
+// The file then goes directly from the browser to Vercel Blob CDN
+// ─────────────────────────────────────────────────────────────────────────────
+// Local dev (no BLOB_READ_WRITE_TOKEN): accept FormData, write to public/uploads/
 
-export async function POST(request: Request) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session || !session.user) {
-      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-    }
+export async function POST(request: Request): Promise<NextResponse> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
 
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    const projectId = formData.get("projectId") as string | null;
+  const contentType = request.headers.get("content-type") || "";
 
-    if (!file || !projectId) {
+  if (process.env.BLOB_READ_WRITE_TOKEN && !contentType.includes("multipart/form-data")) {
+    // ── Vercel Blob client upload (production) ────────────────────────────
+    try {
+      const { handleUpload } = await import("@vercel/blob/client");
+      const body = await request.json() as HandleUploadBody;
+
+      const jsonResponse = await handleUpload({
+        body,
+        request,
+        onBeforeGenerateToken: async () => {
+          return {
+            allowedContentTypes: [
+              "audio/mpeg", "audio/wav", "audio/x-m4a", "audio/m4a",
+              "audio/ogg", "audio/webm", "audio/mp4", "audio/aac",
+              "video/mp4", "video/quicktime", "video/webm", "video/3gpp",
+              "image/jpeg", "image/png",
+            ],
+            maximumSizeInBytes: 50 * 1024 * 1024, // 50 MB
+          };
+        },
+        onUploadCompleted: async () => {
+          // Optional post-upload hook — nothing needed here
+        },
+      });
+
+      return NextResponse.json(jsonResponse);
+    } catch (error) {
+      console.error("Blob client upload error:", error);
       return NextResponse.json(
-        { message: "File and projectId are required" },
+        { message: (error as Error).message || "Upload failed" },
         { status: 400 }
       );
+    }
+  }
+
+  // ── Local dev: FormData upload → public/uploads/ ──────────────────────
+  try {
+    const formData = await request.formData();
+    const file = formData.get("file") as File | null;
+    const projectId = (formData.get("projectId") as string | null) || "general";
+
+    if (!file) {
+      return NextResponse.json({ message: "No file provided" }, { status: 400 });
     }
 
     const fileSizeMB = file.size / (1024 * 1024);
-    if (fileSizeMB > MAX_SIZE_MB) {
-      return NextResponse.json(
-        { message: `File exceeds maximum allowed size of ${MAX_SIZE_MB}MB` },
-        { status: 400 }
-      );
+    if (fileSizeMB > 50) {
+      return NextResponse.json({ message: "File exceeds 50MB limit" }, { status: 400 });
     }
 
     const ext = file.name.split(".").pop() || "bin";
     const uniqueName = `${nanoid(12)}.${ext}`;
-
-    let fileUrl: string;
-
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
-      // Production: upload to Vercel Blob
-      const blob = await put(`datasets/${projectId}/${uniqueName}`, file, {
-        access: "public",
-      });
-      fileUrl = blob.url;
-    } else {
-      // Local dev fallback: save to public/uploads/
-      const uploadsDir = path.join(
-        process.cwd(),
-        "public",
-        "uploads",
-        projectId
-      );
-      await mkdir(uploadsDir, { recursive: true });
-      const buffer = Buffer.from(await file.arrayBuffer());
-      await writeFile(path.join(uploadsDir, uniqueName), buffer);
-      fileUrl = `/uploads/${projectId}/${uniqueName}`;
-    }
+    const uploadsDir = path.join(process.cwd(), "public", "uploads", projectId);
+    await mkdir(uploadsDir, { recursive: true });
+    await writeFile(path.join(uploadsDir, uniqueName), Buffer.from(await file.arrayBuffer()));
 
     return NextResponse.json({
-      url: fileUrl,
+      url: `/uploads/${projectId}/${uniqueName}`,
       fileName: file.name,
       fileType: file.type,
       fileSizeMB: parseFloat(fileSizeMB.toFixed(2)),
     });
   } catch (error) {
-    console.error("Upload error:", error);
-    return NextResponse.json(
-      { message: "Upload failed" },
-      { status: 500 }
-    );
+    console.error("Local upload error:", error);
+    return NextResponse.json({ message: "Upload failed" }, { status: 500 });
   }
 }

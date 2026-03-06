@@ -11,6 +11,7 @@ import {
   CheckCircle2, Clock, XCircle, AlertCircle, FileAudio, FileVideo, File
 } from "lucide-react";
 import Link from "next/link";
+import { uploadFile } from "@/lib/upload-file";
 
 interface DataProject {
   id: string;
@@ -125,19 +126,8 @@ export default function DataProjectDetailPage() {
     setMessage("");
 
     try {
-      // Step 1: Upload file
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("projectId", projectId);
-
-      const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
-      const uploadData = await uploadRes.json();
-
-      if (!uploadRes.ok) {
-        setError(uploadData.message || "Upload failed");
-        setUploading(false);
-        return;
-      }
+      // Step 1: Upload file (client-side to Vercel Blob in prod, local FS in dev)
+      const uploadData = await uploadFile(file, projectId);
 
       // Step 2: Submit metadata
       const submitRes = await fetch(`/api/data-projects/${projectId}/submit`, {

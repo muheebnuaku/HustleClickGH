@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { uploadFile } from "@/lib/upload-file";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,7 @@ export default function CallRecordingPage() {
   // ── WebRTC / recording refs ───────────────────────────────────────────────
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const isInitiatorRef = useRef(false);
@@ -109,6 +111,14 @@ export default function CallRecordingPage() {
     pcRef.current = pc;
 
     pc.onicecandidate = (e) => { if (e.candidate) onIceCandidate(e.candidate); };
+
+    // Play the remote audio stream as it arrives
+    pc.ontrack = (e) => {
+      if (e.streams[0] && remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = e.streams[0];
+        remoteAudioRef.current.play().catch(() => {});
+      }
+    };
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") {
@@ -315,14 +325,9 @@ export default function CallRecordingPage() {
     }
 
     try {
-      // Upload
-      const formData = new FormData();
-      formData.append("file", blob, `call-recording-${Date.now()}.${ext}`);
-      formData.append("projectId", projectId);
-
-      const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
-      const uploadData = await uploadRes.json();
-      if (!uploadRes.ok) throw new Error(uploadData.message);
+      // Upload directly to Vercel Blob (prod) or local FS (dev)
+      const recordingName = `call-recording-${Date.now()}.${ext}`;
+      const uploadData = await uploadFile(blob, projectId, recordingName);
 
       // Submit
       const submitRes = await fetch(`/api/data-projects/${projectId}/submit`, {
@@ -368,6 +373,8 @@ export default function CallRecordingPage() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <DashboardLayout>
+      {/* Hidden audio element to play the remote stream */}
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
       <div className="max-w-lg space-y-5">
         <Link href={`/data-projects/${projectId}`} className="inline-flex items-center gap-2 text-sm text-zinc-500 hover:text-foreground">
           <ArrowLeft size={16} />Back to project
