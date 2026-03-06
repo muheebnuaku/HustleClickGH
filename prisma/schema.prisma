@@ -30,10 +30,11 @@ model User {
   updatedAt       DateTime      @updatedAt
   
   // Relations
-  surveyResponses SurveyResponse[]
-  withdrawals     Withdrawal[]
-  referrals       Referral[]      @relation("Referrer")
-  referredUsers   Referral[]      @relation("Referred")
+  surveyResponses  SurveyResponse[]
+  withdrawals      Withdrawal[]
+  referrals        Referral[]       @relation("Referrer")
+  referredUsers    Referral[]       @relation("Referred")
+  dataSubmissions  DataSubmission[]
 }
 
 model Survey {
@@ -111,10 +112,60 @@ model Referral {
   referredId      String
   earned          Float    @default(1.0)
   createdAt       DateTime @default(now())
-  
+
   // Relations
   referrer        User     @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
   referred        User     @relation("Referred", fields: [referredId], references: [id], onDelete: Cascade)
-  
+
   @@unique([referrerId, referredId])
+}
+
+model DataProject {
+  id                 String           @id @default(cuid())
+  title              String
+  description        String
+  projectType        String           // voice | video | face
+  instructions       String           // step-by-step guide for users
+  samplePrompts      String?          // JSON array of prompts/phrases to record
+  reward             Float            // GH₵ per approved submission
+  maxSubmissions     Int
+  currentSubmissions Int              @default(0)
+  status             String           @default("active") // active | paused | completed
+  languages          String?          // JSON array e.g. ["English","Twi","Ga"]
+  minDurationSecs    Int              @default(3)
+  maxDurationSecs    Int              @default(60)
+  maxFileSizeMB      Int              @default(25)
+  acceptedFormats    String           // JSON array e.g. ["mp3","wav","m4a"]
+  expiresAt          DateTime?
+  createdBy          String           // admin userId
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  submissions        DataSubmission[]
+}
+
+model DataSubmission {
+  id              String      @id @default(cuid())
+  projectId       String
+  userId          String
+  fileUrl         String      // Vercel Blob URL or local /uploads/ path in dev
+  fileName        String
+  fileType        String      // MIME type e.g. audio/mpeg
+  fileSizeMB      Float
+  durationSecs    Float?
+  language        String?
+  promptUsed      String?     // Which prompt the user recorded
+  consentGiven    Boolean     @default(false)
+  consentGivenAt  DateTime?
+  status          String      @default("pending") // pending | approved | rejected
+  rewarded        Boolean     @default(false)
+  notes           String?     // Admin rejection notes
+  submittedAt     DateTime    @default(now())
+  reviewedAt      DateTime?
+  reviewedBy      String?
+
+  project         DataProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
 }

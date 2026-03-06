@@ -45,3 +45,6 @@ next-env.d.ts
 # database
 *.db
 *.db-journal
+
+# local dataset uploads (dev only - production uses Vercel Blob)
+/public/uploads/
