@@ -169,3 +169,18 @@ model DataSubmission {
 
   @@unique([projectId, userId])
 }
+
+model CallSession {
+  id              String    @id @default(cuid())
+  callCode        String    @unique  // short code shared between users e.g. "A3KP9XM2"
+  projectId       String
+  initiatorId     String    // user id (cuid) of caller
+  receiverId      String?   // user id of person who joins
+  offer           String?   // JSON: RTCSessionDescription (SDP offer)
+  answer          String?   // JSON: RTCSessionDescription (SDP answer)
+  initiatorIce    String    @default("[]") // JSON array of RTCIceCandidate from initiator
+  receiverIce     String    @default("[]") // JSON array of RTCIceCandidate from receiver
+  status          String    @default("waiting") // waiting | active | completed | failed
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}

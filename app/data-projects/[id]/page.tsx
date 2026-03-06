@@ -93,9 +93,17 @@ export default function DataProjectDetailPage() {
       return;
     }
 
+    // Validate by MIME type first (reliable on mobile), fall back to extension
+    const mimeType = selected.type.toLowerCase();
     const ext = selected.name.split(".").pop()?.toLowerCase() || "";
-    if (!project.acceptedFormats.includes(ext)) {
-      setError(`File format .${ext} is not accepted. Allowed formats: ${project.acceptedFormats.join(", ")}`);
+    const isValidMime =
+      (project.projectType === "voice" && mimeType.startsWith("audio/")) ||
+      (project.projectType === "video" && mimeType.startsWith("video/")) ||
+      (project.projectType === "face" && (mimeType.startsWith("video/") || mimeType.startsWith("image/")));
+    const isValidExt = project.acceptedFormats.includes(ext);
+
+    if (!isValidMime && !isValidExt) {
+      setError(`This file type is not accepted. For ${project.projectType} projects, please upload a ${project.projectType === "voice" ? "audio" : "video or image"} file.`);
       return;
     }
 
@@ -314,6 +322,36 @@ export default function DataProjectDetailPage() {
 
             {/* Upload Form */}
             {project.status === "active" && project.slotsRemaining > 0 ? (
+              <>
+                {/* Live call option — voice projects only */}
+                {project.projectType === "voice" && (
+                  <Card className="p-5 border-blue-100 bg-blue-50/40">
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+                        <Mic size={20} className="text-blue-600" />
+                      </div>
+                      <div className="flex-1">
+                        <h2 className="font-semibold text-foreground mb-0.5">Live Call Recording</h2>
+                        <p className="text-sm text-zinc-500 mb-3">
+                          Connect with another participant in real time. Both sides record automatically during the call.
+                        </p>
+                        <Link href={`/data-projects/${projectId}/call`}>
+                          <Button className="bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">
+                            <Mic size={16} className="mr-2" />Start or Join a Call
+                          </Button>
+                        </Link>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+
+                {project.projectType === "voice" && (
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 border-t border-zinc-200" />
+                    <span className="text-xs text-zinc-400 font-medium">OR upload a pre-recorded file</span>
+                    <div className="flex-1 border-t border-zinc-200" />
+                  </div>
+                )}
               <Card className="p-5">
                 <h2 className="font-semibold mb-4">Upload Your Recording</h2>
 
@@ -355,7 +393,13 @@ export default function DataProjectDetailPage() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept={project.acceptedFormats.map((f) => `.${f}`).join(",")}
+                      accept={
+                        project.projectType === "voice"
+                          ? "audio/*,.mp3,.wav,.m4a,.ogg,.aac,.opus"
+                          : project.projectType === "video"
+                          ? "video/*,.mp4,.mov,.webm,.3gp"
+                          : "video/*,image/jpeg,image/png,.mp4,.mov,.jpg,.png"
+                      }
                       onChange={handleFileChange}
                       className="hidden"
                     />
@@ -428,6 +472,7 @@ export default function DataProjectDetailPage() {
                   </p>
                 </form>
               </Card>
+              </>
             ) : (
               <Card className="p-6 text-center text-zinc-400">
                 <AlertCircle size={32} className="mx-auto mb-2 opacity-40" />
