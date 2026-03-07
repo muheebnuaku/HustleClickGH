@@ -295,8 +295,9 @@ export default function CallRecordingPage() {
       if (!res.ok) { throw new Error("Call not found. Check the code and try again."); }
       const sessionData = await res.json();
       if (!sessionData.offer) throw new Error("Waiting for caller — try again in a moment.");
-      if (sessionData.status === "active") throw new Error("This call is already in progress.");
-      if (sessionData.projectId !== projectId) throw new Error("This call code is for a different project.");
+      if (sessionData.status === "active") throw new Error("This call is already in progress. Ask the caller to restart.");
+      // For data project calls, verify it's the same project
+      if (sessionData.projectId && sessionData.projectId !== projectId) throw new Error("This call code is for a different project.");
 
       const pc = createPC(async (candidate) => {
         await fetch(`/api/calls/${code}`, {

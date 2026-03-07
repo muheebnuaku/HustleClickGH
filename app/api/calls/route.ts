@@ -41,9 +41,9 @@ export async function POST(request: Request) {
         callCode = user.personalCallCode;
       }
       
-      // Delete any existing waiting sessions with this personal code
+      // Delete ALL existing sessions with this personal code (not just waiting)
       await prisma.callSession.deleteMany({
-        where: { callCode, status: "waiting" },
+        where: { callCode },
       });
     } else {
       // Generate a random code for project-specific calls
