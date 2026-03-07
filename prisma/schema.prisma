@@ -26,6 +26,7 @@ model User {
   totalEarned     Float         @default(0)
   referralCode    String        @unique
   referredBy      String?
+  personalCallCode String?      @unique // Permanent 5-char code for voice calls
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   
@@ -172,8 +173,8 @@ model DataSubmission {
 
 model CallSession {
   id              String    @id @default(cuid())
-  callCode        String    @unique  // short code shared between users e.g. "A3KP9XM2"
-  projectId       String
+  callCode        String    @unique  // short code shared between users — personal 5-char or generated
+  projectId       String?   // null for standalone calls, set for data-project calls
   initiatorId     String    // user id (cuid) of caller
   receiverId      String?   // user id of person who joins
   offer           String?   // JSON: RTCSessionDescription (SDP offer)

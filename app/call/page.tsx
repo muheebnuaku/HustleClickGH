@@ -1,0 +1,600 @@
+"use client";
+
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { DashboardLayout } from "@/components/dashboard-layout";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Mic, MicOff, PhoneOff, PhoneCall, Copy, CheckCircle2,
+  Loader2, AlertCircle
+} from "lucide-react";
+
+// ── Types ────────────────────────────────────────────────────────────────────
+type Phase =
+  | "idle"
+  | "requesting-mic"
+  | "creating-offer"
+  | "waiting-for-partner"
+  | "joining"
+  | "connecting"
+  | "recording"
+  | "ended"
+  | "done";
+
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun.cloudflare.com:3478" },
+  // TURN relays — required for mobile carrier NAT (MTN/Vodafone/AirtelTigo)
+  { urls: "turn:openrelay.metered.ca:80",    username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443",   username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:3478",  username: "openrelayproject", credential: "openrelayproject" },
+];
+
+// Best supported audio MIME type for MediaRecorder
+function getSupportedMimeType(): string {
+  const types = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/mp4",
+  ];
+  for (const t of types) {
+    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
+  }
+  return "";
+}
+
+export default function LiveCallPage() {
+  const { status } = useSession();
+  const router = useRouter();
+
+  // ── UI state ──────────────────────────────────────────────────────────────
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [myCallCode, setMyCallCode] = useState("");
+  const [partnerCodeInput, setPartnerCodeInput] = useState("");
+  const [timer, setTimer] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [personalCallCode, setPersonalCallCode] = useState("");
+
+  // ── WebRTC / recording refs ───────────────────────────────────────────────
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const isInitiatorRef = useRef(false);
+  const callCodeRef = useRef("");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seenInitIce = useRef(0);
+  const seenRecvIce = useRef(0);
+  const alreadySetAnswer = useRef(false);
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
+  const clearConnectTimeout = () => { if (connectTimeoutRef.current) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null; } };
+
+  const cleanup = useCallback(() => {
+    stopPoll();
+    stopTimer();
+    clearConnectTimeout();
+    if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
+    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
+  }, []);
+
+  useEffect(() => () => cleanup(), [cleanup]);
+
+  // ── Redirect if not authenticated ─────────────────────────────────────────
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/login");
+    }
+  }, [status, router]);
+
+  // ── Fetch user's personal call code ───────────────────────────────────────
+  useEffect(() => {
+    if (status === "authenticated") {
+      fetch("/api/profile")
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.user?.personalCallCode) {
+            setPersonalCallCode(d.user.personalCallCode);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [status]);
+
+  // ── Get microphone ────────────────────────────────────────────────────────
+  const getMic = async (): Promise<MediaStream> => {
+    setPhase("requesting-mic");
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    streamRef.current = stream;
+    return stream;
+  };
+
+  // ── Create RTCPeerConnection ──────────────────────────────────────────────
+  const createPC = (onIceCandidate: (c: RTCIceCandidate) => void): RTCPeerConnection => {
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    pcRef.current = pc;
+
+    pc.onicecandidate = (e) => { if (e.candidate) onIceCandidate(e.candidate); };
+
+    // Play the remote audio stream as it arrives
+    pc.ontrack = (e) => {
+      if (e.streams[0] && remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = e.streams[0];
+        remoteAudioRef.current.play().catch(() => {});
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "connected") {
+        stopPoll(); // no more DB polling needed once peer-to-peer is up
+        clearConnectTimeout();
+        startRecording();
+      }
+      if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+        clearConnectTimeout();
+        setError("Connection lost. Please try again.");
+        setPhase("ended");
+        stopPoll();
+      }
+    };
+
+    return pc;
+  };
+
+  // ── Start MediaRecorder ───────────────────────────────────────────────────
+  const startRecording = () => {
+    if (!streamRef.current) return;
+    setPhase("recording");
+
+    const mimeType = getSupportedMimeType();
+    const recorder = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : undefined);
+    recorderRef.current = recorder;
+    chunksRef.current = [];
+
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+    recorder.start(1000); // collect chunks every second
+
+    // Start timer
+    setTimer(0);
+    timerRef.current = setInterval(() => setTimer((t) => t + 1), 1000);
+  };
+
+  // ── Poll for signaling updates ────────────────────────────────────────────
+  const startPolling = (code: string, asInitiator: boolean) => {
+    pollRef.current = setInterval(async () => {
+      // If WebRTC is already up, polling is no longer needed
+      if (!pollRef.current) return;
+
+      try {
+        const res = await fetch(`/api/calls/${code}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        const pc = pcRef.current;
+        if (!pc) return;
+
+        if (asInitiator) {
+          // Initiator: wait for answer
+          if (data.answer && !alreadySetAnswer.current && pc.signalingState === "have-local-offer") {
+            alreadySetAnswer.current = true;
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            setPhase("connecting");
+          }
+          // Initiator: apply incoming ICE from receiver — only increment counter when applied
+          if (pc.remoteDescription) {
+            const newRecvIce: RTCIceCandidateInit[] = data.receiverIce.slice(seenRecvIce.current);
+            for (const c of newRecvIce) {
+              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+            }
+            seenRecvIce.current += newRecvIce.length;
+          }
+        } else {
+          // Receiver: apply incoming ICE from initiator — only increment counter when applied
+          if (pc.remoteDescription) {
+            const newInitIce: RTCIceCandidateInit[] = data.initiatorIce.slice(seenInitIce.current);
+            for (const c of newInitIce) {
+              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+            }
+            seenInitIce.current += newInitIce.length;
+          }
+        }
+      } catch { /* ignore transient errors */ }
+    }, 4000); // 4s interval — much gentler on the DB connection pool
+  };
+
+  // ── START CALL (initiator) using personal code ────────────────────────────
+  const handleStartCall = async () => {
+    if (!personalCallCode) {
+      setError("Your personal call code is not available. Please refresh the page.");
+      return;
+    }
+
+    setError("");
+    try {
+      const stream = await getMic();
+      setPhase("creating-offer");
+      isInitiatorRef.current = true;
+
+      const pc = createPC(async (candidate) => {
+        if (callCodeRef.current) {
+          await fetch(`/api/calls/${callCodeRef.current}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "ice-initiator", candidate }),
+          });
+        }
+      });
+
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // Use personal call code instead of random generated code
+      const res = await fetch("/api/calls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ offer, usePersonalCode: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+
+      callCodeRef.current = data.callCode;
+      setMyCallCode(data.callCode);
+      setPhase("waiting-for-partner");
+      startPolling(data.callCode, true);
+
+      // 90 s timeout — if partner never joins, bail out
+      connectTimeoutRef.current = setTimeout(() => {
+        if (pcRef.current && pcRef.current.connectionState !== "connected") {
+          setError("No one joined in time. Share your code and try again.");
+          setPhase("ended");
+          cleanup();
+        }
+      }, 90_000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start call");
+      setPhase("idle");
+      cleanup();
+    }
+  };
+
+  // ── JOIN CALL (receiver) ──────────────────────────────────────────────────
+  const handleJoinCall = async () => {
+    const code = partnerCodeInput.trim().toUpperCase();
+    if (!code || code.length < 5) { setError("Enter a valid 5-character call code"); return; }
+    setError("");
+
+    try {
+      const stream = await getMic();
+      setPhase("joining");
+      isInitiatorRef.current = false;
+      callCodeRef.current = code;
+
+      // Fetch the session to get the offer
+      const res = await fetch(`/api/calls/${code}`);
+      if (!res.ok) { throw new Error("Call not found. Check the code and try again."); }
+      const sessionData = await res.json();
+      if (!sessionData.offer) throw new Error("Waiting for caller — try again in a moment.");
+      if (sessionData.status === "active") throw new Error("This call is already in progress.");
+
+      const pc = createPC(async (candidate) => {
+        await fetch(`/api/calls/${code}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "ice-receiver", candidate }),
+        });
+      });
+
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+      await pc.setRemoteDescription(new RTCSessionDescription(sessionData.offer));
+
+      // Apply any ICE candidates already received from initiator
+      const initIce: RTCIceCandidateInit[] = sessionData.initiatorIce;
+      for (const c of initIce) await pc.addIceCandidate(new RTCIceCandidate(c));
+      seenInitIce.current = initIce.length;
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      await fetch(`/api/calls/${code}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "answer", answer }),
+      });
+
+      setPhase("connecting");
+      startPolling(code, false);
+
+      // 30 s timeout — if peer-to-peer never reaches "connected", bail out
+      connectTimeoutRef.current = setTimeout(() => {
+        if (pcRef.current && pcRef.current.connectionState !== "connected") {
+          setError("Could not connect to the caller. Check your network and try again.");
+          setPhase("ended");
+          cleanup();
+        }
+      }, 30_000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to join call");
+      setPhase("idle");
+      cleanup();
+    }
+  };
+
+  // ── HANG UP ───────────────────────────────────────────────────────────────
+  const handleHangUp = () => {
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      recorderRef.current.onstop = handleRecordingDone;
+      recorderRef.current.stop();
+    } else {
+      setPhase("ended");
+    }
+    stopPoll();
+    stopTimer();
+    if (callCodeRef.current) {
+      fetch(`/api/calls/${callCodeRef.current}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "status", status: "completed" }),
+      }).catch(() => {});
+    }
+    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
+  };
+
+  // ── Recording done — just mark as done (no submission for standalone calls) ──
+  const handleRecordingDone = () => {
+    setPhase("done");
+  };
+
+  const toggleMute = () => {
+    if (!streamRef.current) return;
+    streamRef.current.getAudioTracks().forEach((t) => { t.enabled = !t.enabled; });
+    setIsMuted((m) => !m);
+  };
+
+  const copyCode = () => {
+    const codeToCopy = myCallCode || personalCallCode;
+    navigator.clipboard.writeText(codeToCopy).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const formatTime = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+  if (status === "loading") {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  return (
+    <DashboardLayout>
+      {/* Hidden audio element to play the remote stream */}
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+      <div className="max-w-lg mx-auto space-y-5">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Live Voice Call</h1>
+          <p className="text-sm text-zinc-500 mt-0.5">Connect with anyone using your personal call code</p>
+        </div>
+
+        {/* Personal Call Code Display */}
+        {personalCallCode && phase === "idle" && (
+          <Card className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-blue-200 dark:border-blue-800">
+            <div className="text-center">
+              <p className="text-xs text-zinc-500 mb-1 uppercase tracking-wide">Your Personal Call Code</p>
+              <div className="inline-flex items-center gap-2">
+                <span className="text-2xl font-bold tracking-[0.3em] font-mono text-foreground">
+                  {personalCallCode}
+                </span>
+                <button onClick={copyCode} className="text-zinc-400 hover:text-blue-600 transition-colors">
+                  {copied ? <CheckCircle2 size={18} className="text-green-500" /> : <Copy size={18} />}
+                </button>
+              </div>
+              <p className="text-xs text-zinc-500 mt-1">Share this code with people to let them call you</p>
+            </div>
+          </Card>
+        )}
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm flex gap-2">
+            <AlertCircle size={16} className="mt-0.5 shrink-0" />{error}
+          </div>
+        )}
+
+        {/* ── IDLE: entry screen ── */}
+        {phase === "idle" && (
+          <div className="space-y-4">
+            <Card className="p-5 bg-blue-50 border-blue-100 dark:bg-blue-900/20 dark:border-blue-800">
+              <h2 className="font-semibold mb-2">How it works</h2>
+              <ol className="text-sm text-zinc-600 dark:text-zinc-400 space-y-1.5 list-decimal list-inside">
+                <li>Share your <strong>5-character code</strong> with someone</li>
+                <li>Click <strong>Start Call</strong> to begin waiting</li>
+                <li>Your partner enters your code and clicks <strong>Join</strong></li>
+                <li>Both sides connect — audio records automatically</li>
+                <li>Click <strong>Hang Up</strong> when done</li>
+              </ol>
+            </Card>
+
+            <Card className="p-5">
+              <h2 className="font-semibold mb-4">Start a call</h2>
+              <Button onClick={handleStartCall} className="w-full bg-green-600 hover:bg-green-700 text-white">
+                <PhoneCall size={18} className="mr-2" />Start Call — Wait for Partner
+              </Button>
+            </Card>
+
+            <Card className="p-5">
+              <h2 className="font-semibold mb-3">Join someone&apos;s call</h2>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Enter 5-char code"
+                  value={partnerCodeInput}
+                  onChange={(e) => setPartnerCodeInput(e.target.value.toUpperCase())}
+                  className="flex-1 tracking-widest font-mono uppercase text-center"
+                  maxLength={5}
+                  onKeyDown={(e) => e.key === "Enter" && handleJoinCall()}
+                />
+                <Button onClick={handleJoinCall} className="bg-blue-600 hover:bg-blue-700 text-white">
+                  Join
+                </Button>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* ── REQUESTING MIC ── */}
+        {phase === "requesting-mic" && (
+          <Card className="p-8 text-center">
+            <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
+            <p className="font-medium">Requesting microphone access...</p>
+            <p className="text-sm text-zinc-400 mt-1">Please allow microphone access when prompted</p>
+          </Card>
+        )}
+
+        {/* ── CREATING OFFER ── */}
+        {phase === "creating-offer" && (
+          <Card className="p-8 text-center">
+            <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
+            <p className="font-medium">Setting up call...</p>
+          </Card>
+        )}
+
+        {/* ── WAITING FOR PARTNER ── */}
+        {phase === "waiting-for-partner" && (
+          <Card className="p-6 text-center space-y-4">
+            <div className="flex items-center justify-center gap-2 text-green-600">
+              <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
+              <span className="font-medium">Waiting for your partner...</span>
+            </div>
+
+            <div>
+              <p className="text-xs text-zinc-400 mb-2 uppercase tracking-wide">Your call code</p>
+              <div className="inline-flex items-center gap-3 bg-zinc-50 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700 rounded-xl px-6 py-3">
+                <span className="text-3xl font-bold tracking-[0.3em] font-mono text-foreground">
+                  {myCallCode}
+                </span>
+                <button onClick={copyCode} className="text-zinc-400 hover:text-blue-600 transition-colors">
+                  {copied ? <CheckCircle2 size={20} className="text-green-500" /> : <Copy size={20} />}
+                </button>
+              </div>
+              <p className="text-xs text-zinc-400 mt-2">Share this code with your partner to connect</p>
+            </div>
+
+            <Button
+              onClick={handleHangUp}
+              variant="outline"
+              className="border-red-200 text-red-500 hover:bg-red-50"
+            >
+              Cancel
+            </Button>
+          </Card>
+        )}
+
+        {/* ── JOINING ── */}
+        {(phase === "joining") && (
+          <Card className="p-8 text-center">
+            <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
+            <p className="font-medium">Joining call...</p>
+          </Card>
+        )}
+
+        {/* ── CONNECTING ── */}
+        {phase === "connecting" && (
+          <Card className="p-8 text-center">
+            <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
+            <p className="font-medium">Connecting...</p>
+            <p className="text-sm text-zinc-400 mt-1">Establishing peer-to-peer connection</p>
+          </Card>
+        )}
+
+        {/* ── RECORDING ── */}
+        {phase === "recording" && (
+          <Card className="p-6 space-y-5">
+            {/* Recording indicator */}
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-3 mb-2">
+                <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+                <span className="font-bold text-red-600 text-lg">LIVE CALL</span>
+              </div>
+              <p className="text-4xl font-mono font-bold text-foreground">{formatTime(timer)}</p>
+              <p className="text-xs text-zinc-400 mt-1">Call in progress</p>
+            </div>
+
+            {/* Audio bars animation */}
+            <div className="flex items-end justify-center gap-1 h-12">
+              {[...Array(12)].map((_, i) => (
+                <div
+                  key={i}
+                  className="w-2 bg-blue-500 rounded-full opacity-80 animate-pulse"
+                  style={{
+                    height: `${20 + Math.random() * 60}%`,
+                    animationDelay: `${i * 0.1}s`,
+                  }}
+                />
+              ))}
+            </div>
+
+            {/* Controls */}
+            <div className="flex justify-center gap-4">
+              <Button
+                onClick={toggleMute}
+                variant="outline"
+                className={`rounded-full w-14 h-14 p-0 ${isMuted ? "bg-red-100 border-red-300" : ""}`}
+              >
+                {isMuted ? <MicOff className="text-red-600" size={24} /> : <Mic className="text-foreground" size={24} />}
+              </Button>
+              <Button
+                onClick={handleHangUp}
+                className="rounded-full w-14 h-14 p-0 bg-red-600 hover:bg-red-700"
+              >
+                <PhoneOff className="text-white" size={24} />
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* ── ENDED / DONE ── */}
+        {(phase === "ended" || phase === "done") && (
+          <Card className="p-6 text-center space-y-4">
+            {phase === "done" ? (
+              <>
+                <CheckCircle2 size={48} className="mx-auto text-green-500" />
+                <h2 className="font-bold text-lg text-foreground">Call Ended</h2>
+                <p className="text-sm text-zinc-500">Your call has been completed.</p>
+              </>
+            ) : (
+              <>
+                <AlertCircle size={48} className="mx-auto text-orange-500" />
+                <h2 className="font-bold text-lg text-foreground">Call Ended</h2>
+                <p className="text-sm text-zinc-500">{error || "The call has ended."}</p>
+              </>
+            )}
+            <Button onClick={() => { setPhase("idle"); setError(""); setMyCallCode(""); alreadySetAnswer.current = false; seenInitIce.current = 0; seenRecvIce.current = 0; }} className="w-full">
+              Start New Call
+            </Button>
+          </Card>
+        )}
+      </div>
+    </DashboardLayout>
+  );
+}

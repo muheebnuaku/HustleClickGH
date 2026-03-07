@@ -14,23 +14,53 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { projectId, offer } = body;
+    const { projectId, offer, usePersonalCode } = body;
 
-    if (!projectId || !offer) {
-      return NextResponse.json({ message: "projectId and offer are required" }, { status: 400 });
+    if (!offer) {
+      return NextResponse.json({ message: "offer is required" }, { status: 400 });
     }
 
-    // Clean up any previous waiting sessions from this user for this project
-    await prisma.callSession.deleteMany({
-      where: { initiatorId: session.user.id, projectId, status: "waiting" },
-    });
-
-    const callCode = nanoid(8).toUpperCase();
+    // Determine the call code to use
+    let callCode: string;
+    
+    if (usePersonalCode) {
+      // Use user's personal call code
+      const user = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { personalCallCode: true },
+      });
+      
+      if (!user?.personalCallCode) {
+        // Generate one if it doesn't exist
+        callCode = nanoid(5).toUpperCase();
+        await prisma.user.update({
+          where: { id: session.user.id },
+          data: { personalCallCode: callCode },
+        });
+      } else {
+        callCode = user.personalCallCode;
+      }
+      
+      // Delete any existing waiting sessions with this personal code
+      await prisma.callSession.deleteMany({
+        where: { callCode, status: "waiting" },
+      });
+    } else {
+      // Generate a random code for project-specific calls
+      callCode = nanoid(8).toUpperCase();
+      
+      if (projectId) {
+        // Clean up any previous waiting sessions from this user for this project
+        await prisma.callSession.deleteMany({
+          where: { initiatorId: session.user.id, projectId, status: "waiting" },
+        });
+      }
+    }
 
     const callSession = await prisma.callSession.create({
       data: {
         callCode,
-        projectId,
+        projectId: projectId || null,
         initiatorId: session.user.id,
         offer: JSON.stringify(offer),
         status: "waiting",

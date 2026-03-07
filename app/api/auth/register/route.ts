@@ -12,6 +12,16 @@ function generateReferralCode(): string {
   return Math.random().toString(36).substr(2, 8).toUpperCase();
 }
 
+function generatePersonalCallCode(): string {
+  // Generate a unique 5-character alphanumeric code (letters + digits, easy to share verbally)
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excluding confusing chars: 0, O, I, 1
+  let code = '';
+  for (let i = 0; i < 5; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -43,6 +53,7 @@ export async function POST(request: Request) {
     // Generate unique user ID and referral code
     const userId = generateUserId();
     const referralCode = generateReferralCode();
+    const personalCallCode = generatePersonalCallCode();
 
     // Handle referral
     let referredBy = null;
@@ -64,6 +75,7 @@ export async function POST(request: Request) {
         phone,
         password: hashedPassword,
         referralCode,
+        personalCallCode,
         referredBy,
         role: "user",
       },

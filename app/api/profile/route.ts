@@ -27,6 +27,7 @@ export async function GET() {
         balance: true,
         totalEarned: true,
         referralCode: true,
+        personalCallCode: true,
         createdAt: true,
       },
     });

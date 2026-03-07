@@ -52,7 +52,13 @@ export async function POST(
     // Validate file format
     const acceptedFormats: string[] = JSON.parse(project.acceptedFormats);
     const fileExt = fileName.split(".").pop()?.toLowerCase() || "";
-    if (!acceptedFormats.includes(fileExt)) {
+    
+    // Always accept webm for voice projects (browser recordings use webm)
+    const isVoiceProject = project.projectType === "voice";
+    const isWebmFile = fileExt === "webm";
+    const isCallRecording = promptUsed?.toLowerCase().includes("call recording") || promptUsed?.toLowerCase().includes("live call");
+    
+    if (!acceptedFormats.includes(fileExt) && !(isVoiceProject && isWebmFile) && !isCallRecording) {
       return NextResponse.json(
         { message: `File format .${fileExt} is not accepted. Allowed: ${acceptedFormats.join(", ")}` },
         { status: 400 }

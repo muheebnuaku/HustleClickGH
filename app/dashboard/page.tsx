@@ -9,15 +9,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import {
-  Wallet,
   ClipboardList,
   Users,
   ChevronRight,
   ArrowDownRight,
   Target,
-  Sparkles,
   RefreshCw,
   PlusCircle,
+  Database,
 } from "lucide-react";
 
 interface DashboardStats {
@@ -182,10 +181,10 @@ export default function DashboardPage() {
       color: "purple",
     },
     {
-      title: "Withdraw",
-      description: "Cash out earnings",
-      icon: Wallet,
-      href: "/income",
+      title: "Data Projects",
+      description: "Earn by recording",
+      icon: Database,
+      href: "/data-projects",
       color: "green",
     },
   ];
@@ -366,26 +365,6 @@ export default function DashboardPage() {
             </Card>
           )}
         </div>
-
-        {/* Tips Card */}
-        <Card className="bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 border-yellow-200 dark:border-yellow-800">
-          <CardContent className="p-6">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 bg-yellow-100 dark:bg-yellow-900/50 rounded-full flex items-center justify-center flex-shrink-0">
-                <Sparkles className="text-yellow-600 dark:text-yellow-400" size={24} />
-              </div>
-              <div>
-                <h3 className="font-bold text-foreground mb-2">Pro Tips to Earn More</h3>
-                <ul className="text-sm text-zinc-600 dark:text-zinc-400 space-y-1">
-                  <li>• Check for new surveys daily - they go fast!</li>
-                  <li>• Refer friends and earn 10% of their earnings</li>
-                  <li>• Complete your profile to unlock premium surveys</li>
-                  <li>• Withdraw your earnings when you reach GH₵10</li>
-                </ul>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </DashboardLayout>
   );
