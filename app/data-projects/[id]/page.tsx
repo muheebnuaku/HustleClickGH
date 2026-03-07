@@ -254,31 +254,35 @@ export default function DataProjectDetailPage() {
                 }`}>
                   {userSubmission.status === "pending" ? "Under review — your submission is being checked by our team" :
                    userSubmission.status === "approved" ? `Approved! ${formatCurrency(project.reward)} has been credited to your balance` :
-                   "Rejected — see notes below"}
+                   "Rejected — you can record and submit again"}
                 </p>
                 {userSubmission.notes && (
                   <p className="text-xs text-red-600 mt-1">Reason: {userSubmission.notes}</p>
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-3 text-sm text-zinc-500">
-              {getFileIcon(userSubmission.fileType)}
-              <div>
-                <p className="font-medium text-foreground">{userSubmission.fileName}</p>
-                <p className="text-xs">{formatFileSize(userSubmission.fileSizeMB)} · Submitted {formatDate(userSubmission.submittedAt)}</p>
-              </div>
-            </div>
-            {userSubmission.fileType.startsWith("audio") && (
-              <audio controls src={userSubmission.fileUrl} className="mt-3 w-full h-10" />
-            )}
-            {userSubmission.fileType.startsWith("video") && (
-              <video controls src={userSubmission.fileUrl} className="mt-3 rounded-lg max-h-48 bg-black" />
+            {userSubmission.status !== "rejected" && (
+              <>
+                <div className="flex items-center gap-3 text-sm text-zinc-500">
+                  {getFileIcon(userSubmission.fileType)}
+                  <div>
+                    <p className="font-medium text-foreground">{userSubmission.fileName}</p>
+                    <p className="text-xs">{formatFileSize(userSubmission.fileSizeMB)} · Submitted {formatDate(userSubmission.submittedAt)}</p>
+                  </div>
+                </div>
+                {userSubmission.fileType.startsWith("audio") && (
+                  <audio controls src={userSubmission.fileUrl} className="mt-3 w-full h-10" />
+                )}
+                {userSubmission.fileType.startsWith("video") && (
+                  <video controls src={userSubmission.fileUrl} className="mt-3 rounded-lg max-h-48 bg-black" />
+                )}
+              </>
             )}
           </Card>
         )}
 
-        {/* Instructions */}
-        {!userSubmission && (
+        {/* Instructions - show if no submission OR if submission was rejected */}
+        {(!userSubmission || userSubmission.status === "rejected") && (
           <>
             <Card className="p-5">
               <h2 className="font-semibold mb-3">Recording Instructions</h2>

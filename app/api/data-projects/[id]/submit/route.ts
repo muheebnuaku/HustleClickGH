@@ -78,10 +78,18 @@ export async function POST(
       where: { projectId_userId: { projectId, userId } },
     });
     if (existing) {
-      return NextResponse.json(
-        { message: "You have already submitted to this project" },
-        { status: 400 }
-      );
+      // Allow re-submission if the previous one was rejected
+      if (existing.status === "rejected") {
+        // Delete the old rejected submission to allow a fresh one
+        await prisma.dataSubmission.delete({
+          where: { id: existing.id },
+        });
+      } else {
+        return NextResponse.json(
+          { message: "You have already submitted to this project" },
+          { status: 400 }
+        );
+      }
     }
 
     const submission = await prisma.dataSubmission.create({

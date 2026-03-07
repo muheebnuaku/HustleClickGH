@@ -75,9 +75,12 @@ export default function CallRecordingPage() {
   // ── WebRTC / recording refs ───────────────────────────────────────────────
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const mixedStreamRef = useRef<MediaStream | null>(null);
   const isInitiatorRef = useRef(false);
   const callCodeRef = useRef("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -98,6 +101,9 @@ export default function CallRecordingPage() {
     clearConnectTimeout();
     if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    if (remoteStreamRef.current) remoteStreamRef.current.getTracks().forEach((t) => t.stop());
+    if (mixedStreamRef.current) mixedStreamRef.current.getTracks().forEach((t) => t.stop());
+    if (audioContextRef.current) { audioContextRef.current.close(); audioContextRef.current = null; }
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
   }, []);
 
@@ -147,11 +153,14 @@ export default function CallRecordingPage() {
 
     pc.onicecandidate = (e) => { if (e.candidate) onIceCandidate(e.candidate); };
 
-    // Play the remote audio stream as it arrives
+    // Capture and play the remote audio stream as it arrives
     pc.ontrack = (e) => {
-      if (e.streams[0] && remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = e.streams[0];
-        remoteAudioRef.current.play().catch(() => {});
+      if (e.streams[0]) {
+        remoteStreamRef.current = e.streams[0];
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = e.streams[0];
+          remoteAudioRef.current.play().catch(() => {});
+        }
       }
     };
 
@@ -172,13 +181,34 @@ export default function CallRecordingPage() {
     return pc;
   };
 
-  // ── Start MediaRecorder ───────────────────────────────────────────────────
+  // ── Start MediaRecorder (mixes both local and remote audio) ───────────────
   const startRecording = () => {
     if (!streamRef.current) return;
     setPhase("recording");
 
+    // Create AudioContext to mix local and remote audio streams
+    const audioContext = new AudioContext();
+    audioContextRef.current = audioContext;
+
+    // Create a destination for the mixed output
+    const destination = audioContext.createMediaStreamDestination();
+
+    // Connect local microphone to the mixer
+    const localSource = audioContext.createMediaStreamSource(streamRef.current);
+    localSource.connect(destination);
+
+    // Connect remote audio to the mixer (if available)
+    if (remoteStreamRef.current) {
+      const remoteSource = audioContext.createMediaStreamSource(remoteStreamRef.current);
+      remoteSource.connect(destination);
+    }
+
+    // The mixed stream contains both local and remote audio
+    const mixedStream = destination.stream;
+    mixedStreamRef.current = mixedStream;
+
     const mimeType = getSupportedMimeType();
-    const recorder = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : undefined);
+    const recorder = new MediaRecorder(mixedStream, mimeType ? { mimeType } : undefined);
     recorderRef.current = recorder;
     chunksRef.current = [];
 
