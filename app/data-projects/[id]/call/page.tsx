@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { uploadFile } from "@/lib/upload-file";
 import { DashboardLayout } from "@/components/dashboard-layout";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Mic, MicOff, PhoneOff, PhoneCall, Copy, CheckCircle2,
-  Loader2, AlertCircle, ArrowLeft, Radio
+  Loader2, AlertCircle, ArrowLeft, Radio, User
 } from "lucide-react";
 import Link from "next/link";
 
@@ -19,13 +19,14 @@ type Phase =
   | "idle"
   | "requesting-mic"
   | "creating-offer"
-  | "waiting-for-partner"
+  | "calling"        // caller is waiting for receiver to accept
   | "joining"
   | "connecting"
   | "recording"
   | "ended"
   | "submitting"
-  | "done";
+  | "done"
+  | "declined";      // receiver declined the call
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -54,13 +55,16 @@ function getSupportedMimeType(): string {
 
 export default function CallRecordingPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const projectId = params.id as string;
+  const joinCode = searchParams.get("join"); // For incoming call acceptance
   const { status } = useSession();
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [phase, setPhase] = useState<Phase>("idle");
   const [myCallCode, setMyCallCode] = useState("");
-  const [partnerCodeInput, setPartnerCodeInput] = useState("");
+  const [targetCodeInput, setTargetCodeInput] = useState("");
+  const [targetUserName, setTargetUserName] = useState("");
   const [timer, setTimer] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [error, setError] = useState("");
@@ -119,6 +123,14 @@ export default function CallRecordingPage() {
         .catch(() => {});
     }
   }, [status]);
+
+  // ── Auto-join if redirected from incoming call acceptance ─────────────────
+  useEffect(() => {
+    if (joinCode && status === "authenticated" && phase === "idle") {
+      handleJoinCall(joinCode);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinCode, status, phase]);
 
   // ── Get microphone ────────────────────────────────────────────────────────
   const getMic = async (): Promise<MediaStream> => {
@@ -221,10 +233,11 @@ export default function CallRecordingPage() {
     }, 4000); // 4s interval — much gentler on the DB connection pool
   };
 
-  // ── START CALL (initiator) ────────────────────────────────────────────────
+  // ── START CALL (initiator/caller - dialer mode) ────────────────────────────
   const handleStartCall = async () => {
-    if (!personalCallCode) {
-      setError("Your personal call code is not available. Please refresh the page.");
+    const targetCode = targetCodeInput.trim().toUpperCase();
+    if (!targetCode || targetCode.length < 5) {
+      setError("Enter a valid 5-character call code");
       return;
     }
 
@@ -249,28 +262,29 @@ export default function CallRecordingPage() {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // Use personal call code with project ID for data submissions
+      // Call the target user by their personal code
       const res = await fetch("/api/calls", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, offer, usePersonalCode: true }),
+        body: JSON.stringify({ projectId, offer, targetUserCode: targetCode }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
 
       callCodeRef.current = data.callCode;
       setMyCallCode(data.callCode);
-      setPhase("waiting-for-partner");
-      startPolling(data.callCode, true);
+      setTargetUserName(data.targetUserName || "Unknown");
+      setPhase("calling");
+      startCallingPoll(data.callCode);
 
-      // 90 s timeout — if partner never joins, bail out
+      // 60s timeout — if receiver never accepts, bail out
       connectTimeoutRef.current = setTimeout(() => {
         if (pcRef.current && pcRef.current.connectionState !== "connected") {
-          setError("No one joined in time. Share your code and try again.");
+          setError("No answer. The person may be unavailable.");
           setPhase("ended");
           cleanup();
         }
-      }, 90_000);
+      }, 60_000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start call");
       setPhase("idle");
@@ -278,10 +292,42 @@ export default function CallRecordingPage() {
     }
   };
 
-  // ── JOIN CALL (receiver) ──────────────────────────────────────────────────
-  const handleJoinCall = async () => {
-    const code = partnerCodeInput.trim().toUpperCase();
-    if (!code || code.length < 5) { setError("Enter a valid 5-character call code"); return; }
+  // ── Poll while calling (waiting for receiver to accept/decline) ───────────
+  const startCallingPoll = (code: string) => {
+    pollRef.current = setInterval(async () => {
+      if (!pollRef.current) return;
+
+      try {
+        const res = await fetch(`/api/calls/${code}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Check if receiver declined
+        if (data.status === "declined") {
+          setPhase("declined");
+          cleanup();
+          return;
+        }
+
+        // Check if receiver accepted and provided answer
+        if (data.status === "active" || data.answer) {
+          // Switch to regular polling for ICE candidates
+          stopPoll();
+          if (pcRef.current && !alreadySetAnswer.current) {
+            alreadySetAnswer.current = true;
+            await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+            setPhase("connecting");
+            startPolling(code, true);
+          }
+        }
+      } catch { /* ignore */ }
+    }, 2000);
+  };
+
+  // ── JOIN CALL (receiver - either from dialer input or incoming call) ───────
+  const handleJoinCall = async (codeOverride?: string) => {
+    const code = (codeOverride || targetCodeInput).trim().toUpperCase();
+    if (!code || code.length < 5) { setError("Enter a valid call code"); return; }
     setError("");
 
     try {
@@ -294,10 +340,10 @@ export default function CallRecordingPage() {
       const res = await fetch(`/api/calls/${code}`);
       if (!res.ok) { throw new Error("Call not found. Check the code and try again."); }
       const sessionData = await res.json();
-      if (!sessionData.offer) throw new Error("Waiting for caller — try again in a moment.");
-      if (sessionData.status === "active") throw new Error("This call is already in progress. Ask the caller to restart.");
-      // For data project calls, verify it's the same project
-      if (sessionData.projectId && sessionData.projectId !== projectId) throw new Error("This call code is for a different project.");
+      if (!sessionData.offer) throw new Error("Call setup incomplete — try again in a moment.");
+      if (sessionData.status === "active") throw new Error("This call is already in progress.");
+      if (sessionData.status === "completed") throw new Error("This call has ended.");
+      if (sessionData.status === "declined") throw new Error("This call was declined.");
 
       const pc = createPC(async (candidate) => {
         await fetch(`/api/calls/${code}`, {
@@ -445,7 +491,7 @@ export default function CallRecordingPage() {
           </div>
         )}
 
-        {/* ── IDLE: entry screen ── */}
+        {/* ── IDLE: entry screen (Dialer UI) ── */}
         {phase === "idle" && (
           <div className="space-y-4">
             {/* Personal Call Code Display */}
@@ -461,42 +507,46 @@ export default function CallRecordingPage() {
                       {copied ? <CheckCircle2 size={18} className="text-green-500" /> : <Copy size={18} />}
                     </button>
                   </div>
-                  <p className="text-xs text-zinc-500 mt-1">Share this code with your call partner</p>
+                  <p className="text-xs text-zinc-500 mt-1">Share this with others so they can call you</p>
                 </div>
               </Card>
             )}
 
             <Card className="p-5 bg-blue-50 border-blue-100 dark:bg-blue-900/20 dark:border-blue-800">
-              <h2 className="font-semibold mb-2">How it works</h2>
+              <h2 className="font-semibold mb-2">How the Dialer Works</h2>
               <ol className="text-sm text-zinc-600 dark:text-zinc-400 space-y-1.5 list-decimal list-inside">
-                <li>Share your <strong>5-character code</strong> with your partner</li>
-                <li>Click <strong>Start Call</strong> to begin waiting</li>
-                <li>Partner enters your code and clicks <strong>Join</strong></li>
-                <li>Both sides connect — audio records automatically</li>
-                <li>Click <strong>Hang Up</strong> when done — recording submits itself</li>
+                <li>Get the <strong>5-character code</strong> of the person you want to call</li>
+                <li>Enter their code below and click <strong>Call</strong></li>
+                <li>They&apos;ll see an incoming call notification</li>
+                <li>When they accept, you&apos;ll be connected</li>
+                <li>Recording starts automatically — click <strong>Hang Up</strong> to finish</li>
               </ol>
             </Card>
 
             <Card className="p-5">
-              <h2 className="font-semibold mb-4">Start a call</h2>
-              <Button onClick={handleStartCall} className="w-full bg-green-600 hover:bg-green-700 text-white">
-                <PhoneCall size={18} className="mr-2" />Start Call — Wait for Partner
-              </Button>
-            </Card>
-
-            <Card className="p-5">
-              <h2 className="font-semibold mb-3">Join with a code</h2>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Enter 5-char code"
-                  value={partnerCodeInput}
-                  onChange={(e) => setPartnerCodeInput(e.target.value.toUpperCase())}
-                  className="flex-1 tracking-widest font-mono uppercase text-center"
-                  maxLength={5}
-                  onKeyDown={(e) => e.key === "Enter" && handleJoinCall()}
-                />
-                <Button onClick={handleJoinCall} className="bg-blue-600 hover:bg-blue-700 text-white">
-                  Join
+              <h2 className="font-semibold mb-4 flex items-center gap-2">
+                <PhoneCall size={20} className="text-green-600" />
+                Call Someone
+              </h2>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm text-zinc-500 block mb-1">Enter their call code</label>
+                  <Input
+                    placeholder="XXXXX"
+                    value={targetCodeInput}
+                    onChange={(e) => setTargetCodeInput(e.target.value.toUpperCase())}
+                    className="tracking-[0.3em] font-mono uppercase text-center text-xl py-6"
+                    maxLength={5}
+                    onKeyDown={(e) => e.key === "Enter" && handleStartCall()}
+                  />
+                </div>
+                <Button 
+                  onClick={handleStartCall} 
+                  className="w-full bg-green-600 hover:bg-green-700 text-white py-6"
+                  disabled={targetCodeInput.length < 5}
+                >
+                  <PhoneCall size={20} className="mr-2" />
+                  Call
                 </Button>
               </div>
             </Card>
@@ -520,33 +570,58 @@ export default function CallRecordingPage() {
           </Card>
         )}
 
-        {/* ── WAITING FOR PARTNER ── */}
-        {phase === "waiting-for-partner" && (
+        {/* ── CALLING (waiting for receiver to accept) ── */}
+        {phase === "calling" && (
           <Card className="p-6 text-center space-y-4">
-            <div className="flex items-center justify-center gap-2 text-green-600">
-              <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
-              <span className="font-medium">Waiting for your partner...</span>
+            <div className="w-20 h-20 mx-auto rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center animate-pulse">
+              <User className="w-10 h-10 text-green-600" />
+            </div>
+            
+            <div>
+              <p className="font-medium text-lg">Calling {targetUserName}...</p>
+              <p className="text-sm text-zinc-500 mt-1">Waiting for them to answer</p>
             </div>
 
-            <div>
-              <p className="text-xs text-zinc-400 mb-2 uppercase tracking-wide">Your call code</p>
-              <div className="inline-flex items-center gap-3 bg-zinc-50 border-2 border-zinc-200 rounded-xl px-6 py-3">
-                <span className="text-3xl font-bold tracking-[0.3em] font-mono text-foreground">
-                  {myCallCode}
-                </span>
-                <button onClick={copyCode} className="text-zinc-400 hover:text-blue-600 transition-colors">
-                  {copied ? <CheckCircle2 size={20} className="text-green-500" /> : <Copy size={20} />}
-                </button>
-              </div>
-              <p className="text-xs text-zinc-400 mt-2">Share this code with your partner to connect</p>
+            <div className="flex items-center justify-center gap-2 text-green-600">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" />
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" style={{ animationDelay: "0.2s" }} />
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" style={{ animationDelay: "0.4s" }} />
             </div>
 
             <Button
-              onClick={handleHangUp}
+              onClick={() => {
+                // Cancel the call
+                if (callCodeRef.current) {
+                  fetch(`/api/calls/${callCodeRef.current}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ type: "cancel" }),
+                  }).catch(() => {});
+                }
+                cleanup();
+                setPhase("ended");
+              }}
               variant="outline"
               className="border-red-200 text-red-500 hover:bg-red-50"
             >
-              Cancel
+              <PhoneOff size={18} className="mr-2" />
+              Cancel Call
+            </Button>
+          </Card>
+        )}
+
+        {/* ── DECLINED (receiver declined the call) ── */}
+        {phase === "declined" && (
+          <Card className="p-6 text-center space-y-4">
+            <div className="w-16 h-16 mx-auto rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+              <PhoneOff className="w-8 h-8 text-red-600" />
+            </div>
+            <div>
+              <p className="font-medium text-lg">Call Declined</p>
+              <p className="text-sm text-zinc-500 mt-1">{targetUserName} declined your call</p>
+            </div>
+            <Button onClick={() => { setError(""); setPhase("idle"); setTargetCodeInput(""); }} className="bg-blue-600 hover:bg-blue-700 text-white">
+              Try Again
             </Button>
           </Card>
         )}
@@ -658,7 +733,7 @@ export default function CallRecordingPage() {
           <Card className="p-6 text-center space-y-4">
             <Radio size={40} className="mx-auto text-zinc-400" />
             <p className="font-medium text-zinc-600">Call ended</p>
-            <Button onClick={() => { setError(""); setPhase("idle"); setMyCallCode(""); setPartnerCodeInput(""); setTimer(0); }} className="bg-blue-600 hover:bg-blue-700 text-white">
+            <Button onClick={() => { setError(""); setPhase("idle"); setMyCallCode(""); setTargetCodeInput(""); setTimer(0); }} className="bg-blue-600 hover:bg-blue-700 text-white">
               Try Again
             </Button>
           </Card>

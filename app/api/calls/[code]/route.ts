@@ -43,7 +43,7 @@ export async function GET(
   }
 }
 
-// PATCH: Update session — answer, ICE candidates, status, receiverId
+// PATCH: Update session — answer, ICE candidates, status, receiverId, accept/decline
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ code: string }> }
@@ -66,7 +66,42 @@ export async function PATCH(
       return NextResponse.json({ message: "Call session not found" }, { status: 404 });
     }
 
-    if (type === "answer") {
+    if (type === "accept") {
+      // Receiver accepts the incoming call - they need to provide their answer SDP
+      await prisma.callSession.update({
+        where: { callCode: code },
+        data: {
+          receiverId: session.user.id,
+          status: "waiting", // waiting for WebRTC answer
+        },
+      });
+      
+      // Return the offer so receiver can create their answer
+      return NextResponse.json({ 
+        ok: true,
+        offer: callSession.offer ? JSON.parse(callSession.offer) : null,
+        projectId: callSession.projectId,
+      });
+    } else if (type === "decline") {
+      // Receiver declines the incoming call
+      await prisma.callSession.update({
+        where: { callCode: code },
+        data: {
+          status: "declined",
+        },
+      });
+    } else if (type === "cancel") {
+      // Caller cancels the outgoing call
+      if (callSession.initiatorId !== session.user.id) {
+        return NextResponse.json({ message: "Only the caller can cancel" }, { status: 403 });
+      }
+      await prisma.callSession.update({
+        where: { callCode: code },
+        data: {
+          status: "missed",
+        },
+      });
+    } else if (type === "answer") {
       // Receiver joins: sets answer + receiverId
       await prisma.callSession.update({
         where: { callCode: code },

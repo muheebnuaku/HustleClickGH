@@ -4,11 +4,12 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { LogOut, LayoutDashboard, User, Users, Menu, X, Home, ClipboardList, FileEdit, Database, Phone } from "lucide-react";
+import { LogOut, LayoutDashboard, User, Users, Menu, X, Home, ClipboardList, FileEdit, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import { useEffect, useState } from "react";
+import { IncomingCallListener } from "@/components/incoming-call";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -57,13 +58,15 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     { href: "/my-surveys", label: "My Surveys", icon: FileEdit },
     { href: "/surveys", label: "Take Surveys", icon: ClipboardList },
     { href: "/data-projects", label: "Data Projects", icon: Database },
-    { href: "/call", label: "Live Call", icon: Phone },
     { href: "/profile", label: "Profile", icon: User },
     { href: "/referral", label: "Refer & Earn", icon: Users },
   ];
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
+      {/* Incoming Call Listener */}
+      <IncomingCallListener />
+      
       {/* Top Header */}
       <header className="bg-white dark:bg-black border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">

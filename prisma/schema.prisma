@@ -176,12 +176,13 @@ model CallSession {
   callCode        String    @unique  // short code shared between users — personal 5-char or generated
   projectId       String?   // null for standalone calls, set for data-project calls
   initiatorId     String    // user id (cuid) of caller
+  targetUserCode  String?   // personal call code of the person being called (for dialer mode)
   receiverId      String?   // user id of person who joins
   offer           String?   // JSON: RTCSessionDescription (SDP offer)
   answer          String?   // JSON: RTCSessionDescription (SDP answer)
   initiatorIce    String    @default("[]") // JSON array of RTCIceCandidate from initiator
   receiverIce     String    @default("[]") // JSON array of RTCIceCandidate from receiver
-  status          String    @default("waiting") // waiting | active | completed | failed
+  status          String    @default("waiting") // calling | waiting | active | completed | declined | missed
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }
