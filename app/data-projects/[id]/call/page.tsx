@@ -66,6 +66,7 @@ export default function CallRecordingPage() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [projectTitle, setProjectTitle] = useState("");
+  const [personalCallCode, setPersonalCallCode] = useState("");
 
   // ── WebRTC / recording refs ───────────────────────────────────────────────
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -98,11 +99,21 @@ export default function CallRecordingPage() {
 
   useEffect(() => () => cleanup(), [cleanup]);
 
-  // ── Fetch project title ───────────────────────────────────────────────────
+  // ── Fetch project title and personal call code ────────────────────────────
   useEffect(() => {
     fetch(`/api/data-projects/${projectId}`)
       .then((r) => r.json())
       .then((d) => setProjectTitle(d.project?.title || "Dataset Project"));
+    
+    // Fetch user's personal call code
+    fetch("/api/profile")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.user?.personalCallCode) {
+          setPersonalCallCode(d.user.personalCallCode);
+        }
+      })
+      .catch(() => {});
   }, [projectId]);
 
   // ── Get microphone ────────────────────────────────────────────────────────
@@ -208,6 +219,11 @@ export default function CallRecordingPage() {
 
   // ── START CALL (initiator) ────────────────────────────────────────────────
   const handleStartCall = async () => {
+    if (!personalCallCode) {
+      setError("Your personal call code is not available. Please refresh the page.");
+      return;
+    }
+
     setError("");
     try {
       const stream = await getMic();
@@ -229,10 +245,11 @@ export default function CallRecordingPage() {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
+      // Use personal call code with project ID for data submissions
       const res = await fetch("/api/calls", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, offer }),
+        body: JSON.stringify({ projectId, offer, usePersonalCode: true }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
@@ -260,7 +277,7 @@ export default function CallRecordingPage() {
   // ── JOIN CALL (receiver) ──────────────────────────────────────────────────
   const handleJoinCall = async () => {
     const code = partnerCodeInput.trim().toUpperCase();
-    if (!code || code.length < 4) { setError("Enter a valid call code"); return; }
+    if (!code || code.length < 5) { setError("Enter a valid 5-character call code"); return; }
     setError("");
 
     try {
@@ -394,7 +411,8 @@ export default function CallRecordingPage() {
   };
 
   const copyCode = () => {
-    navigator.clipboard.writeText(myCallCode).catch(() => {});
+    const codeToCopy = myCallCode || personalCallCode;
+    navigator.clipboard.writeText(codeToCopy).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -425,21 +443,39 @@ export default function CallRecordingPage() {
         {/* ── IDLE: entry screen ── */}
         {phase === "idle" && (
           <div className="space-y-4">
-            <Card className="p-5 bg-blue-50 border-blue-100">
+            {/* Personal Call Code Display */}
+            {personalCallCode && (
+              <Card className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-blue-200 dark:border-blue-800">
+                <div className="text-center">
+                  <p className="text-xs text-zinc-500 mb-1 uppercase tracking-wide">Your Personal Call Code</p>
+                  <div className="inline-flex items-center gap-2">
+                    <span className="text-2xl font-bold tracking-[0.3em] font-mono text-foreground">
+                      {personalCallCode}
+                    </span>
+                    <button onClick={copyCode} className="text-zinc-400 hover:text-blue-600 transition-colors">
+                      {copied ? <CheckCircle2 size={18} className="text-green-500" /> : <Copy size={18} />}
+                    </button>
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-1">Share this code with your call partner</p>
+                </div>
+              </Card>
+            )}
+
+            <Card className="p-5 bg-blue-50 border-blue-100 dark:bg-blue-900/20 dark:border-blue-800">
               <h2 className="font-semibold mb-2">How it works</h2>
-              <ol className="text-sm text-zinc-600 space-y-1.5 list-decimal list-inside">
-                <li>One person clicks <strong>Start Call</strong> and gets a code</li>
-                <li>They share that code with their partner</li>
-                <li>Partner enters the code and clicks <strong>Join Call</strong></li>
+              <ol className="text-sm text-zinc-600 dark:text-zinc-400 space-y-1.5 list-decimal list-inside">
+                <li>Share your <strong>5-character code</strong> with your partner</li>
+                <li>Click <strong>Start Call</strong> to begin waiting</li>
+                <li>Partner enters your code and clicks <strong>Join</strong></li>
                 <li>Both sides connect — audio records automatically</li>
                 <li>Click <strong>Hang Up</strong> when done — recording submits itself</li>
               </ol>
             </Card>
 
             <Card className="p-5">
-              <h2 className="font-semibold mb-4">Start a new call</h2>
+              <h2 className="font-semibold mb-4">Start a call</h2>
               <Button onClick={handleStartCall} className="w-full bg-green-600 hover:bg-green-700 text-white">
-                <PhoneCall size={18} className="mr-2" />Start Call — Get a Code
+                <PhoneCall size={18} className="mr-2" />Start Call — Wait for Partner
               </Button>
             </Card>
 
@@ -447,11 +483,11 @@ export default function CallRecordingPage() {
               <h2 className="font-semibold mb-3">Join with a code</h2>
               <div className="flex gap-2">
                 <Input
-                  placeholder="Enter call code e.g. A3KP9XM2"
+                  placeholder="Enter 5-char code"
                   value={partnerCodeInput}
                   onChange={(e) => setPartnerCodeInput(e.target.value.toUpperCase())}
-                  className="flex-1 tracking-widest font-mono uppercase"
-                  maxLength={8}
+                  className="flex-1 tracking-widest font-mono uppercase text-center"
+                  maxLength={5}
                   onKeyDown={(e) => e.key === "Enter" && handleJoinCall()}
                 />
                 <Button onClick={handleJoinCall} className="bg-blue-600 hover:bg-blue-700 text-white">
