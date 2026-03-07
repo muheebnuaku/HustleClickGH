@@ -55,7 +55,7 @@ function getSupportedMimeType(): string {
 export default function CallRecordingPage() {
   const params = useParams();
   const projectId = params.id as string;
-  const { data: session } = useSession();
+  const { status } = useSession();
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [phase, setPhase] = useState<Phase>("idle");
@@ -104,17 +104,21 @@ export default function CallRecordingPage() {
     fetch(`/api/data-projects/${projectId}`)
       .then((r) => r.json())
       .then((d) => setProjectTitle(d.project?.title || "Dataset Project"));
-    
-    // Fetch user's personal call code
-    fetch("/api/profile")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.user?.personalCallCode) {
-          setPersonalCallCode(d.user.personalCallCode);
-        }
-      })
-      .catch(() => {});
   }, [projectId]);
+
+  // ── Fetch user's personal call code when authenticated ────────────────────
+  useEffect(() => {
+    if (status === "authenticated") {
+      fetch("/api/profile")
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.user?.personalCallCode) {
+            setPersonalCallCode(d.user.personalCallCode);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [status]);
 
   // ── Get microphone ────────────────────────────────────────────────────────
   const getMic = async (): Promise<MediaStream> => {
