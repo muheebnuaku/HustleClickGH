@@ -23,17 +23,29 @@ export async function POST(request: Request): Promise<NextResponse> {
     // ── Vercel Blob client upload (production) ────────────────────────────
     // Auth is checked inside onBeforeGenerateToken so that Vercel's CDN
     // completion callback (no user cookies) can reach onUploadCompleted.
+
+    // Pre-check: surface missing token immediately with a clear message
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      console.error("Upload error: BLOB_READ_WRITE_TOKEN is not set in this environment");
+      return NextResponse.json(
+        { message: "Storage not configured — BLOB_READ_WRITE_TOKEN missing" },
+        { status: 503 }
+      );
+    }
+
     try {
       const { handleUpload } = await import("@vercel/blob/client");
       const body = await request.json() as HandleUploadBody;
+      console.log("Blob upload request type:", (body as { type?: string }).type);
 
       const jsonResponse = await handleUpload({
         body,
         request,
         onBeforeGenerateToken: async () => {
           const session = await getServerSession(authOptions);
+          console.log("onBeforeGenerateToken — session user:", session?.user?.id ?? "NONE");
           if (!session?.user) {
-            throw new Error("Unauthorized");
+            throw new Error("Unauthorized — no active session");
           }
           return {
             allowedContentTypes: [
@@ -52,7 +64,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
       return NextResponse.json(jsonResponse);
     } catch (error) {
-      console.error("Blob client upload error:", error);
+      console.error("Blob upload error (full):", error);
       return NextResponse.json(
         { message: (error as Error).message || "Upload failed" },
         { status: 400 }
