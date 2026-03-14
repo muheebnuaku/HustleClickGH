@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "HustleClick Ghana - Earn Money Taking Surveys",
-  description: "Join HustleClick Ghana's paid survey platform. Earn money by completing surveys, refer friends, and withdraw via Mobile Money. Start earning today!",
+  title: "HustleClickGH — Ghana's AI Dataset Collection Platform",
+  description: "Earn money by contributing voice recordings, surveys, and language data for AI training. Record in English, Twi, Ga, Hausa and get paid instantly via Mobile Money.",
 };
 
 export default function RootLayout({

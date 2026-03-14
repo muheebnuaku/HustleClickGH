@@ -39,18 +39,47 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: "turn:openrelay.metered.ca:3478",  username: "openrelayproject", credential: "openrelayproject" },
 ];
 
-// Best supported audio MIME type for MediaRecorder
-function getSupportedMimeType(): string {
-  const types = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/mp4",
-  ];
-  for (const t of types) {
-    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
+// Encode raw PCM Float32 samples into a WAV blob
+function encodeWAV(chunks: Float32Array[], sampleRate: number, channels: number, bitDepth: number): Blob {
+  const totalLength = chunks.reduce((s, c) => s + c.length, 0);
+  const bytesPerSample = bitDepth / 8;
+  const dataSize = totalLength * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const ws = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  ws(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  ws(8, "WAVE");
+  ws(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, bitDepth === 32 ? 3 : 1, true); // 1=PCM int, 3=IEEE float
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * channels * bytesPerSample, true);
+  view.setUint16(32, channels * bytesPerSample, true);
+  view.setUint16(34, bitDepth, true);
+  ws(36, "data");
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (const chunk of chunks) {
+    for (let i = 0; i < chunk.length; i++) {
+      if (bitDepth === 32) {
+        view.setFloat32(offset, chunk[i], true);
+        offset += 4;
+      } else {
+        const s = Math.max(-1, Math.min(1, chunk[i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+        offset += 2;
+      }
+    }
   }
-  return "";
+
+  return new Blob([buffer], { type: "audio/wav" });
 }
 
 export default function CallRecordingPage() {
@@ -71,14 +100,17 @@ export default function CallRecordingPage() {
   const [copied, setCopied] = useState(false);
   const [projectTitle, setProjectTitle] = useState("");
   const [personalCallCode, setPersonalCallCode] = useState("");
+  const [audioSpecs, setAudioSpecs] = useState<{
+    sampleRate: number; channels: number; bitDepth: number; recordingType: string | null;
+  }>({ sampleRate: 16000, channels: 1, bitDepth: 16, recordingType: null });
 
   // ── WebRTC / recording refs ───────────────────────────────────────────────
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const pcmChunksRef = useRef<Float32Array[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
   const mixedStreamRef = useRef<MediaStream | null>(null);
   const isInitiatorRef = useRef(false);
@@ -99,7 +131,11 @@ export default function CallRecordingPage() {
     stopPoll();
     stopTimer();
     clearConnectTimeout();
-    if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
+    if (scriptProcessorRef.current) {
+      scriptProcessorRef.current.disconnect();
+      scriptProcessorRef.current.onaudioprocess = null;
+      scriptProcessorRef.current = null;
+    }
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
     if (remoteStreamRef.current) remoteStreamRef.current.getTracks().forEach((t) => t.stop());
     if (mixedStreamRef.current) mixedStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -109,11 +145,21 @@ export default function CallRecordingPage() {
 
   useEffect(() => () => cleanup(), [cleanup]);
 
-  // ── Fetch project title and personal call code ────────────────────────────
+  // ── Fetch project title and audio format specs ────────────────────────────
   useEffect(() => {
     fetch(`/api/data-projects/${projectId}`)
       .then((r) => r.json())
-      .then((d) => setProjectTitle(d.project?.title || "Dataset Project"));
+      .then((d) => {
+        setProjectTitle(d.project?.title || "Dataset Project");
+        if (d.project) {
+          setAudioSpecs({
+            sampleRate: d.project.audioSampleRate || 16000,
+            channels: d.project.audioChannels || 1,
+            bitDepth: d.project.audioBitDepth || 16,
+            recordingType: d.project.recordingType || null,
+          });
+        }
+      });
   }, [projectId]);
 
   // ── Fetch user's personal call code when authenticated ────────────────────
@@ -181,41 +227,55 @@ export default function CallRecordingPage() {
     return pc;
   };
 
-  // ── Start MediaRecorder (mixes both local and remote audio) ───────────────
+  // ── Start PCM recording (mixes both local and remote audio → WAV) ─────────
   const startRecording = () => {
     if (!streamRef.current) return;
     setPhase("recording");
 
-    // Create AudioContext to mix local and remote audio streams
-    const audioContext = new AudioContext();
+    const { sampleRate, channels } = audioSpecs;
+
+    // Create AudioContext at the project's configured sample rate
+    const audioContext = new AudioContext({ sampleRate });
     audioContextRef.current = audioContext;
 
-    // Create a destination for the mixed output
+    // Mix local + remote into a single destination
     const destination = audioContext.createMediaStreamDestination();
-
-    // Connect local microphone to the mixer
     const localSource = audioContext.createMediaStreamSource(streamRef.current);
     localSource.connect(destination);
 
-    // Connect remote audio to the mixer (if available)
     if (remoteStreamRef.current) {
       const remoteSource = audioContext.createMediaStreamSource(remoteStreamRef.current);
       remoteSource.connect(destination);
     }
 
-    // The mixed stream contains both local and remote audio
-    const mixedStream = destination.stream;
-    mixedStreamRef.current = mixedStream;
+    mixedStreamRef.current = destination.stream;
 
-    const mimeType = getSupportedMimeType();
-    const recorder = new MediaRecorder(mixedStream, mimeType ? { mimeType } : undefined);
-    recorderRef.current = recorder;
-    chunksRef.current = [];
+    // ScriptProcessorNode captures raw PCM at the AudioContext sample rate
+    const bufferSize = 4096;
+    const scriptProcessor = audioContext.createScriptProcessor(bufferSize, channels, channels);
+    scriptProcessorRef.current = scriptProcessor;
+    pcmChunksRef.current = [];
 
-    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-    recorder.start(1000); // collect chunks every second
+    const mixedSource = audioContext.createMediaStreamSource(destination.stream);
+    mixedSource.connect(scriptProcessor);
+    scriptProcessor.connect(audioContext.destination);
 
-    // Start timer
+    scriptProcessor.onaudioprocess = (e) => {
+      if (channels === 2) {
+        const left = e.inputBuffer.getChannelData(0);
+        const right = e.inputBuffer.getChannelData(1);
+        const interleaved = new Float32Array(left.length * 2);
+        for (let i = 0; i < left.length; i++) {
+          interleaved[i * 2] = left[i];
+          interleaved[i * 2 + 1] = right[i];
+        }
+        pcmChunksRef.current.push(interleaved);
+      } else {
+        const mono = e.inputBuffer.getChannelData(0);
+        pcmChunksRef.current.push(new Float32Array(mono));
+      }
+    };
+
     setTimer(0);
     timerRef.current = setInterval(() => setTimer((t) => t + 1), 1000);
   };
@@ -421,14 +481,14 @@ export default function CallRecordingPage() {
 
   // ── HANG UP ───────────────────────────────────────────────────────────────
   const handleHangUp = () => {
-    if (recorderRef.current && recorderRef.current.state !== "inactive") {
-      recorderRef.current.onstop = handleRecordingDone;
-      recorderRef.current.stop();
-    } else {
-      setPhase("ended");
-    }
     stopPoll();
     stopTimer();
+    // Disconnect ScriptProcessor first so no more samples are added
+    if (scriptProcessorRef.current) {
+      scriptProcessorRef.current.disconnect();
+      scriptProcessorRef.current.onaudioprocess = null;
+      scriptProcessorRef.current = null;
+    }
     if (callCodeRef.current) {
       fetch(`/api/calls/${callCodeRef.current}`, {
         method: "PATCH",
@@ -438,34 +498,40 @@ export default function CallRecordingPage() {
     }
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
+    handleRecordingDone();
   };
 
   // ── AUTO SUBMIT AFTER RECORDING STOPS ────────────────────────────────────
   const handleRecordingDone = async () => {
     setPhase("submitting");
-    const mimeType = recorderRef.current?.mimeType || "audio/webm";
-    const ext = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
-    const blob = new Blob(chunksRef.current, { type: mimeType });
+    const { sampleRate, channels, bitDepth } = audioSpecs;
+    const chunks = pcmChunksRef.current;
 
-    if (blob.size < 1000) {
+    if (chunks.length === 0) {
+      setError("Recording was too short. Please try again.");
+      setPhase("ended");
+      return;
+    }
+
+    const wavBlob = encodeWAV(chunks, sampleRate, channels, bitDepth);
+
+    if (wavBlob.size < 1000) {
       setError("Recording was too short. Please try again.");
       setPhase("ended");
       return;
     }
 
     try {
-      // Upload directly to Vercel Blob (prod) or local FS (dev)
-      const recordingName = `call-recording-${Date.now()}.${ext}`;
-      const uploadData = await uploadFile(blob, projectId, recordingName);
+      const recordingName = `call-recording-${Date.now()}.wav`;
+      const uploadData = await uploadFile(wavBlob, projectId, recordingName);
 
-      // Submit
       const submitRes = await fetch(`/api/data-projects/${projectId}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fileUrl: uploadData.url,
           fileName: uploadData.fileName,
-          fileType: uploadData.fileType,
+          fileType: "audio/wav",
           fileSizeMB: uploadData.fileSizeMB,
           language: null,
           promptUsed: "Live call recording",
@@ -683,7 +749,9 @@ export default function CallRecordingPage() {
                 <span className="font-bold text-red-600 text-lg">RECORDING</span>
               </div>
               <p className="text-4xl font-mono font-bold text-foreground">{formatTime(timer)}</p>
-              <p className="text-xs text-zinc-400 mt-1">Both sides are being recorded</p>
+              <p className="text-xs text-zinc-400 mt-1">
+                Recording as WAV · {audioSpecs.sampleRate >= 1000 ? `${audioSpecs.sampleRate / 1000} kHz` : `${audioSpecs.sampleRate} Hz`} · {audioSpecs.channels === 1 ? "Mono" : "Stereo"} · {audioSpecs.bitDepth}-bit
+              </p>
             </div>
 
             {/* Audio bars animation */}

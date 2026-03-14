@@ -72,6 +72,10 @@ export async function POST(request: Request) {
       maxFileSizeMB,
       acceptedFormats,
       expiresAt,
+      audioSampleRate,
+      audioChannels,
+      audioBitDepth,
+      recordingType,
     } = body;
 
     if (!title || !description || !projectType || !instructions || !reward || !maxSubmissions || !acceptedFormats) {
@@ -93,6 +97,10 @@ export async function POST(request: Request) {
         maxFileSizeMB: maxFileSizeMB ? parseInt(maxFileSizeMB) : 25,
         acceptedFormats: JSON.stringify(acceptedFormats),
         expiresAt: expiresAt ? new Date(expiresAt) : null,
+        audioSampleRate: audioSampleRate ? parseInt(audioSampleRate) : null,
+        audioChannels: audioChannels ? parseInt(audioChannels) : null,
+        audioBitDepth: audioBitDepth ? parseInt(audioBitDepth) : null,
+        recordingType: recordingType || null,
         createdBy: session.user.id,
       },
     });

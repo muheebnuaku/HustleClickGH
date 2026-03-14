@@ -1,18 +1,19 @@
 import Link from "next/link";
 import Image from "next/image";
-import { 
-  Check, 
-  BarChart3, 
-  Users, 
-  Shield, 
-  Zap, 
-  Globe, 
-  Smartphone,
-  FileText,
+import {
+  Check,
+  BarChart3,
+  Shield,
+  Zap,
+  Globe,
+  Mic,
   TrendingUp,
   Clock,
   Award,
-  Star
+  Star,
+  Database,
+  Languages,
+  PhoneCall,
 } from "lucide-react";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
@@ -23,7 +24,7 @@ export default function Home() {
   return (
     <>
       <Navbar />
-      
+
       {/* Hero Section */}
       <section className="relative min-h-screen flex items-center overflow-hidden bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
         {/* Background Pattern */}
@@ -39,30 +40,30 @@ export default function Home() {
             <div className="text-center lg:text-left">
               <div className="inline-flex items-center gap-2 bg-blue-500/20 backdrop-blur-sm border border-blue-400/30 text-blue-300 px-4 py-2 rounded-full text-sm font-medium mb-6">
                 <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-                Trusted by 500+ Organizations
+                Ghana&apos;s AI Dataset Collection Platform
               </div>
 
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight">
-                Collect Better Data,
+                Build AI Datasets,
                 <span className="block text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-400 to-purple-400">
-                  Make Smarter Decisions
+                  Earn Real Money
                 </span>
               </h1>
 
               <p className="text-lg sm:text-xl text-slate-300 mb-8 leading-relaxed max-w-xl">
-                A powerful data collection platform that transforms how organizations gather insights, conduct surveys, and analyze responses in real-time.
+                Record your voice, complete surveys, and contribute data for AI training — in English, Twi, Ga, Hausa and more. Get paid instantly via Mobile Money.
               </p>
 
               {/* CTA Buttons */}
               <div className="flex flex-row gap-4 justify-center lg:justify-start mb-10">
                 <Button size="lg" className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white shadow-lg shadow-blue-500/25 text-lg px-8" asChild>
                   <Link href="/register">
-                    Start Collecting Data
+                    Start Earning
                   </Link>
                 </Button>
                 <Button size="lg" variant="outline" className="border-slate-500 text-white hover:bg-white/10 text-lg px-8" asChild>
                   <Link href="/login">
-                    Watch Demo
+                    View Projects
                   </Link>
                 </Button>
               </div>
@@ -71,27 +72,26 @@ export default function Home() {
               <div className="flex flex-wrap items-center justify-center lg:justify-start gap-6 text-slate-400 text-sm">
                 <div className="flex items-center gap-2">
                   <Shield size={18} className="text-green-400" />
-                  <span>Secure & Private</span>
+                  <span>Consented & Compliant</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Zap size={18} className="text-yellow-400" />
-                  <span>Real-time Analytics</span>
+                  <span>Instant Momo Payout</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Globe size={18} className="text-blue-400" />
-                  <span>Mobile Friendly</span>
+                  <span>Local Languages</span>
                 </div>
               </div>
             </div>
 
-            {/* Right Content - Dashboard Preview */}
+            {/* Right Content */}
             <div className="relative hidden lg:block">
               <div className="relative">
-                {/* Main Dashboard Image */}
                 <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-blue-500/20 border border-slate-700">
                   <Image
                     src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=2940&auto=format&fit=crop"
-                    alt="Data Analytics Dashboard"
+                    alt="AI Dataset Collection Dashboard"
                     width={600}
                     height={400}
                     className="object-cover"
@@ -107,21 +107,21 @@ export default function Home() {
                       <TrendingUp className="text-green-600" size={20} />
                     </div>
                     <div>
-                      <p className="text-2xl font-bold text-slate-900 dark:text-white">98.5%</p>
-                      <p className="text-xs text-slate-500">Response Rate</p>
+                      <p className="text-2xl font-bold text-slate-900 dark:text-white">GH₵50K+</p>
+                      <p className="text-xs text-slate-500">Paid to contributors</p>
                     </div>
                   </div>
                 </div>
 
-                {/* Floating Survey Card */}
+                {/* Floating Tasks Card */}
                 <div className="absolute -top-4 -right-4 bg-white dark:bg-slate-800 p-4 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-                      <FileText className="text-blue-600" size={20} />
+                      <Mic className="text-blue-600" size={20} />
                     </div>
                     <div>
-                      <p className="text-2xl font-bold text-slate-900 dark:text-white">10K+</p>
-                      <p className="text-xs text-slate-500">Surveys Completed</p>
+                      <p className="text-2xl font-bold text-slate-900 dark:text-white">25K+</p>
+                      <p className="text-xs text-slate-500">Recordings collected</p>
                     </div>
                   </div>
                 </div>
@@ -141,57 +141,55 @@ export default function Home() {
       {/* Features Section */}
       <section className="py-24 bg-white dark:bg-slate-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Section Header */}
           <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-4 py-2 rounded-full text-sm font-medium mb-4">
               <BarChart3 size={16} />
-              <span>Why Choose Us</span>
+              <span>Platform Features</span>
             </div>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 dark:text-white mb-4">
-              Powerful Data Collection Made Simple
+              Everything AI Teams Need
             </h2>
             <p className="text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
-              Everything you need to collect, analyze, and act on data from your audience
+              Collect high-quality, consented datasets from real Ghanaian voices — at any sample rate, format, or recording type your project requires
             </p>
           </div>
 
-          {/* Features Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {[
               {
-                icon: FileText,
-                title: "Smart Survey Builder",
-                description: "Create professional surveys with multiple question types, logic branching, and customizable themes in minutes.",
+                icon: Mic,
+                title: "Configurable Voice Datasets",
+                description: "Specify exact audio specs per project: WAV format, 16/48 kHz sample rate, mono/stereo channels, 16/32-bit depth.",
                 color: "blue"
               },
               {
-                icon: BarChart3,
-                title: "Real-time Analytics",
-                description: "Watch responses come in live with beautiful charts, graphs, and exportable reports.",
+                icon: PhoneCall,
+                title: "Conversation Recording",
+                description: "Capture real two-person phone-call conversations using our built-in WebRTC dialer — both sides recorded and mixed automatically.",
                 color: "purple"
               },
               {
-                icon: Smartphone,
-                title: "Mobile Optimized",
-                description: "Surveys look perfect on any device. Respondents can complete surveys anywhere, anytime.",
+                icon: Languages,
+                title: "Local Language Support",
+                description: "Collect data in English, Twi, Ga, Hausa, Dagbani and more. Each project can target specific languages and dialects.",
                 color: "green"
               },
               {
                 icon: Shield,
-                title: "Data Security",
-                description: "Enterprise-grade encryption and privacy controls keep your data safe and compliant.",
+                title: "Consented & Compliant",
+                description: "All data collected with explicit consent under Ghana's Data Protection Act 2012. Full audit trail for each submission.",
                 color: "orange"
               },
               {
-                icon: Users,
-                title: "Audience Management",
-                description: "Build and segment your audience for targeted surveys and personalized experiences.",
+                icon: Database,
+                title: "Survey Data Collection",
+                description: "Run structured surveys alongside voice projects. Combine text, multiple-choice, and rating responses for richer datasets.",
                 color: "pink"
               },
               {
                 icon: Zap,
-                title: "Instant Rewards",
-                description: "Incentivize responses with instant mobile money payments directly to respondents.",
+                title: "Instant Mobile Money Rewards",
+                description: "Pay contributors automatically in GH₵ via MTN Momo or Vodafone Cash the moment their submission is approved.",
                 color: "cyan"
               }
             ].map((feature) => {
@@ -229,7 +227,7 @@ export default function Home() {
               <span>How It Works</span>
             </div>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 dark:text-white mb-4">
-              Start Collecting Data in 3 Steps
+              Start Earning in 3 Simple Steps
             </h2>
           </div>
 
@@ -237,31 +235,29 @@ export default function Home() {
             {[
               {
                 step: "01",
-                title: "Create Your Survey",
-                description: "Design beautiful surveys with our intuitive builder. Add questions, set logic, and customize branding.",
+                title: "Create Your Account",
+                description: "Register for free in minutes. Browse available voice recording and survey projects posted by AI companies and researchers.",
                 image: "https://images.unsplash.com/photo-1586281380349-632531db7ed4?q=80&w=2940&auto=format&fit=crop"
               },
               {
                 step: "02",
-                title: "Share & Collect",
-                description: "Distribute via link, QR code, or embed on your website. Reach your audience wherever they are.",
+                title: "Complete Tasks",
+                description: "Record your voice reading sentences or in conversation, complete surveys, or contribute other data — from your phone, anywhere.",
                 image: "https://images.unsplash.com/photo-1557804506-669a67965ba0?q=80&w=2874&auto=format&fit=crop"
               },
               {
                 step: "03",
-                title: "Analyze & Act",
-                description: "View real-time results, generate reports, and export data. Turn insights into action.",
+                title: "Get Paid via Momo",
+                description: "Once your submission is reviewed and approved, GH₵ is credited to your balance. Withdraw anytime to Mobile Money.",
                 image: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=2426&auto=format&fit=crop"
               }
             ].map((item, index) => (
               <div key={item.step} className="relative group">
-                {/* Connection Line */}
                 {index < 2 && (
-                  <div className="hidden md:block absolute top-24 left-full w-full h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 z-0" style={{ width: 'calc(100% - 2rem)', left: 'calc(50% + 1rem)' }}></div>
+                  <div className="hidden md:block absolute top-24 left-full w-full h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 z-0" style={{ width: "calc(100% - 2rem)", left: "calc(50% + 1rem)" }}></div>
                 )}
-                
+
                 <Card className="relative overflow-hidden border-2 hover:border-blue-300 transition-all hover:shadow-xl">
-                  {/* Image */}
                   <div className="relative h-48 overflow-hidden">
                     <Image
                       src={item.image}
@@ -272,7 +268,7 @@ export default function Home() {
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 to-transparent"></div>
                     <div className="absolute bottom-4 left-4 text-5xl font-bold text-white/20">{item.step}</div>
                   </div>
-                  
+
                   <CardContent className="p-6">
                     <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-lg mb-4 -mt-10 relative z-10 shadow-lg">
                       {item.step}
@@ -292,10 +288,10 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center text-white">
             {[
-              { number: "10K+", label: "Surveys Created" },
-              { number: "500K+", label: "Responses Collected" },
-              { number: "99.9%", label: "Uptime" },
-              { number: "24/7", label: "Support" }
+              { number: "25K+", label: "Recordings Collected" },
+              { number: "1K+", label: "Active Contributors" },
+              { number: "5+", label: "Languages Covered" },
+              { number: "GH₵50K+", label: "Paid to Contributors" }
             ].map((stat) => (
               <div key={stat.label}>
                 <div className="text-4xl sm:text-5xl font-bold mb-2">{stat.number}</div>
@@ -315,38 +311,38 @@ export default function Home() {
               <span>Use Cases</span>
             </div>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 dark:text-white mb-4">
-              Perfect for Every Industry
+              Datasets for Every AI Need
             </h2>
             <p className="text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
-              From research institutions to businesses, our platform adapts to your needs
+              From speech recognition to NLP, our platform delivers the exact format and language your model needs
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {[
               {
-                title: "Academic Research",
-                description: "Conduct surveys for dissertations, thesis projects, and academic studies with robust data collection tools.",
+                title: "Speech Recognition & ASR",
+                description: "Collect thousands of voice recordings in Ghanaian languages and accents for training robust ASR models that understand local speech.",
+                image: "https://images.unsplash.com/photo-1546776310-eef45dd6d63c?q=80&w=2910&auto=format&fit=crop",
+                features: ["16 kHz or 48 kHz WAV format", "Mono or stereo channels", "Twi, Ga, Hausa, English speakers"]
+              },
+              {
+                title: "Wake Word & Keyword Detection",
+                description: "Collect single-speaker recordings of specific wake words or trigger phrases, precisely formatted for edge-device AI models.",
+                image: "https://images.unsplash.com/photo-1589254065878-42c9da997008?q=80&w=2940&auto=format&fit=crop",
+                features: ["Configurable bit depth (16/32-bit)", "Single-person recording mode", "Custom prompts per project"]
+              },
+              {
+                title: "Conversation & Dialogue Datasets",
+                description: "Record real two-person phone conversations with our built-in WebRTC dialer to train dialogue and conversational AI systems.",
+                image: "https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?q=80&w=2940&auto=format&fit=crop",
+                features: ["Both sides auto-mixed and recorded", "Realistic phone-call conditions", "Verified speaker consent"]
+              },
+              {
+                title: "Survey & Annotation Data",
+                description: "Run structured surveys alongside voice tasks to collect demographic labels, sentiment annotations, and research questionnaires.",
                 image: "https://images.unsplash.com/photo-1524178232363-1fb2b075b655?q=80&w=2940&auto=format&fit=crop",
-                features: ["Ethics-compliant consent forms", "Anonymous responses", "Data export for SPSS/Excel"]
-              },
-              {
-                title: "Market Research",
-                description: "Understand your customers better with targeted surveys and detailed demographic analysis.",
-                image: "https://images.unsplash.com/photo-1533750349088-cd871a92f312?q=80&w=2940&auto=format&fit=crop",
-                features: ["Customer satisfaction surveys", "Product feedback forms", "Brand awareness studies"]
-              },
-              {
-                title: "Healthcare & NGOs",
-                description: "Collect health data, conduct community assessments, and gather feedback from beneficiaries.",
-                image: "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?q=80&w=2940&auto=format&fit=crop",
-                features: ["Patient feedback forms", "Community health surveys", "Impact assessments"]
-              },
-              {
-                title: "Employee Engagement",
-                description: "Measure employee satisfaction, gather feedback, and improve workplace culture.",
-                image: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?q=80&w=2940&auto=format&fit=crop",
-                features: ["360° feedback surveys", "Pulse surveys", "Exit interviews"]
+                features: ["Multiple question types", "Ethics-compliant consent forms", "Export-ready responses"]
               }
             ].map((useCase) => (
               <Card key={useCase.title} className="overflow-hidden group hover:shadow-2xl transition-all border-2 hover:border-blue-300">
@@ -384,10 +380,10 @@ export default function Home() {
           <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 px-4 py-2 rounded-full text-sm font-medium mb-4">
               <Star size={16} />
-              <span>Testimonials</span>
+              <span>What People Say</span>
             </div>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 dark:text-white mb-4">
-              Trusted by Researchers & Organizations
+              Trusted by Researchers & Contributors Alike
             </h2>
           </div>
 
@@ -395,34 +391,33 @@ export default function Home() {
             {[
               {
                 name: "Dr. Kwame Asante",
-                role: "Senior Lecturer, University of Ghana",
-                content: "This platform revolutionized how I collect data for my research. The ease of use and real-time analytics saved me countless hours.",
+                role: "AI Researcher, University of Ghana",
+                content: "We needed Twi speech data at 16 kHz mono for our ASR project. HustleClickGH delivered exactly the format we specified — properly consented and review-approved.",
                 rating: 5
               },
               {
                 name: "Abena Mensah",
-                role: "Research Coordinator, NGO",
-                content: "Perfect for community health assessments. The mobile-friendly surveys meant we could reach respondents even in remote areas.",
+                role: "Voice Contributor, Accra",
+                content: "I've earned over GH₵200 just from recording sentences in Twi on my phone. The tasks are simple and the Momo payment arrives the same day my submission is approved.",
                 rating: 5
               },
               {
                 name: "Kofi Owusu",
                 role: "Market Research Analyst",
-                content: "The instant payment feature increased our response rates dramatically. A game-changer for market research in Ghana.",
+                content: "The combination of survey data and voice recordings from the same pool of Ghanaian participants gave our client insights they couldn't get anywhere else.",
                 rating: 5
               }
             ].map((testimonial) => (
               <Card key={testimonial.name} className="p-6 hover:shadow-xl transition-all">
                 <CardContent className="p-0">
-                  {/* Stars */}
                   <div className="flex gap-1 mb-4">
                     {[...Array(testimonial.rating)].map((_, i) => (
                       <Star key={i} size={18} className="text-yellow-400 fill-yellow-400" />
                     ))}
                   </div>
-                  
+
                   <p className="text-slate-600 dark:text-slate-400 mb-6 italic">&ldquo;{testimonial.content}&rdquo;</p>
-                  
+
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold">
                       {testimonial.name.charAt(0)}
@@ -441,7 +436,6 @@ export default function Home() {
 
       {/* CTA Section */}
       <section className="py-24 bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 relative overflow-hidden">
-        {/* Background Elements */}
         <div className="absolute inset-0">
           <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
           <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl"></div>
@@ -449,16 +443,16 @@ export default function Home() {
 
         <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-6">
-            Ready to Transform Your Data Collection?
+            Join Ghana&apos;s AI Dataset Community
           </h2>
           <p className="text-xl text-slate-300 mb-10 max-w-2xl mx-auto">
-            Join thousands of researchers, businesses, and organizations using our platform to gather insights and make data-driven decisions.
+            Whether you want to earn money contributing data or collect quality datasets for your AI project — HustleClickGH is your platform.
           </p>
 
           <div className="flex flex-row gap-4 justify-center">
             <Button size="lg" className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white shadow-lg shadow-blue-500/25 text-lg px-8" asChild>
               <Link href="/register">
-                Create Free Account
+                Start Earning Today
               </Link>
             </Button>
             <Button size="lg" variant="outline" className="border-slate-500 text-white hover:bg-white/10 text-lg px-8" asChild>
@@ -468,10 +462,9 @@ export default function Home() {
             </Button>
           </div>
 
-          {/* Trust Badge */}
           <div className="mt-10 flex items-center justify-center gap-4 text-slate-400 text-sm">
             <Shield size={18} className="text-green-400" />
-            <span>No credit card required • Free to start • Cancel anytime</span>
+            <span>Free to join · Instant Momo payouts · Ghana Data Protection Act compliant</span>
           </div>
         </div>
       </section>

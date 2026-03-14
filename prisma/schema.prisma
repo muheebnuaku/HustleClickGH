@@ -137,6 +137,11 @@ model DataProject {
   maxDurationSecs    Int              @default(60)
   maxFileSizeMB      Int              @default(25)
   acceptedFormats    String           // JSON array e.g. ["mp3","wav","m4a"]
+  // Audio format specs (voice projects)
+  audioSampleRate    Int?             // Hz: 16000, 44100, 48000
+  audioChannels      Int?             // 1 = mono, 2 = stereo
+  audioBitDepth      Int?             // 16 or 32
+  recordingType      String?          // "single" | "conversation"
   expiresAt          DateTime?
   createdBy          String           // admin userId
   createdAt          DateTime         @default(now())

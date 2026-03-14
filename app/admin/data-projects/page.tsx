@@ -50,6 +50,11 @@ const emptyForm = {
   maxDurationSecs: "60",
   maxFileSizeMB: "15",
   expiresAt: "",
+  // Audio format (voice projects)
+  recordingType: "conversation",
+  audioSampleRate: "16000",
+  audioChannels: "1",
+  audioBitDepth: "16",
 };
 
 export default function AdminDataProjectsPage() {
@@ -272,8 +277,63 @@ export default function AdminDataProjectsPage() {
                 </div>
               </div>
 
+              {/* Audio Format Config — voice projects only */}
+              {form.projectType === "voice" && (
+                <div className="border border-blue-200 rounded-lg p-4 bg-blue-50/40 space-y-3">
+                  <h3 className="text-sm font-semibold text-blue-800">Audio Format Specifications</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1 text-zinc-600">Recording Type</label>
+                      <select
+                        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.recordingType}
+                        onChange={(e) => setForm({ ...form, recordingType: e.target.value })}
+                      >
+                        <option value="conversation">Conversation (2 people)</option>
+                        <option value="single">Single Person</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1 text-zinc-600">Sample Rate</label>
+                      <select
+                        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.audioSampleRate}
+                        onChange={(e) => setForm({ ...form, audioSampleRate: e.target.value })}
+                      >
+                        <option value="16000">16 kHz</option>
+                        <option value="44100">44.1 kHz</option>
+                        <option value="48000">48 kHz</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1 text-zinc-600">Channels</label>
+                      <select
+                        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.audioChannels}
+                        onChange={(e) => setForm({ ...form, audioChannels: e.target.value })}
+                      >
+                        <option value="1">Mono (1ch)</option>
+                        <option value="2">Stereo (2ch)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1 text-zinc-600">Bit Depth</label>
+                      <select
+                        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.audioBitDepth}
+                        onChange={(e) => setForm({ ...form, audioBitDepth: e.target.value })}
+                      >
+                        <option value="16">16-bit PCM</option>
+                        <option value="32">32-bit Float</option>
+                      </select>
+                    </div>
+                  </div>
+                  <p className="text-xs text-blue-700">Live call recordings will be captured as WAV at these exact specs. Upload submissions should match.</p>
+                </div>
+              )}
+
               <div className="bg-zinc-50 rounded-lg p-3 text-sm text-zinc-600">
-                <strong>Accepted formats for {form.projectType}:</strong> {FORMAT_OPTIONS[form.projectType]?.join(", ")}
+                <strong>Accepted formats for {form.projectType}:</strong> {form.projectType === "voice" ? "wav" : FORMAT_OPTIONS[form.projectType]?.join(", ")}
               </div>
 
               <div className="flex gap-3">

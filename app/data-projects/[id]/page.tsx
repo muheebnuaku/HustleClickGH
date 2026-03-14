@@ -31,6 +31,10 @@ interface DataProject {
   maxFileSizeMB: number;
   status: string;
   expiresAt: string | null;
+  audioSampleRate: number | null;
+  audioChannels: number | null;
+  audioBitDepth: number | null;
+  recordingType: string | null;
 }
 
 interface UserSubmission {
@@ -305,9 +309,19 @@ export default function DataProjectDetailPage() {
 
               <div className="mt-4 bg-amber-50 border border-amber-100 rounded-lg p-3 text-xs text-amber-700 space-y-1">
                 <p><strong>File requirements:</strong></p>
-                <p>• Format: {project.acceptedFormats.join(", ")}</p>
+                <p>• Format: {project.projectType === "voice" && project.audioSampleRate ? "wav" : project.acceptedFormats.join(", ")}</p>
                 <p>• Max size: {project.maxFileSizeMB}MB</p>
                 <p>• Duration: {project.minDurationSecs}–{project.maxDurationSecs} seconds</p>
+                {project.projectType === "voice" && project.audioSampleRate && (
+                  <>
+                    <p>• Sample rate: {project.audioSampleRate >= 1000 ? `${project.audioSampleRate / 1000} kHz` : `${project.audioSampleRate} Hz`}</p>
+                    <p>• Channels: {project.audioChannels === 1 ? "Mono" : project.audioChannels === 2 ? "Stereo" : "—"}</p>
+                    <p>• Bit depth: {project.audioBitDepth ? `${project.audioBitDepth}-bit` : "—"}</p>
+                    {project.recordingType && (
+                      <p>• Type: {project.recordingType === "conversation" ? "Conversation (2 people)" : "Single person"}</p>
+                    )}
+                  </>
+                )}
                 {project.languages.length > 0 && (
                   <p>• Languages: {project.languages.join(", ")}</p>
                 )}
