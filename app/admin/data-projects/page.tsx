@@ -55,6 +55,9 @@ const emptyForm = {
   audioSampleRate: "16000",
   audioChannels: "1",
   audioBitDepth: "16",
+  // Gender quotas (optional)
+  malesNeeded: "",
+  femalesNeeded: "",
 };
 
 export default function AdminDataProjectsPage() {
@@ -274,6 +277,22 @@ export default function AdminDataProjectsPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1">Expiry Date (optional)</label>
                   <Input type="date" value={form.expiresAt} onChange={(e) => setForm({ ...form, expiresAt: e.target.value })} />
+                </div>
+              </div>
+
+              {/* Gender Quota */}
+              <div className="border border-pink-200 rounded-lg p-4 bg-pink-50/30 space-y-2">
+                <h3 className="text-sm font-semibold text-pink-800">Gender Quota (optional)</h3>
+                <p className="text-xs text-pink-600">Leave blank if gender doesn&apos;t matter. When set, users must select their gender and slots will show separately.</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium mb-1 text-zinc-600">Males Needed</label>
+                    <Input type="number" min="0" value={form.malesNeeded} onChange={(e) => setForm({ ...form, malesNeeded: e.target.value })} placeholder="e.g. 20" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1 text-zinc-600">Females Needed</label>
+                    <Input type="number" min="0" value={form.femalesNeeded} onChange={(e) => setForm({ ...form, femalesNeeded: e.target.value })} placeholder="e.g. 20" />
+                  </div>
                 </div>
               </div>
 

@@ -76,6 +76,8 @@ export async function POST(request: Request) {
       audioChannels,
       audioBitDepth,
       recordingType,
+      malesNeeded,
+      femalesNeeded,
     } = body;
 
     if (!title || !description || !projectType || !instructions || !reward || !maxSubmissions || !acceptedFormats) {
@@ -101,6 +103,8 @@ export async function POST(request: Request) {
         audioChannels: audioChannels ? parseInt(audioChannels) : null,
         audioBitDepth: audioBitDepth ? parseInt(audioBitDepth) : null,
         recordingType: recordingType || null,
+        malesNeeded: malesNeeded ? parseInt(malesNeeded) : null,
+        femalesNeeded: femalesNeeded ? parseInt(femalesNeeded) : null,
         createdBy: session.user.id,
       },
     });

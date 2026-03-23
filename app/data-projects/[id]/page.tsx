@@ -24,6 +24,12 @@ interface DataProject {
   maxSubmissions: number;
   currentSubmissions: number;
   slotsRemaining: number;
+  malesNeeded: number | null;
+  femalesNeeded: number | null;
+  malesApproved: number;
+  femalesApproved: number;
+  malesSlotsRemaining: number | null;
+  femalesSlotsRemaining: number | null;
   languages: string[];
   acceptedFormats: string[];
   minDurationSecs: number;
@@ -66,6 +72,7 @@ export default function DataProjectDetailPage() {
   const [file, setFile] = useState<File | null>(null);
   const [language, setLanguage] = useState("");
   const [promptUsed, setPromptUsed] = useState("");
+  const [gender, setGender] = useState("");
   const [consent, setConsent] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
@@ -125,6 +132,11 @@ export default function DataProjectDetailPage() {
       return;
     }
 
+    if ((project.malesNeeded !== null || project.femalesNeeded !== null) && !gender) {
+      setError("Please select your gender before submitting.");
+      return;
+    }
+
     setUploading(true);
     setError("");
     setMessage("");
@@ -144,6 +156,7 @@ export default function DataProjectDetailPage() {
           fileSizeMB: uploadData.fileSizeMB,
           language: language || null,
           promptUsed: promptUsed || null,
+          gender: gender || null,
           consentGiven: consent,
         }),
       });
@@ -238,6 +251,30 @@ export default function DataProjectDetailPage() {
               <p className="text-xs text-zinc-400">max duration</p>
             </div>
           </div>
+
+          {/* Gender quota stats */}
+          {(project.malesNeeded !== null || project.femalesNeeded !== null) && (
+            <div className="mt-3 pt-3 border-t border-zinc-100 grid grid-cols-2 gap-3">
+              {project.malesNeeded !== null && (
+                <div className="flex items-center gap-2 bg-blue-50 rounded-lg px-3 py-2">
+                  <span className="text-lg font-bold text-blue-700">{project.malesSlotsRemaining}</span>
+                  <div>
+                    <p className="text-xs font-medium text-blue-700">male slots left</p>
+                    <p className="text-xs text-zinc-400">of {project.malesNeeded}</p>
+                  </div>
+                </div>
+              )}
+              {project.femalesNeeded !== null && (
+                <div className="flex items-center gap-2 bg-pink-50 rounded-lg px-3 py-2">
+                  <span className="text-lg font-bold text-pink-700">{project.femalesSlotsRemaining}</span>
+                  <div>
+                    <p className="text-xs font-medium text-pink-700">female slots left</p>
+                    <p className="text-xs text-zinc-400">of {project.femalesNeeded}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </Card>
 
         {/* Already submitted */}
@@ -413,6 +450,49 @@ export default function DataProjectDetailPage() {
                     />
                   </div>
 
+                  {/* Gender selector — only when project has gender quotas */}
+                  {(project.malesNeeded !== null || project.femalesNeeded !== null) && (
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Your Gender *</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {project.malesNeeded !== null && (
+                          <button
+                            type="button"
+                            onClick={() => setGender("male")}
+                            className={`flex items-center justify-center gap-2 border-2 rounded-xl py-3 text-sm font-medium transition-colors ${
+                              gender === "male"
+                                ? "border-blue-500 bg-blue-50 text-blue-700"
+                                : "border-zinc-200 text-zinc-500 hover:border-blue-300"
+                            } ${project.malesSlotsRemaining === 0 ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                            disabled={project.malesSlotsRemaining === 0}
+                          >
+                            <span>Male</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                              gender === "male" ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-500"
+                            }`}>{project.malesSlotsRemaining ?? "?"} left</span>
+                          </button>
+                        )}
+                        {project.femalesNeeded !== null && (
+                          <button
+                            type="button"
+                            onClick={() => setGender("female")}
+                            className={`flex items-center justify-center gap-2 border-2 rounded-xl py-3 text-sm font-medium transition-colors ${
+                              gender === "female"
+                                ? "border-pink-500 bg-pink-50 text-pink-700"
+                                : "border-zinc-200 text-zinc-500 hover:border-pink-300"
+                            } ${project.femalesSlotsRemaining === 0 ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                            disabled={project.femalesSlotsRemaining === 0}
+                          >
+                            <span>Female</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                              gender === "female" ? "bg-pink-100 text-pink-700" : "bg-zinc-100 text-zinc-500"
+                            }`}>{project.femalesSlotsRemaining ?? "?"} left</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Language select */}
                   {project.languages.length > 0 && (
                     <div>
@@ -465,7 +545,10 @@ export default function DataProjectDetailPage() {
 
                   <Button
                     type="submit"
-                    disabled={!file || !consent || uploading}
+                    disabled={
+                      !file || !consent || uploading ||
+                      ((project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
+                    }
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                   >
                     {uploading ? (

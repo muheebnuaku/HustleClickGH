@@ -37,6 +37,15 @@ export async function POST(
     }
 
     // Approve: credit user balance, increment project count — atomically
+    const projectUpdate: Parameters<typeof prisma.dataProject.update>[0]["data"] = {
+      currentSubmissions: { increment: 1 },
+    };
+    if (submission.gender === "male" && project.malesNeeded !== null) {
+      projectUpdate.malesApproved = { increment: 1 };
+    } else if (submission.gender === "female" && project.femalesNeeded !== null) {
+      projectUpdate.femalesApproved = { increment: 1 };
+    }
+
     await prisma.$transaction([
       prisma.dataSubmission.update({
         where: { id: subId },
@@ -49,7 +58,7 @@ export async function POST(
       }),
       prisma.dataProject.update({
         where: { id: projectId },
-        data: { currentSubmissions: { increment: 1 } },
+        data: projectUpdate,
       }),
       prisma.user.update({
         where: { id: submission.userId },

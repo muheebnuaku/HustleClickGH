@@ -17,7 +17,7 @@ export async function POST(
     const { id: projectId } = await params;
     const userId = session.user.id;
     const body = await request.json();
-    const { fileUrl, fileName, fileType, fileSizeMB, language, promptUsed, consentGiven } = body;
+    const { fileUrl, fileName, fileType, fileSizeMB, language, promptUsed, consentGiven, gender } = body;
 
     if (!fileUrl || !fileName || !fileType || !fileSizeMB) {
       return NextResponse.json({ message: "Missing required fields" }, { status: 400 });
@@ -47,6 +47,38 @@ export async function POST(
         { message: "This project has reached its submission limit" },
         { status: 400 }
       );
+    }
+
+    // Gender quota validation
+    if (project.malesNeeded !== null || project.femalesNeeded !== null) {
+      if (!gender || !["male", "female"].includes(gender)) {
+        return NextResponse.json(
+          { message: "Please select your gender to submit to this project" },
+          { status: 400 }
+        );
+      }
+      if (gender === "male" && project.malesNeeded !== null) {
+        const maleCount = await prisma.dataSubmission.count({
+          where: { projectId, gender: "male", status: { in: ["pending", "approved"] } },
+        });
+        if (maleCount >= project.malesNeeded) {
+          return NextResponse.json(
+            { message: "All male slots for this project are filled. Only female submissions are accepted now." },
+            { status: 400 }
+          );
+        }
+      }
+      if (gender === "female" && project.femalesNeeded !== null) {
+        const femaleCount = await prisma.dataSubmission.count({
+          where: { projectId, gender: "female", status: { in: ["pending", "approved"] } },
+        });
+        if (femaleCount >= project.femalesNeeded) {
+          return NextResponse.json(
+            { message: "All female slots for this project are filled. Only male submissions are accepted now." },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     // Validate file format
@@ -102,6 +134,7 @@ export async function POST(
         fileSizeMB,
         language: language || null,
         promptUsed: promptUsed || null,
+        gender: gender || null,
         consentGiven: true,
         consentGivenAt: new Date(),
         status: "pending",

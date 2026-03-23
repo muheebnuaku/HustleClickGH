@@ -27,6 +27,20 @@ export async function GET(
       where: { projectId_userId: { projectId: id, userId } },
     });
 
+    // Count pending+approved submissions per gender so users see accurate remaining slots
+    let malesFilled = 0;
+    let femalesFilled = 0;
+    if (project.malesNeeded !== null || project.femalesNeeded !== null) {
+      [malesFilled, femalesFilled] = await Promise.all([
+        prisma.dataSubmission.count({
+          where: { projectId: id, gender: "male", status: { in: ["pending", "approved"] } },
+        }),
+        prisma.dataSubmission.count({
+          where: { projectId: id, gender: "female", status: { in: ["pending", "approved"] } },
+        }),
+      ]);
+    }
+
     return NextResponse.json({
       project: {
         ...project,
@@ -34,6 +48,8 @@ export async function GET(
         languages: project.languages ? JSON.parse(project.languages) : [],
         acceptedFormats: JSON.parse(project.acceptedFormats),
         slotsRemaining: project.maxSubmissions - project.currentSubmissions,
+        malesSlotsRemaining: project.malesNeeded !== null ? Math.max(0, project.malesNeeded - malesFilled) : null,
+        femalesSlotsRemaining: project.femalesNeeded !== null ? Math.max(0, project.femalesNeeded - femalesFilled) : null,
       },
       userSubmission,
     });
