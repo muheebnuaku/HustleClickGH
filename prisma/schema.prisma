@@ -128,6 +128,7 @@ model DataProject {
   projectType        String           // voice | video | face
   instructions       String           // step-by-step guide for users
   samplePrompts      String?          // JSON array of prompts/phrases to record
+  sampleVideoUrl     String?          // Optional sample video URL (video projects)
   reward             Float            // GH₵ per approved submission
   maxSubmissions     Int
   currentSubmissions Int              @default(0)

@@ -41,6 +41,7 @@ interface DataProject {
   audioChannels: number | null;
   audioBitDepth: number | null;
   recordingType: string | null;
+  sampleVideoUrl: string | null;
 }
 
 interface UserSubmission {
@@ -330,6 +331,19 @@ export default function DataProjectDetailPage() {
               <div className="text-sm text-zinc-600 whitespace-pre-line leading-relaxed">
                 {project.instructions}
               </div>
+
+              {/* Sample video — video projects */}
+              {project.sampleVideoUrl && (
+                <div className="mt-4">
+                  <h3 className="text-sm font-semibold mb-1 text-zinc-700">Sample Video</h3>
+                  <p className="text-xs text-zinc-400 mb-2">Watch this example before recording your submission.</p>
+                  <video
+                    controls
+                    src={project.sampleVideoUrl}
+                    className="w-full rounded-xl bg-black max-h-72"
+                  />
+                </div>
+              )}
 
               {project.samplePrompts.length > 0 && (
                 <div className="mt-4">

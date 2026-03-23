@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { AdminLayout } from "@/components/admin-layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight } from "lucide-react";
+import { Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload } from "lucide-react";
 import Link from "next/link";
+import { uploadFile } from "@/lib/upload-file";
 
 const PROJECT_TYPES = [
   { value: "voice", label: "Voice / Audio", icon: Mic, color: "text-blue-600 bg-blue-50" },
@@ -65,6 +66,8 @@ export default function AdminDataProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [sampleVideoFile, setSampleVideoFile] = useState<File | null>(null);
+  const sampleVideoRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -99,6 +102,13 @@ export default function AdminDataProjectsPage() {
       : [];
 
     try {
+      // Upload sample video first if provided (video projects)
+      let sampleVideoUrl: string | null = null;
+      if (sampleVideoFile && form.projectType === "video") {
+        const uploaded = await uploadFile(sampleVideoFile, "sample-videos", sampleVideoFile.name);
+        sampleVideoUrl = uploaded.url;
+      }
+
       const res = await fetch("/api/admin/data-projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -107,6 +117,7 @@ export default function AdminDataProjectsPage() {
           acceptedFormats: formats,
           languages: langArray,
           samplePrompts: promptsArray,
+          sampleVideoUrl,
         }),
       });
       const data = await res.json();
@@ -115,6 +126,7 @@ export default function AdminDataProjectsPage() {
       } else {
         setMessage("Project created successfully!");
         setForm(emptyForm);
+        setSampleVideoFile(null);
         setShowForm(false);
         fetchProjects();
       }
@@ -245,6 +257,35 @@ export default function AdminDataProjectsPage() {
                 />
                 <p className="text-xs text-zinc-400 mt-1">Phrases or sentences the user should say or read aloud</p>
               </div>
+
+              {/* Sample video — video projects only */}
+              {form.projectType === "video" && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Sample Video (optional)</label>
+                  <div
+                    onClick={() => sampleVideoRef.current?.click()}
+                    className="border-2 border-dashed border-zinc-200 rounded-xl p-5 text-center cursor-pointer hover:border-purple-400 hover:bg-purple-50/20 transition-colors"
+                  >
+                    {sampleVideoFile ? (
+                      <div className="flex items-center justify-center gap-3">
+                        <Video size={20} className="text-purple-500" />
+                        <div className="text-left">
+                          <p className="text-sm font-medium text-foreground">{sampleVideoFile.name}</p>
+                          <p className="text-xs text-zinc-400">{(sampleVideoFile.size / (1024 * 1024)).toFixed(1)} MB</p>
+                        </div>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setSampleVideoFile(null); }} className="ml-2 text-xs text-red-500 hover:underline">Remove</button>
+                      </div>
+                    ) : (
+                      <div className="text-zinc-400">
+                        <Upload size={24} className="mx-auto mb-2 opacity-50" />
+                        <p className="text-sm font-medium">Click to upload a sample video</p>
+                        <p className="text-xs mt-1">mp4, mov, webm · Max 50MB · Users will watch this before submitting</p>
+                      </div>
+                    )}
+                  </div>
+                  <input ref={sampleVideoRef} type="file" accept="video/*,.mp4,.mov,.webm" onChange={(e) => setSampleVideoFile(e.target.files?.[0] || null)} className="hidden" />
+                </div>
+              )}
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
