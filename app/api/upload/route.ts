@@ -54,7 +54,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               "video/mp4", "video/quicktime", "video/webm", "video/3gpp",
               "image/jpeg", "image/png",
             ],
-            maximumSizeInBytes: 50 * 1024 * 1024, // 50 MB
+            maximumSizeInBytes: 500 * 1024 * 1024, // 500 MB
           };
         },
         onUploadCompleted: async () => {
@@ -88,8 +88,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const fileSizeMB = file.size / (1024 * 1024);
-    if (fileSizeMB > 50) {
-      return NextResponse.json({ message: "File exceeds 50MB limit" }, { status: 400 });
+    if (fileSizeMB > 500) {
+      return NextResponse.json({ message: "File exceeds 500MB limit" }, { status: 400 });
     }
 
     const ext = file.name.split(".").pop() || "bin";

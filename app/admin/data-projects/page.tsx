@@ -198,8 +198,8 @@ export default function AdminDataProjectsPage() {
           fetchProjects();
         }
       }
-    } catch {
-      setError("An error occurred");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setSubmitting(false);
     }
