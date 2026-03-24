@@ -24,28 +24,44 @@ class PCMCaptureProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs) {
-    const input = inputs[0];
-    if (!input || !input[0] || input[0].length === 0) return true;
+    // Wrap entirely in try/catch — any unhandled error inside process() would
+    // crash the audio rendering thread and trigger onprocessorerror on the
+    // main thread, potentially killing the browser tab.
+    try {
+      const input = inputs[0];
+      if (!input || !input[0] || input[0].length === 0) return true;
 
-    const frameCount = input[0].length;
+      const frameCount = input[0].length;
 
-    if (this._channels === 2 && input[1] && input[1].length > 0) {
-      // Stereo — interleave L/R samples
-      for (let i = 0; i < frameCount; i++) {
-        this._buffer.push(input[0][i]);
-        this._buffer.push(input[1][i]);
+      if (this._channels === 2 && input[1] && input[1].length > 0) {
+        // Stereo — interleave L/R samples
+        for (let i = 0; i < frameCount; i++) {
+          this._buffer.push(input[0][i]);
+          this._buffer.push(input[1][i]);
+        }
+      } else {
+        // Mono — left channel only
+        for (let i = 0; i < frameCount; i++) {
+          this._buffer.push(input[0][i]);
+        }
       }
-    } else {
-      // Mono — left channel only
-      for (let i = 0; i < frameCount; i++) {
-        this._buffer.push(input[0][i]);
-      }
-    }
 
-    // Flush complete chunks to the main thread
-    while (this._buffer.length >= this._chunkSize) {
-      const chunk = new Float32Array(this._buffer.splice(0, this._chunkSize));
-      this.port.postMessage(chunk, [chunk.buffer]); // transfer buffer to avoid copy
+      // Flush complete chunks to the main thread.
+      // Guard each postMessage individually — port.postMessage() can throw if
+      // the main thread has already called port.close() (e.g. during hang up),
+      // which would normally bubble out of process() and crash the audio thread.
+      while (this._buffer.length >= this._chunkSize) {
+        try {
+          const chunk = new Float32Array(this._buffer.splice(0, this._chunkSize));
+          this.port.postMessage(chunk, [chunk.buffer]);
+        } catch {
+          // Port closed — discard remaining buffered samples and stop
+          this._buffer = [];
+          break;
+        }
+      }
+    } catch {
+      // Swallow all errors to keep the audio thread alive
     }
 
     return true; // keep processor alive

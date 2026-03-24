@@ -29,15 +29,10 @@ type Phase =
   | "done"
   | "declined";      // receiver declined the call
 
-const ICE_SERVERS: RTCIceServer[] = [
+const FALLBACK_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
-  // TURN relays — required for mobile carrier NAT (MTN/Vodafone/AirtelTigo)
-  { urls: "turn:openrelay.metered.ca:80",    username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:openrelay.metered.ca:443",   username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:openrelay.metered.ca:3478",  username: "openrelayproject", credential: "openrelayproject" },
 ];
 
 // Encode PCM chunks into a WAV blob.
@@ -219,9 +214,23 @@ export default function CallRecordingPage() {
     return stream;
   };
 
+  // ── Fetch ICE servers (STUN + time-limited TURN) from server ─────────────
+  const fetchIceServers = async (): Promise<RTCIceServer[]> => {
+    try {
+      const res = await fetch("/api/turn-credentials");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+          return data.iceServers;
+        }
+      }
+    } catch { /* fall through */ }
+    return FALLBACK_ICE_SERVERS;
+  };
+
   // ── Create RTCPeerConnection ──────────────────────────────────────────────
-  const createPC = (onIceCandidate: (c: RTCIceCandidate) => void): RTCPeerConnection => {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  const createPC = (iceServers: RTCIceServer[], onIceCandidate: (c: RTCIceCandidate) => void): RTCPeerConnection => {
+    const pc = new RTCPeerConnection({ iceServers });
     pcRef.current = pc;
 
     pc.onicecandidate = (e) => { if (e.candidate) onIceCandidate(e.candidate); };
@@ -323,6 +332,9 @@ export default function CallRecordingPage() {
     workletNodeRef.current = workletNode;
     pcmChunksRef.current = [];
 
+    // Prevent an AudioWorklet crash from becoming an unhandled error that kills the tab
+    workletNode.onprocessorerror = () => {};
+
     // Receive PCM chunks from the audio thread and convert/store on the main thread
     workletNode.port.onmessage = (e) => {
       try {
@@ -416,7 +428,10 @@ export default function CallRecordingPage() {
       setPhase("creating-offer");
       isInitiatorRef.current = true;
 
-      const pc = createPC(async (candidate) => {
+      // Fetch time-limited TURN credentials (1-hour session, no 60s cutoff)
+      const iceServers = await fetchIceServers();
+
+      const pc = createPC(iceServers, async (candidate) => {
         if (callCodeRef.current) {
           // .catch() is critical — an unhandled rejection from a network error
           // here will crash the browser tab with "page reloaded due to error"
@@ -522,7 +537,10 @@ export default function CallRecordingPage() {
 
       if (sessionData.initiatorName) setCallerName(sessionData.initiatorName);
 
-      const pc = createPC(async (candidate) => {
+      // Fetch time-limited TURN credentials (1-hour session, no 60s cutoff)
+      const iceServers = await fetchIceServers();
+
+      const pc = createPC(iceServers, async (candidate) => {
         // .catch() is critical — an unhandled rejection from a network error
         // here will crash the browser tab with "page reloaded due to error"
         await fetch(`/api/calls/${code}`, {
