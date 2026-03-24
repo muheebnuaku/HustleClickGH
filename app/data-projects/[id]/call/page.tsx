@@ -22,6 +22,7 @@ type Phase =
   | "calling"        // caller is waiting for receiver to accept
   | "joining"
   | "connecting"
+  | "reconnecting"   // briefly disconnected — WebRTC is trying to recover
   | "recording"
   | "ended"
   | "submitting"
@@ -119,20 +120,29 @@ export default function CallRecordingPage() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seenInitIce = useRef(0);
   const seenRecvIce = useRef(0);
   const alreadySetAnswer = useRef(false);
+  const isRecordingRef = useRef(false);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const otherPersonName = targetUserName || callerName || "Your Partner";
   const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
   const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
   const clearConnectTimeout = () => { if (connectTimeoutRef.current) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null; } };
+  const clearDisconnectTimer = () => { if (disconnectTimerRef.current) { clearTimeout(disconnectTimerRef.current); disconnectTimerRef.current = null; } };
 
   const cleanup = useCallback(() => {
     stopPoll();
     stopTimer();
     clearConnectTimeout();
+    clearDisconnectTimer();
+    // Reset signaling refs so retry attempts start fresh
+    alreadySetAnswer.current = false;
+    seenInitIce.current = 0;
+    seenRecvIce.current = 0;
+    isRecordingRef.current = false;
     if (scriptProcessorRef.current) {
       scriptProcessorRef.current.disconnect();
       scriptProcessorRef.current.onaudioprocess = null;
@@ -214,13 +224,31 @@ export default function CallRecordingPage() {
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") {
+        // Clear any pending disconnect grace timer
+        clearDisconnectTimer();
         stopPoll(); // no more DB polling needed once peer-to-peer is up
         clearConnectTimeout();
         startRecording();
       }
-      if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+
+      if (pc.connectionState === "disconnected") {
+        // "disconnected" is transient — WebRTC often self-recovers within seconds.
+        // Show a reconnecting UI and only kill the call if it doesn't recover in 8s.
+        setPhase("reconnecting");
+        disconnectTimerRef.current = setTimeout(() => {
+          if (pcRef.current && pcRef.current.connectionState !== "connected") {
+            setError("Connection lost. Please try again.");
+            setPhase("ended");
+            cleanup();
+          }
+        }, 8000);
+      }
+
+      if (pc.connectionState === "failed") {
+        // "failed" is permanent — WebRTC will not recover without an ICE restart
+        clearDisconnectTimer();
         clearConnectTimeout();
-        setError("Connection lost. Please try again.");
+        setError("Connection failed. Check your network and try again.");
         setPhase("ended");
         stopPoll();
       }
@@ -231,7 +259,9 @@ export default function CallRecordingPage() {
 
   // ── Start PCM recording (mixes both local and remote audio → WAV) ─────────
   const startRecording = () => {
-    if (!streamRef.current) return;
+    // Guard: connection state can fire "connected" more than once in some browsers
+    if (isRecordingRef.current || !streamRef.current) return;
+    isRecordingRef.current = true;
     setPhase("recording");
 
     const { sampleRate, channels } = audioSpecs;
@@ -322,7 +352,7 @@ export default function CallRecordingPage() {
           }
         }
       } catch { /* ignore transient errors */ }
-    }, 4000); // 4s interval — much gentler on the DB connection pool
+    }, 1500); // 1.5s — fast enough to pick up TURN relay ICE candidates before the ICE timeout
   };
 
   // ── START CALL (initiator/caller - dialer mode) ────────────────────────────
@@ -403,10 +433,11 @@ export default function CallRecordingPage() {
 
         // Check if receiver accepted and provided answer
         if (data.status === "active" || data.answer) {
-          // Switch to regular polling for ICE candidates
-          stopPoll();
+          // Guard must wrap stopPoll+startPolling together so concurrent
+          // interval callbacks cannot race and wipe the newly started poll
           if (pcRef.current && !alreadySetAnswer.current) {
             alreadySetAnswer.current = true;
+            stopPoll(); // stop the 2s calling-poll before starting the ICE poll
             await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
             setPhase("connecting");
             startPolling(code, true);
@@ -741,6 +772,29 @@ export default function CallRecordingPage() {
             <p className="font-medium">Connecting...</p>
             <p className="text-sm text-zinc-400 mt-1">Establishing peer-to-peer connection</p>
           </Card>
+        )}
+
+        {/* ── RECONNECTING (transient network blip — give WebRTC 8s to self-recover) ── */}
+        {phase === "reconnecting" && (
+          <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-amber-600/40">
+            <div className="flex items-center justify-between px-5 pt-5 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center border-2 border-slate-600">
+                  <User className="w-5 h-5 text-slate-300" />
+                </div>
+                <div>
+                  <p className="text-white font-semibold text-base leading-tight">{otherPersonName}</p>
+                  <p className="text-amber-400 text-xs">Reconnecting...</p>
+                </div>
+              </div>
+              <Loader2 size={20} className="animate-spin text-amber-400" />
+            </div>
+            <div className="text-center py-6 px-5">
+              <p className="text-amber-300 text-sm">Network interruption detected</p>
+              <p className="text-slate-500 text-xs mt-1">Waiting for connection to restore (up to 8s)</p>
+              <p className="text-slate-600 text-xs mt-3">Recording is paused — do not close this page</p>
+            </div>
+          </div>
         )}
 
         {/* ── RECORDING ── */}
