@@ -24,7 +24,7 @@ export async function GET() {
   if (appName && apiKey) {
     try {
       const res = await fetch(
-        `https://${appName}.metered.ca/api/v1/turn/credentials?apiKey=${apiKey}`,
+        `https://${appName}.metered.live/api/v1/turn/credentials?apiKey=${apiKey}`,
         { next: { revalidate: 3000 } } // cache for 50 min (credentials valid 1h)
       );
       if (res.ok) {
