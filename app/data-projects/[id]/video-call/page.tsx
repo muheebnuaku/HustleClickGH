@@ -188,6 +188,10 @@ function VideoCallInner() {
     if (!targetCode.trim()) return;
     setError("");
     isInitiatorRef.current = true;
+    // Create AudioContext here (user gesture) so it isn't suspended on mobile
+    const ctx = new AudioContext();
+    audioCtxRef.current = ctx;
+    await ctx.resume();
     try {
       await initCamera(isFrontCamera ? "user" : "environment");
       const pc = createPeer("", true);
@@ -281,6 +285,14 @@ function VideoCallInner() {
   async function handleJoinCall(code: string) {
     setPhase("joining");
     isInitiatorRef.current = false;
+    // Create AudioContext early; resume on first user tap (iOS requires gesture)
+    const ctx = new AudioContext();
+    audioCtxRef.current = ctx;
+    ctx.resume().catch(() => {});
+    // Fallback: resume on any touch/click in case gesture hasn't happened yet
+    const resumeOnGesture = () => { ctx.resume().catch(() => {}); };
+    document.addEventListener("touchstart", resumeOnGesture, { once: true });
+    document.addEventListener("click", resumeOnGesture, { once: true });
     try {
       await initCamera("user");
       const res = await fetch(`/api/calls/${code}`);
@@ -389,20 +401,24 @@ function VideoCallInner() {
     const canvasStream = canvas.captureStream(30);
 
     // ── Audio mixing ────────────────────────────────────────────────────────
-    const audioCtx = new AudioContext();
+    // Reuse the AudioContext created during the user gesture in handleStartCall /
+    // handleJoinCall — creating it here (inside an async effect callback) can
+    // leave it suspended on iOS, causing complete silence.
+    const audioCtx = audioCtxRef.current ?? new AudioContext();
     audioCtxRef.current = audioCtx;
+    audioCtx.resume().catch(() => {}); // no-op if already running; unblocks if suspended
     const audioDest = audioCtx.createMediaStreamDestination();
 
-    // Remote audio: boosted gain so both sides are equally audible
+    // Remote audio: high gain so the other person is clearly audible
     const remoteGain = audioCtx.createGain();
-    remoteGain.gain.value = 2.0;
+    remoteGain.gain.value = 3.0;
     remoteGainRef.current = remoteGain;
     const remoteSource = audioCtx.createMediaStreamSource(remote);
     remoteSource.connect(remoteGain);
-    remoteGain.connect(audioDest);          // to recorder
-    remoteGain.connect(audioCtx.destination); // to speakers
+    remoteGain.connect(audioDest);             // to recorder
+    remoteGain.connect(audioCtx.destination);  // to speakers
 
-    // Local mic: normal gain, to recorder only (not to speakers — avoids echo)
+    // Local mic: moderate gain into recorder only (never to speakers — avoids echo)
     if (local) {
       const localGain = audioCtx.createGain();
       localGain.gain.value = 1.5;
@@ -410,7 +426,7 @@ function VideoCallInner() {
       localGain.connect(audioDest);
     }
 
-    // Mute the video element's built-in audio — we handle it via AudioContext
+    // Mute the video element's built-in audio — handled by AudioContext above
     if (fullVideoRef.current) fullVideoRef.current.muted = true;
 
     const combined = new MediaStream([
@@ -559,7 +575,7 @@ function VideoCallInner() {
 
     // Boost gain for loudspeaker mode, normal for earpiece
     if (remoteGainRef.current) {
-      remoteGainRef.current.gain.value = newSpeaker ? 4.0 : 2.0;
+      remoteGainRef.current.gain.value = newSpeaker ? 6.0 : 3.0;
     }
 
     // Try setSinkId — supported in Chrome/Edge desktop; no-op elsewhere
