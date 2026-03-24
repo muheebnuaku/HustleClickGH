@@ -129,6 +129,7 @@ export default function CallRecordingPage() {
   const mixedStreamRef = useRef<MediaStream | null>(null);
   const isInitiatorRef = useRef(false);
   const callCodeRef = useRef("");
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -165,6 +166,8 @@ export default function CallRecordingPage() {
     if (mixedStreamRef.current) mixedStreamRef.current.getTracks().forEach((t) => t.stop());
     if (audioContextRef.current) { audioContextRef.current.close(); audioContextRef.current = null; }
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
+    // Release the screen wake lock so the screen can sleep again
+    if (wakeLockRef.current) { wakeLockRef.current.release().catch(() => {}); wakeLockRef.current = null; }
   }, []);
 
   useEffect(() => () => cleanup(), [cleanup]);
@@ -256,10 +259,6 @@ export default function CallRecordingPage() {
           startPolling(callCodeRef.current, isInitiatorRef.current);
         }
 
-        // Ask the ICE agent to gather fresh candidates and try new paths.
-        // restartIce() is widely supported but not in very old browsers.
-        try { (pc as RTCPeerConnection & { restartIce?: () => void }).restartIce?.(); } catch { /* ignore */ }
-
         // Give WebRTC 20s to recover — Ghana carrier NAT reassignment can be slow.
         disconnectTimerRef.current = setTimeout(() => {
           if (pcRef.current && pcRef.current.connectionState !== "connected") {
@@ -289,6 +288,9 @@ export default function CallRecordingPage() {
     if (isRecordingRef.current || !streamRef.current) return;
     isRecordingRef.current = true;
     setPhase("recording");
+
+    // Keep the screen on — many Android browsers suspend WebRTC/audio when screen sleeps
+    navigator.wakeLock?.request("screen").then((lock) => { wakeLockRef.current = lock; }).catch(() => {});
 
     const { sampleRate, channels, bitDepth } = audioSpecs;
 
@@ -864,7 +866,7 @@ export default function CallRecordingPage() {
             </div>
             <div className="text-center py-6 px-5">
               <p className="text-amber-300 text-sm">Network interruption detected</p>
-              <p className="text-slate-500 text-xs mt-1">Waiting for connection to restore (up to 8s)</p>
+              <p className="text-slate-500 text-xs mt-1">Waiting for connection to restore (up to 20s)</p>
               <p className="text-slate-600 text-xs mt-3">Recording is paused — do not close this page</p>
             </div>
           </div>
