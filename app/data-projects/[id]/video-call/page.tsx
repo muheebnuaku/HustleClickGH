@@ -393,11 +393,7 @@ function VideoCallInner() {
       });
     }
 
-    if (isInitiatorRef.current) {
-      await uploadRecording();
-    } else {
-      setPhase("ended");
-    }
+    await uploadRecording();
   }
 
   // ── Upload recording ──────────────────────────────────────────────────────
