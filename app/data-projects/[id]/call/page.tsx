@@ -236,7 +236,7 @@ export default function CallRecordingPage() {
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") {
-        // Clear any pending disconnect grace timer
+        // Clear any pending disconnect grace timer and stop reconnection poll
         clearDisconnectTimer();
         stopPoll(); // no more DB polling needed once peer-to-peer is up
         clearConnectTimeout();
@@ -247,15 +247,27 @@ export default function CallRecordingPage() {
         // "disconnected" is transient — WebRTC often self-recovers within seconds.
         // Clear any previous timer first — connection can bounce in/out quickly.
         clearDisconnectTimer();
-        // Show a reconnecting UI and only kill the call if it doesn't recover in 8s.
         setPhase("reconnecting");
+
+        // Resume DB polling so ICE candidates can be relayed if WebRTC needs a
+        // new network path (e.g. cell tower handoff on MTN/Vodafone).
+        // Only start if not already polling.
+        if (callCodeRef.current && !pollRef.current) {
+          startPolling(callCodeRef.current, isInitiatorRef.current);
+        }
+
+        // Ask the ICE agent to gather fresh candidates and try new paths.
+        // restartIce() is widely supported but not in very old browsers.
+        try { (pc as RTCPeerConnection & { restartIce?: () => void }).restartIce?.(); } catch { /* ignore */ }
+
+        // Give WebRTC 20s to recover — Ghana carrier NAT reassignment can be slow.
         disconnectTimerRef.current = setTimeout(() => {
           if (pcRef.current && pcRef.current.connectionState !== "connected") {
             setError("Connection lost. Please try again.");
             setPhase("ended");
             cleanup();
           }
-        }, 8000);
+        }, 20000);
       }
 
       if (pc.connectionState === "failed") {
