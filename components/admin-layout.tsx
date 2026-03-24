@@ -30,8 +30,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   };
 
   const navItems = [
-    { href: "/admin", label: "Surveys", icon: LayoutDashboard },
     { href: "/admin/data-projects", label: "Data Projects", icon: Database },
+    { href: "/admin", label: "Surveys", icon: LayoutDashboard },
     { href: "/admin/users", label: "Users", icon: Users },
     { href: "/admin/payments", label: "Payments", icon: Wallet },
     { href: "/admin/responses", label: "Responses", icon: FileText },

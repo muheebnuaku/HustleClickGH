@@ -74,6 +74,8 @@ function VideoCallInner() {
   const callCodeRef = useRef("");
   // Buffer ICE candidates generated before the callCode is known (initiator only)
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
+  // Track whether this user started the call (initiator submits; receiver does not)
+  const isInitiatorRef = useRef(false);
 
   // State
   const [phase, setPhase] = useState<Phase>("setup");
@@ -171,6 +173,7 @@ function VideoCallInner() {
   async function handleStartCall() {
     if (!targetCode.trim()) return;
     setError("");
+    isInitiatorRef.current = true;
     try {
       await initCamera(isFrontCamera ? "user" : "environment");
       const pc = createPeer("", true);
@@ -263,6 +266,7 @@ function VideoCallInner() {
   // ── Join incoming call ────────────────────────────────────────────────────
   async function handleJoinCall(code: string) {
     setPhase("joining");
+    isInitiatorRef.current = false;
     try {
       await initCamera("user");
       const res = await fetch(`/api/calls/${code}`);
@@ -388,7 +392,7 @@ function VideoCallInner() {
       });
     }
 
-    if (recordedChunksRef.current.length > 0) {
+    if (recordedChunksRef.current.length > 0 && isInitiatorRef.current) {
       await uploadRecording();
     } else {
       setPhase("ended");
@@ -486,6 +490,9 @@ function VideoCallInner() {
   // (setup preview → PiP in active call). Without this the user can't see
   // themselves until they switch camera (which is the only other place we
   // assign srcObject to localVideoRef).
+  // Also re-applies the remote stream — ontrack fires during "connecting"
+  // when remoteVideoRef doesn't exist yet, so we must re-set it once the
+  // active-call UI mounts on "connected".
   // Also auto-starts recording the moment the connection is established.
   useEffect(() => {
     if (
@@ -494,6 +501,14 @@ function VideoCallInner() {
       localStreamRef.current
     ) {
       localVideoRef.current.srcObject = localStreamRef.current;
+    }
+    if (
+      (phase === "connected" || phase === "recording") &&
+      remoteVideoRef.current &&
+      remoteStreamRef.current
+    ) {
+      remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      remoteVideoRef.current.play().catch(() => {});
     }
     if (phase === "connected") {
       startRecording();

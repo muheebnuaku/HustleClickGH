@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload } from "lucide-react";
+import { Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload, Pencil } from "lucide-react";
 import Link from "next/link";
 import { uploadFile } from "@/lib/upload-file";
 
@@ -26,6 +26,7 @@ interface DataProject {
   id: string;
   title: string;
   description: string;
+  instructions: string;
   projectType: string;
   reward: number;
   maxSubmissions: number;
@@ -36,6 +37,18 @@ interface DataProject {
   rejectedCount: number;
   totalSubmissions: number;
   createdAt: string;
+  samplePrompts: string[];
+  languages: string[];
+  minDurationSecs: number;
+  maxDurationSecs: number;
+  maxFileSizeMB: number;
+  expiresAt: string | null;
+  malesNeeded: number | null;
+  femalesNeeded: number | null;
+  audioSampleRate: number | null;
+  audioChannels: number | null;
+  audioBitDepth: number | null;
+  recordingType: string | null;
 }
 
 const emptyForm = {
@@ -65,6 +78,7 @@ export default function AdminDataProjectsPage() {
   const [projects, setProjects] = useState<DataProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [sampleVideoFile, setSampleVideoFile] = useState<File | null>(null);
   const sampleVideoRef = useRef<HTMLInputElement>(null);
@@ -87,6 +101,41 @@ export default function AdminDataProjectsPage() {
 
   useEffect(() => { fetchProjects(); }, []);
 
+  const openEdit = (p: DataProject) => {
+    setForm({
+      title: p.title,
+      description: p.description,
+      projectType: p.projectType,
+      instructions: p.instructions || "",
+      samplePrompts: p.samplePrompts?.join("\n") || "",
+      reward: String(p.reward),
+      maxSubmissions: String(p.maxSubmissions),
+      languages: p.languages?.join(", ") || "",
+      minDurationSecs: String(p.minDurationSecs ?? 3),
+      maxDurationSecs: String(p.maxDurationSecs ?? 60),
+      maxFileSizeMB: String(p.maxFileSizeMB ?? 15),
+      expiresAt: p.expiresAt ? p.expiresAt.slice(0, 10) : "",
+      recordingType: p.recordingType || "conversation",
+      audioSampleRate: String(p.audioSampleRate ?? 16000),
+      audioChannels: String(p.audioChannels ?? 1),
+      audioBitDepth: String(p.audioBitDepth ?? 16),
+      malesNeeded: p.malesNeeded != null ? String(p.malesNeeded) : "",
+      femalesNeeded: p.femalesNeeded != null ? String(p.femalesNeeded) : "",
+    });
+    setEditingId(p.id);
+    setShowForm(true);
+    setError("");
+    setMessage("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+    setSampleVideoFile(null);
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -102,33 +151,52 @@ export default function AdminDataProjectsPage() {
       : [];
 
     try {
-      // Upload sample video first if provided (video projects)
-      let sampleVideoUrl: string | null = null;
-      if (sampleVideoFile && form.projectType === "video") {
-        const uploaded = await uploadFile(sampleVideoFile, "sample-videos", sampleVideoFile.name);
-        sampleVideoUrl = uploaded.url;
-      }
-
-      const res = await fetch("/api/admin/data-projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          acceptedFormats: formats,
-          languages: langArray,
-          samplePrompts: promptsArray,
-          sampleVideoUrl,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message || "Failed to create project");
+      if (editingId) {
+        // ── Edit existing project ──
+        const res = await fetch(`/api/admin/data-projects/${editingId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...form,
+            languages: langArray,
+            samplePrompts: promptsArray,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.message || "Failed to update project");
+        } else {
+          setMessage("Project updated successfully!");
+          closeForm();
+          fetchProjects();
+        }
       } else {
-        setMessage("Project created successfully!");
-        setForm(emptyForm);
-        setSampleVideoFile(null);
-        setShowForm(false);
-        fetchProjects();
+        // ── Create new project ──
+        let sampleVideoUrl: string | null = null;
+        if (sampleVideoFile && form.projectType === "video") {
+          const uploaded = await uploadFile(sampleVideoFile, "sample-videos", sampleVideoFile.name);
+          sampleVideoUrl = uploaded.url;
+        }
+
+        const res = await fetch("/api/admin/data-projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...form,
+            acceptedFormats: formats,
+            languages: langArray,
+            samplePrompts: promptsArray,
+            sampleVideoUrl,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.message || "Failed to create project");
+        } else {
+          setMessage("Project created successfully!");
+          closeForm();
+          fetchProjects();
+        }
       }
     } catch {
       setError("An error occurred");
@@ -185,7 +253,7 @@ export default function AdminDataProjectsPage() {
             <h1 className="text-2xl font-bold text-foreground">Dataset Collection</h1>
             <p className="text-sm text-zinc-500 mt-1">Create and manage AI data collection projects</p>
           </div>
-          <Button onClick={() => setShowForm(!showForm)} className="bg-blue-600 hover:bg-blue-700 text-white">
+          <Button onClick={() => { closeForm(); setShowForm(!showForm); }} className="bg-blue-600 hover:bg-blue-700 text-white">
             <Plus size={16} className="mr-2" />
             New Project
           </Button>
@@ -201,7 +269,7 @@ export default function AdminDataProjectsPage() {
         {/* Create Form */}
         {showForm && (
           <Card className="p-6 border-blue-200 bg-blue-50/30">
-            <h2 className="text-lg font-semibold mb-4">Create New Data Collection Project</h2>
+            <h2 className="text-lg font-semibold mb-4">{editingId ? "Edit Project" : "Create New Data Collection Project"}</h2>
             <form onSubmit={handleCreate} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -398,9 +466,9 @@ export default function AdminDataProjectsPage() {
 
               <div className="flex gap-3">
                 <Button type="submit" disabled={submitting} className="bg-blue-600 hover:bg-blue-700 text-white">
-                  {submitting ? <><Loader2 size={16} className="mr-2 animate-spin" />Creating...</> : "Create Project"}
+                  {submitting ? <><Loader2 size={16} className="mr-2 animate-spin" />{editingId ? "Saving..." : "Creating..."}</> : editingId ? "Save Changes" : "Create Project"}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={closeForm}>Cancel</Button>
               </div>
             </form>
           </Card>
@@ -450,6 +518,9 @@ export default function AdminDataProjectsPage() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-shrink-0">
+                    <button onClick={() => openEdit(p)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit project">
+                      <Pencil size={18} />
+                    </button>
                     <Link href={`/admin/data-projects/${p.id}`}>
                       <Button variant="outline" size="sm">
                         Review <ChevronRight size={14} className="ml-1" />
