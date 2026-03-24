@@ -97,8 +97,10 @@ export async function POST(
       );
     }
 
-    // Validate file size
-    if (fileSizeMB > project.maxFileSizeMB) {
+    // Validate file size — but skip this for live call recordings.
+    // A 60-minute WAV at 16kHz/16-bit is ~115 MB which exceeds typical project limits.
+    // The TURN-relayed recording is fully consented so we accept any size.
+    if (!isCallRecording && fileSizeMB > project.maxFileSizeMB) {
       return NextResponse.json(
         { message: `File size ${fileSizeMB.toFixed(1)}MB exceeds limit of ${project.maxFileSizeMB}MB` },
         { status: 400 }

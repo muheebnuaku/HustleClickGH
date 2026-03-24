@@ -121,6 +121,7 @@ export default function CallRecordingPage() {
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const pcmChunksRef = useRef<(Float32Array | Int16Array)[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const destinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const mixedStreamRef = useRef<MediaStream | null>(null);
   const isInitiatorRef = useRef(false);
   const callCodeRef = useRef("");
@@ -156,6 +157,7 @@ export default function CallRecordingPage() {
       workletNodeRef.current.disconnect();
       workletNodeRef.current = null;
     }
+    destinationRef.current = null;
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
     if (remoteStreamRef.current) remoteStreamRef.current.getTracks().forEach((t) => t.stop());
     if (mixedStreamRef.current) mixedStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -235,7 +237,9 @@ export default function CallRecordingPage() {
 
     pc.onicecandidate = (e) => { if (e.candidate) onIceCandidate(e.candidate); };
 
-    // Capture and play the remote audio stream as it arrives
+    // Capture and play the remote audio stream as it arrives.
+    // Also reconnect it into the recording mix if startRecording() already ran
+    // (can fire again with a new stream after ICE restart / reconnect).
     pc.ontrack = (e) => {
       if (e.streams[0]) {
         remoteStreamRef.current = e.streams[0];
@@ -243,48 +247,48 @@ export default function CallRecordingPage() {
           remoteAudioRef.current.srcObject = e.streams[0];
           remoteAudioRef.current.play().catch(() => {});
         }
+        // If recording is already active, wire the new remote stream into the mix
+        if (audioContextRef.current && destinationRef.current && isRecordingRef.current) {
+          try {
+            const src = audioContextRef.current.createMediaStreamSource(e.streams[0]);
+            src.connect(destinationRef.current);
+          } catch { /* ignore if context is closing */ }
+        }
       }
     };
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") {
-        // Clear any pending disconnect grace timer and stop reconnection poll
         clearDisconnectTimer();
-        stopPoll(); // no more DB polling needed once peer-to-peer is up
+        stopPoll();
         clearConnectTimeout();
         startRecording().catch(() => {});
       }
 
-      if (pc.connectionState === "disconnected") {
-        // "disconnected" is transient — WebRTC often self-recovers within seconds.
-        // Clear any previous timer first — connection can bounce in/out quickly.
+      // Both "disconnected" (transient) and "failed" (ICE gave up) go to reconnecting.
+      // WebRTC can self-recover from "disconnected". "failed" rarely self-recovers,
+      // but on Ghana mobile networks either state can flip back to "connected" when
+      // the radio gets a new path. We give 5 full minutes before giving up.
+      if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+        // Prevent stacking timers if the state bounces rapidly
         clearDisconnectTimer();
         setPhase("reconnecting");
 
         // Resume DB polling so ICE candidates can be relayed if WebRTC needs a
-        // new network path (e.g. cell tower handoff on MTN/Vodafone).
-        // Only start if not already polling.
+        // new network path (e.g. cell tower handoff on MTN/Vodafone/AirtelTigo).
         if (callCodeRef.current && !pollRef.current) {
           startPolling(callCodeRef.current, isInitiatorRef.current);
         }
 
-        // Give WebRTC 20s to recover — Ghana carrier NAT reassignment can be slow.
+        // 5-minute grace period before giving up.
+        // Call handleHangUp so the recording captured so far is encoded + uploaded
+        // rather than being silently discarded.
         disconnectTimerRef.current = setTimeout(() => {
           if (pcRef.current && pcRef.current.connectionState !== "connected") {
-            setError("Connection lost. Please try again.");
-            setPhase("ended");
-            cleanup();
+            setError("Connection lost. Saving your recording…");
+            handleHangUp();
           }
-        }, 20000);
-      }
-
-      if (pc.connectionState === "failed") {
-        // "failed" is permanent — WebRTC will not recover without an ICE restart
-        clearDisconnectTimer();
-        clearConnectTimeout();
-        setError("Connection failed. Check your network and try again.");
-        setPhase("ended");
-        stopPoll();
+        }, 300_000);
       }
     };
 
@@ -312,6 +316,7 @@ export default function CallRecordingPage() {
 
     // Mix local + remote into a single destination stream
     const destination = audioContext.createMediaStreamDestination();
+    destinationRef.current = destination;
     const localSource = audioContext.createMediaStreamSource(streamRef.current);
     localSource.connect(destination);
 
