@@ -276,7 +276,7 @@ export default function CallRecordingPage() {
     isRecordingRef.current = true;
     setPhase("recording");
 
-    const { sampleRate, channels } = audioSpecs;
+    const { sampleRate, channels, bitDepth } = audioSpecs;
 
     // Create AudioContext at the project's configured sample rate
     const audioContext = new AudioContext({ sampleRate });
