@@ -99,6 +99,7 @@ export default function CallRecordingPage() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [projectTitle, setProjectTitle] = useState("");
+  const [callerName, setCallerName] = useState("");
   const [personalCallCode, setPersonalCallCode] = useState("");
   const [audioSpecs, setAudioSpecs] = useState<{
     sampleRate: number; channels: number; bitDepth: number; recordingType: string | null;
@@ -123,6 +124,7 @@ export default function CallRecordingPage() {
   const alreadySetAnswer = useRef(false);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+  const otherPersonName = targetUserName || callerName || "Your Partner";
   const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
   const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
   const clearConnectTimeout = () => { if (connectTimeoutRef.current) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null; } };
@@ -435,6 +437,8 @@ export default function CallRecordingPage() {
       if (sessionData.status === "completed") throw new Error("This call has ended.");
       if (sessionData.status === "declined") throw new Error("This call was declined.");
 
+      if (sessionData.initiatorName) setCallerName(sessionData.initiatorName);
+
       const pc = createPC(async (candidate) => {
         await fetch(`/api/calls/${code}`, {
           method: "PATCH",
@@ -674,7 +678,7 @@ export default function CallRecordingPage() {
             </div>
             
             <div>
-              <p className="font-medium text-lg">Calling {targetUserName}...</p>
+              <p className="font-medium text-lg">Calling {otherPersonName}...</p>
               <p className="text-sm text-zinc-500 mt-1">Waiting for them to answer</p>
             </div>
 
@@ -714,9 +718,9 @@ export default function CallRecordingPage() {
             </div>
             <div>
               <p className="font-medium text-lg">Call Declined</p>
-              <p className="text-sm text-zinc-500 mt-1">{targetUserName} declined your call</p>
+              <p className="text-sm text-zinc-500 mt-1">{otherPersonName} declined your call</p>
             </div>
-            <Button onClick={() => { setError(""); setPhase("idle"); setTargetCodeInput(""); }} className="bg-blue-600 hover:bg-blue-700 text-white">
+            <Button onClick={() => { setError(""); setPhase("idle"); setTargetCodeInput(""); setTargetUserName(""); setCallerName(""); }} className="bg-blue-600 hover:bg-blue-700 text-white">
               Try Again
             </Button>
           </Card>
@@ -741,59 +745,87 @@ export default function CallRecordingPage() {
 
         {/* ── RECORDING ── */}
         {phase === "recording" && (
-          <Card className="p-6 space-y-5">
-            {/* Recording indicator */}
-            <div className="text-center">
-              <div className="flex items-center justify-center gap-3 mb-2">
-                <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
-                <span className="font-bold text-red-600 text-lg">RECORDING</span>
+          <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-slate-700">
+            {/* Top bar — name of person */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center border-2 border-slate-600">
+                  <User className="w-5 h-5 text-slate-300" />
+                </div>
+                <div>
+                  <p className="text-white font-semibold text-base leading-tight">{otherPersonName}</p>
+                  <p className="text-slate-400 text-xs">Live call</p>
+                </div>
               </div>
-              <p className="text-4xl font-mono font-bold text-foreground">{formatTime(timer)}</p>
-              <p className="text-xs text-zinc-400 mt-1">
-                Recording as WAV · {audioSpecs.sampleRate >= 1000 ? `${audioSpecs.sampleRate / 1000} kHz` : `${audioSpecs.sampleRate} Hz`} · {audioSpecs.channels === 1 ? "Mono" : "Stereo"} · {audioSpecs.bitDepth}-bit
+              {/* Recording badge */}
+              <div className="flex items-center gap-1.5 bg-red-600/20 border border-red-500/40 rounded-full px-3 py-1">
+                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-red-400 text-xs font-semibold tracking-wide">REC</span>
+              </div>
+            </div>
+
+            {/* Timer */}
+            <div className="text-center py-4">
+              <p className="text-5xl font-mono font-bold text-white tracking-wider">{formatTime(timer)}</p>
+              <p className="text-slate-500 text-xs mt-1.5">
+                WAV · {audioSpecs.sampleRate >= 1000 ? `${audioSpecs.sampleRate / 1000} kHz` : `${audioSpecs.sampleRate} Hz`} · {audioSpecs.channels === 1 ? "Mono" : "Stereo"} · {audioSpecs.bitDepth}-bit
               </p>
             </div>
 
             {/* Audio bars animation */}
-            <div className="flex items-end justify-center gap-1 h-12">
-              {[...Array(12)].map((_, i) => (
+            <div className="flex items-end justify-center gap-1 h-16 px-8 mb-4">
+              {[...Array(16)].map((_, i) => (
                 <div
                   key={i}
-                  className="w-2 bg-blue-500 rounded-full opacity-80"
+                  className="flex-1 bg-blue-500 rounded-full opacity-80"
                   style={{
-                    height: `${20 + Math.sin(Date.now() / 200 + i) * 15}%`,
-                    animation: `pulse ${0.5 + i * 0.1}s ease-in-out infinite alternate`,
-                    animationDelay: `${i * 0.05}s`,
+                    minHeight: "4px",
+                    animation: `pulse ${0.4 + i * 0.08}s ease-in-out infinite alternate`,
+                    animationDelay: `${i * 0.04}s`,
+                    height: `${25 + Math.abs(Math.sin(i * 0.7)) * 65}%`,
                   }}
                 />
               ))}
             </div>
 
-            {/* Your call code (in case partner needs it again) */}
-            {myCallCode && (
-              <div className="text-center text-xs text-zinc-400">
-                Your code: <span className="font-mono font-medium text-zinc-600">{myCallCode}</span>
+            {/* Muted indicator */}
+            {isMuted && (
+              <div className="text-center mb-2">
+                <span className="bg-red-500/20 border border-red-500/40 text-red-400 text-xs px-3 py-1 rounded-full">
+                  Microphone muted
+                </span>
               </div>
             )}
 
-            {/* Controls */}
-            <div className="flex gap-3">
-              <Button
-                onClick={toggleMute}
-                variant="outline"
-                className={`flex-1 ${isMuted ? "border-red-200 text-red-600 bg-red-50" : ""}`}
-              >
-                {isMuted ? <MicOff size={18} className="mr-2" /> : <Mic size={18} className="mr-2" />}
-                {isMuted ? "Unmute" : "Mute"}
-              </Button>
-              <Button
-                onClick={handleHangUp}
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white"
-              >
-                <PhoneOff size={18} className="mr-2" />Hang Up
-              </Button>
+            {/* Controls — circular buttons like WhatsApp */}
+            <div className="flex items-center justify-center gap-8 px-6 py-6 border-t border-slate-700/60">
+              {/* Mute button */}
+              <div className="flex flex-col items-center gap-1.5">
+                <button
+                  onClick={toggleMute}
+                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
+                    isMuted
+                      ? "bg-red-600 hover:bg-red-700"
+                      : "bg-slate-700 hover:bg-slate-600"
+                  }`}
+                >
+                  {isMuted ? <MicOff size={22} className="text-white" /> : <Mic size={22} className="text-white" />}
+                </button>
+                <span className="text-slate-400 text-xs">{isMuted ? "Unmute" : "Mute"}</span>
+              </div>
+
+              {/* Hang Up button */}
+              <div className="flex flex-col items-center gap-1.5">
+                <button
+                  onClick={handleHangUp}
+                  className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center transition-colors shadow-lg"
+                >
+                  <PhoneOff size={26} className="text-white" />
+                </button>
+                <span className="text-slate-400 text-xs">Hang Up</span>
+              </div>
             </div>
-          </Card>
+          </div>
         )}
 
         {/* ── SUBMITTING ── */}
@@ -831,7 +863,7 @@ export default function CallRecordingPage() {
           <Card className="p-6 text-center space-y-4">
             <Radio size={40} className="mx-auto text-zinc-400" />
             <p className="font-medium text-zinc-600">Call ended</p>
-            <Button onClick={() => { setError(""); setPhase("idle"); setMyCallCode(""); setTargetCodeInput(""); setTimer(0); }} className="bg-blue-600 hover:bg-blue-700 text-white">
+            <Button onClick={() => { setError(""); setPhase("idle"); setMyCallCode(""); setTargetCodeInput(""); setTargetUserName(""); setCallerName(""); setTimer(0); }} className="bg-blue-600 hover:bg-blue-700 text-white">
               Try Again
             </Button>
           </Card>

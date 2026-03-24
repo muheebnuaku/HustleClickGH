@@ -25,10 +25,16 @@ export async function GET(
       return NextResponse.json({ message: "Call session not found" }, { status: 404 });
     }
 
+    const initiator = await prisma.user.findUnique({
+      where: { id: callSession.initiatorId },
+      select: { fullName: true },
+    });
+
     return NextResponse.json({
       callCode: callSession.callCode,
       projectId: callSession.projectId,
       initiatorId: callSession.initiatorId,
+      initiatorName: initiator?.fullName || "Unknown",
       receiverId: callSession.receiverId,
       offer: callSession.offer ? JSON.parse(callSession.offer) : null,
       answer: callSession.answer ? JSON.parse(callSession.answer) : null,
