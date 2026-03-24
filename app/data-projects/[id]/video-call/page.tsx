@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { uploadFile } from "@/lib/upload-file";
 import {
   PhoneOff,
   Mic,
@@ -123,8 +124,14 @@ function VideoCallInner() {
     remoteStreamRef.current = remoteStream;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
 
-    pc.ontrack = (e) =>
+    pc.ontrack = (e) => {
       e.streams[0].getTracks().forEach((t) => remoteStream.addTrack(t));
+      // iOS requires explicit play() after tracks are added
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteStream;
+        remoteVideoRef.current.play().catch(() => {});
+      }
+    };
 
     pc.onicecandidate = async ({ candidate }) => {
       if (!candidate || !callCodeRef.current) return;
@@ -391,21 +398,34 @@ function VideoCallInner() {
       const type = recordedChunksRef.current[0]?.type || "video/webm";
       const blob = new Blob(recordedChunksRef.current, { type });
       const ext = type.includes("mp4") ? "mp4" : "webm";
-      const file = new File(
-        [blob],
-        `video-call-${Date.now()}.${ext}`,
-        { type }
-      );
-      const form = new FormData();
-      form.append("file", file);
-      form.append("consentGiven", "true");
-      await fetch(`/api/data-projects/${projectId}/submit`, {
+      const fileName = `video-call-${Date.now()}.${ext}`;
+
+      // Step 1: upload blob to storage (Vercel Blob in prod, local in dev)
+      const uploadData = await uploadFile(blob, projectId, fileName);
+
+      // Step 2: register the submission with the data project
+      const submitRes = await fetch(`/api/data-projects/${projectId}/submit`, {
         method: "POST",
-        body: form,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileUrl: uploadData.url,
+          fileName: uploadData.fileName,
+          fileType: uploadData.fileType,
+          fileSizeMB: uploadData.fileSizeMB,
+          language: null,
+          promptUsed: "Live video call recording",
+          consentGiven: true,
+        }),
       });
+
+      const submitData = await submitRes.json();
+      if (!submitRes.ok && submitData.message !== "You have already submitted to this project") {
+        throw new Error(submitData.message);
+      }
+
       setPhase("done");
-    } catch {
-      setError("Upload failed. Please try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed. Please try again.");
       setPhase("ended");
     }
   }
@@ -451,10 +471,26 @@ function VideoCallInner() {
 
   // ── Mount ─────────────────────────────────────────────────────────────────
   useEffect(() => {
-    initCamera();
+    // Only init camera in setup screen for outgoing calls.
+    // handleJoinCall() handles camera init for the receiver.
+    if (!joinCode) initCamera();
     if (joinCode) handleJoinCall(joinCode);
     return () => cleanup();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-apply local stream srcObject whenever the DOM element changes phase
+  // (setup preview → PiP in active call). Without this the user can't see
+  // themselves until they switch camera (which is the only other place we
+  // assign srcObject to localVideoRef).
+  useEffect(() => {
+    if (
+      (phase === "connected" || phase === "recording") &&
+      localVideoRef.current &&
+      localStreamRef.current
+    ) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+    }
+  }, [phase]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -657,7 +693,7 @@ function VideoCallInner() {
 
       {/* ── Local PiP — bottom-right, above controls ── */}
       <div
-        className="absolute bottom-36 right-4 z-20 w-28 h-44 rounded-2xl overflow-hidden shadow-2xl bg-zinc-900"
+        className="absolute bottom-48 right-4 z-20 w-28 h-44 rounded-2xl overflow-hidden shadow-2xl bg-zinc-900"
         style={{ border: "2px solid rgba(255,255,255,0.2)" }}
       >
         {isVideoOff ? (
@@ -676,7 +712,10 @@ function VideoCallInner() {
       </div>
 
       {/* ── Control bar ── */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 pb-10 flex items-center justify-center gap-4">
+      <div
+        className="absolute bottom-0 left-0 right-0 z-20 pt-3 flex items-center justify-center gap-4"
+        style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 2.5rem)" }}
+      >
         {/* Flip camera */}
         <button
           onClick={switchCamera}
