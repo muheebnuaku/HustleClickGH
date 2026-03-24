@@ -245,6 +245,8 @@ export default function CallRecordingPage() {
 
       if (pc.connectionState === "disconnected") {
         // "disconnected" is transient — WebRTC often self-recovers within seconds.
+        // Clear any previous timer first — connection can bounce in/out quickly.
+        clearDisconnectTimer();
         // Show a reconnecting UI and only kill the call if it doesn't recover in 8s.
         setPhase("reconnecting");
         disconnectTimerRef.current = setTimeout(() => {
@@ -294,52 +296,61 @@ export default function CallRecordingPage() {
 
     mixedStreamRef.current = destination.stream;
 
-    // ScriptProcessorNode captures raw PCM at the AudioContext sample rate
-    const bufferSize = 4096;
+    // ScriptProcessorNode captures raw PCM at the AudioContext sample rate.
+    // Use a larger buffer (16384) to reduce callback frequency and main-thread pressure.
+    // IMPORTANT: ScriptProcessorNode must have an output path to the destination to fire
+    // onaudioprocess, but we use a GainNode(0) so it doesn't double-play audio to speakers
+    // (remoteAudioRef already handles playback — connecting directly would cause echo+crash).
+    const bufferSize = 16384;
     const scriptProcessor = audioContext.createScriptProcessor(bufferSize, channels, channels);
     scriptProcessorRef.current = scriptProcessor;
     pcmChunksRef.current = [];
 
     const mixedSource = audioContext.createMediaStreamSource(destination.stream);
     mixedSource.connect(scriptProcessor);
-    scriptProcessor.connect(audioContext.destination);
+
+    // Route to a silent gain node — keeps the node alive without playing to speakers
+    const silentGain = audioContext.createGain();
+    silentGain.gain.value = 0;
+    scriptProcessor.connect(silentGain);
+    silentGain.connect(audioContext.destination);
 
     scriptProcessor.onaudioprocess = (e) => {
-      if (channels === 2) {
-        const left = e.inputBuffer.getChannelData(0);
-        const right = e.inputBuffer.getChannelData(1);
-        if (bitDepth === 16) {
-          // Convert float32 → int16 immediately — halves the memory stored per chunk
-          const interleaved = new Int16Array(left.length * 2);
-          for (let i = 0; i < left.length; i++) {
-            const l = Math.max(-1, Math.min(1, left[i]));
-            const r = Math.max(-1, Math.min(1, right[i]));
-            interleaved[i * 2]     = l < 0 ? l * 0x8000 : l * 0x7fff;
-            interleaved[i * 2 + 1] = r < 0 ? r * 0x8000 : r * 0x7fff;
+      try {
+        if (channels === 2) {
+          const left = e.inputBuffer.getChannelData(0);
+          const right = e.inputBuffer.getChannelData(1);
+          if (bitDepth === 16) {
+            const interleaved = new Int16Array(left.length * 2);
+            for (let i = 0; i < left.length; i++) {
+              const l = Math.max(-1, Math.min(1, left[i]));
+              const r = Math.max(-1, Math.min(1, right[i]));
+              interleaved[i * 2]     = l < 0 ? l * 0x8000 : l * 0x7fff;
+              interleaved[i * 2 + 1] = r < 0 ? r * 0x8000 : r * 0x7fff;
+            }
+            pcmChunksRef.current.push(interleaved);
+          } else {
+            const interleaved = new Float32Array(left.length * 2);
+            for (let i = 0; i < left.length; i++) {
+              interleaved[i * 2] = left[i];
+              interleaved[i * 2 + 1] = right[i];
+            }
+            pcmChunksRef.current.push(interleaved);
           }
-          pcmChunksRef.current.push(interleaved);
         } else {
-          const interleaved = new Float32Array(left.length * 2);
-          for (let i = 0; i < left.length; i++) {
-            interleaved[i * 2] = left[i];
-            interleaved[i * 2 + 1] = right[i];
+          const mono = e.inputBuffer.getChannelData(0);
+          if (bitDepth === 16) {
+            const samples = new Int16Array(mono.length);
+            for (let i = 0; i < mono.length; i++) {
+              const s = Math.max(-1, Math.min(1, mono[i]));
+              samples[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+            }
+            pcmChunksRef.current.push(samples);
+          } else {
+            pcmChunksRef.current.push(new Float32Array(mono));
           }
-          pcmChunksRef.current.push(interleaved);
         }
-      } else {
-        const mono = e.inputBuffer.getChannelData(0);
-        if (bitDepth === 16) {
-          // Convert float32 → int16 immediately — halves the memory stored per chunk
-          const samples = new Int16Array(mono.length);
-          for (let i = 0; i < mono.length; i++) {
-            const s = Math.max(-1, Math.min(1, mono[i]));
-            samples[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-          }
-          pcmChunksRef.current.push(samples);
-        } else {
-          pcmChunksRef.current.push(new Float32Array(mono));
-        }
-      }
+      } catch { /* swallow — a single bad buffer should not crash the tab */ }
     };
 
     setTimer(0);
@@ -578,7 +589,11 @@ export default function CallRecordingPage() {
     }
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-    handleRecordingDone();
+    // handleRecordingDone is async — must catch or an unhandled rejection crashes the tab
+    handleRecordingDone().catch(() => {
+      setError("Upload failed. Your recording was not saved.");
+      setPhase("ended");
+    });
   };
 
   // ── AUTO SUBMIT AFTER RECORDING STOPS ────────────────────────────────────
@@ -593,15 +608,16 @@ export default function CallRecordingPage() {
       return;
     }
 
-    const wavBlob = encodeWAV(chunks, sampleRate, channels, bitDepth);
-
-    if (wavBlob.size < 1000) {
-      setError("Recording was too short. Please try again.");
-      setPhase("ended");
-      return;
-    }
-
     try {
+      // encodeWAV allocates a large ArrayBuffer — keep inside try so OOM throws are caught
+      const wavBlob = encodeWAV(chunks, sampleRate, channels, bitDepth);
+
+      if (wavBlob.size < 1000) {
+        setError("Recording was too short. Please try again.");
+        setPhase("ended");
+        return;
+      }
+
       const recordingName = `call-recording-${Date.now()}.wav`;
       const uploadData = await uploadFile(wavBlob, projectId, recordingName);
 
