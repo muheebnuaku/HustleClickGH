@@ -48,6 +48,7 @@ type Phase =
   | "connecting"
   | "connected"
   | "recording"
+  | "gender-select"
   | "ended"
   | "uploading"
   | "done"
@@ -87,6 +88,8 @@ function VideoCallInner() {
   const [isSwapped, setIsSwapped] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [remoteUserName, setRemoteUserName] = useState("");
+  const [requiresGender, setRequiresGender] = useState(false);
+  const [selectedGender, setSelectedGender] = useState<"male" | "female" | "">("");
   const [error, setError] = useState("");
 
   // ── Camera init ───────────────────────────────────────────────────────────
@@ -345,8 +348,17 @@ function VideoCallInner() {
     // Mix both sides' audio; keep remote video
     const ctx = new AudioContext();
     const dest = ctx.createMediaStreamDestination();
+
+    // Route remote audio to recorder AND to speakers (fixes "can't hear" on iOS)
+    const remoteSource = ctx.createMediaStreamSource(remote);
+    remoteSource.connect(dest);
+    remoteSource.connect(ctx.destination);
+
+    // Route local mic to recorder only (not back to speakers — avoids echo)
     if (local) ctx.createMediaStreamSource(local).connect(dest);
-    ctx.createMediaStreamSource(remote).connect(dest);
+
+    // Mute the video element's built-in audio — we handle it via AudioContext
+    if (fullVideoRef.current) fullVideoRef.current.muted = true;
 
     const combined = new MediaStream([
       ...dest.stream.getAudioTracks(),
@@ -393,11 +405,15 @@ function VideoCallInner() {
       });
     }
 
-    await uploadRecording();
+    if (requiresGender) {
+      setPhase("gender-select");
+    } else {
+      await uploadRecording();
+    }
   }
 
   // ── Upload recording ──────────────────────────────────────────────────────
-  async function uploadRecording() {
+  async function uploadRecording(gender?: string) {
     setPhase("uploading");
     try {
       const type = recordedChunksRef.current[0]?.type || "video/webm";
@@ -422,6 +438,7 @@ function VideoCallInner() {
           language: null,
           promptUsed: "Live video call recording",
           consentGiven: true,
+          gender: gender || null,
         }),
       });
 
@@ -478,6 +495,15 @@ function VideoCallInner() {
 
   // ── Mount ─────────────────────────────────────────────────────────────────
   useEffect(() => {
+    // Check if project requires gender selection
+    fetch(`/api/data-projects/${projectId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const p = data.project;
+        if (p?.malesNeeded || p?.femalesNeeded) setRequiresGender(true);
+      })
+      .catch(() => {});
+
     // Only init camera in setup screen for outgoing calls.
     // handleJoinCall() handles camera init for the receiver.
     if (!joinCode) initCamera();
@@ -632,6 +658,51 @@ function VideoCallInner() {
         <p className="text-white text-lg font-semibold">
           {phase === "joining" ? "Joining call…" : "Connecting…"}
         </p>
+      </div>
+    );
+  }
+
+  /* Gender selection — shown after call when project requires gender */
+  if (phase === "gender-select") {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 text-center gap-6">
+        <div className="w-20 h-20 rounded-full bg-zinc-800 flex items-center justify-center">
+          <PhoneOff size={36} className="text-zinc-500" />
+        </div>
+        <div>
+          <p className="text-white text-xl font-bold">Call Ended</p>
+          <p className="text-zinc-500 text-sm mt-1">{fmt(callDuration)}</p>
+          <p className="text-zinc-400 text-sm mt-3">Select your gender to submit the recording</p>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setSelectedGender("male")}
+            className={`px-8 py-3 rounded-2xl font-semibold text-sm transition-colors ${
+              selectedGender === "male"
+                ? "bg-blue-600 text-white"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
+          >
+            Male
+          </button>
+          <button
+            onClick={() => setSelectedGender("female")}
+            className={`px-8 py-3 rounded-2xl font-semibold text-sm transition-colors ${
+              selectedGender === "female"
+                ? "bg-pink-600 text-white"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
+          >
+            Female
+          </button>
+        </div>
+        <button
+          onClick={() => uploadRecording(selectedGender)}
+          disabled={!selectedGender}
+          className="bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white font-semibold px-10 py-3 rounded-2xl transition-colors"
+        >
+          Submit Recording
+        </button>
       </div>
     );
   }
