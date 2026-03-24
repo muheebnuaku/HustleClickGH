@@ -7,7 +7,7 @@ import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Save, Camera, User } from "lucide-react";
+import { Save, Camera, User, Copy, Check } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -32,6 +32,7 @@ interface UserData {
   totalEarned: number;
   referralCode: string;
   createdAt: string;
+  personalCallCode?: string | null;
 }
 
 interface UserStats {
@@ -51,6 +52,7 @@ export default function ProfilePage() {
   const [userData, setUserData] = useState<UserData | null>(null);
   const [userStats, setUserStats] = useState<UserStats>({ surveysCompleted: 0, referrals: 0 });
   const [hasNationalId, setHasNationalId] = useState(false);
+  const [copiedCallCode, setCopiedCallCode] = useState(false);
 
   const {
     register,
@@ -404,6 +406,29 @@ export default function ProfilePage() {
                 <p className="text-sm text-zinc-500">Referral Code</p>
                 <p className="text-lg font-semibold text-blue-600">{userData?.referralCode || "Loading..."}</p>
               </div>
+              {userData?.personalCallCode && (
+                <div className="md:col-span-2">
+                  <p className="text-sm text-zinc-500 mb-1">Your Call Code</p>
+                  <div className="flex items-center gap-3">
+                    <p className="text-2xl font-bold tracking-widest text-purple-600 bg-purple-50 dark:bg-purple-900/20 px-4 py-2 rounded-xl border border-purple-200 dark:border-purple-700 font-mono">
+                      {userData.personalCallCode}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(userData.personalCallCode!);
+                        setCopiedCallCode(true);
+                        setTimeout(() => setCopiedCallCode(false), 2000);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 text-sm font-medium transition-colors"
+                    >
+                      {copiedCallCode ? <Check size={15} /> : <Copy size={15} />}
+                      {copiedCallCode ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-1.5">Share this code so others can call you directly</p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
