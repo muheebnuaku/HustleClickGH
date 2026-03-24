@@ -390,7 +390,7 @@ export default function DataProjectDetailPage() {
                         <Mic size={20} className="text-blue-600" />
                       </div>
                       <div className="flex-1">
-                        <h2 className="font-semibold text-foreground mb-0.5">Live Call Recording</h2>
+                        <h2 className="font-semibold text-foreground mb-0.5">Live Audio Call Recording</h2>
                         <p className="text-sm text-zinc-500 mb-3">
                           Connect with another participant in real time. Both sides record automatically during the call.
                         </p>
@@ -403,6 +403,26 @@ export default function DataProjectDetailPage() {
                     </div>
                   </Card>
                 )}
+
+                {/* Video call option — available for all projects */}
+                <Card className="p-5 border-purple-100 bg-purple-50/40">
+                  <div className="flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center shrink-0">
+                      <Video size={20} className="text-purple-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="font-semibold text-foreground mb-0.5">Live Video Call Recording</h2>
+                      <p className="text-sm text-zinc-500 mb-3">
+                        Start a face-to-face video session. Call someone using their unique call code and record the conversation.
+                      </p>
+                      <Link href={`/data-projects/${projectId}/video-call`}>
+                        <Button className="bg-purple-600 hover:bg-purple-700 text-white w-full sm:w-auto">
+                          <Video size={16} className="mr-2" />Start Video Call
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                </Card>
 
                 {project.projectType === "voice" && (
                   <div className="flex items-center gap-3">

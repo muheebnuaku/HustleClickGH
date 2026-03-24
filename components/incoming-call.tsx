@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Phone, PhoneOff, User } from "lucide-react";
+import { Phone, PhoneOff, User, Video } from "lucide-react";
 
 interface IncomingCallData {
   callCode: string;
@@ -12,6 +12,7 @@ interface IncomingCallData {
   callerImage: string | null;
   projectId: string | null;
   projectTitle: string | null;
+  callType: string;
   createdAt: string;
 }
 
@@ -82,12 +83,13 @@ export function IncomingCallListener() {
 
       if (res.ok) {
         const data = await res.json();
-        // Navigate to the call page with the call code
+        const isVideo = incomingCall.callType === "video";
         if (data.projectId) {
-          // If it's a project call, go to the project call page
-          router.push(`/data-projects/${data.projectId}/call?join=${incomingCall.callCode}`);
+          const callPath = isVideo ? "video-call" : "call";
+          router.push(
+            `/data-projects/${data.projectId}/${callPath}?join=${incomingCall.callCode}`
+          );
         } else {
-          // For now, just navigate to a generic call page (we can create one)
           router.push(`/data-projects/incoming?callCode=${incomingCall.callCode}`);
         }
       }
@@ -142,7 +144,7 @@ export function IncomingCallListener() {
 
           {/* Caller Info */}
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
-            Incoming Call
+            Incoming {incomingCall.callType === "video" ? "Video " : ""}Call
           </h2>
           <p className="text-lg text-gray-700 dark:text-gray-300 mb-2">
             {incomingCall.callerName}
@@ -170,7 +172,11 @@ export function IncomingCallListener() {
               disabled={isAccepting || isDeclining}
               className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center transition-all transform hover:scale-105 disabled:opacity-50 animate-bounce"
             >
-              <Phone className="w-8 h-8" />
+              {incomingCall.callType === "video" ? (
+                <Video className="w-8 h-8" />
+              ) : (
+                <Phone className="w-8 h-8" />
+              )}
             </button>
           </div>
 

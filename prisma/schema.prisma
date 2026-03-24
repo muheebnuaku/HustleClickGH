@@ -195,6 +195,7 @@ model CallSession {
   initiatorIce    String    @default("[]") // JSON array of RTCIceCandidate from initiator
   receiverIce     String    @default("[]") // JSON array of RTCIceCandidate from receiver
   status          String    @default("waiting") // calling | waiting | active | completed | declined | missed
+  callType        String    @default("audio")   // "audio" | "video"
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }

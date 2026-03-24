@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { projectId, offer, targetUserCode } = body;
+    const { projectId, offer, targetUserCode, callType } = body;
 
     if (!offer) {
       return NextResponse.json({ message: "offer is required" }, { status: 400 });
@@ -60,7 +60,8 @@ export async function POST(request: Request) {
       },
     });
 
-    const callSession = await prisma.callSession.create({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const callSession = await (prisma.callSession.create as any)({
       data: {
         callCode,
         projectId: projectId || null,
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
         targetUserCode: targetUserCode.toUpperCase(),
         offer: JSON.stringify(offer),
         status: "calling",
+        callType: callType === "video" ? "video" : "audio",
       },
     });
 
@@ -135,6 +137,7 @@ export async function GET() {
         callerImage: caller?.image,
         projectId: incomingCall.projectId,
         projectTitle,
+        callType: (incomingCall as Record<string, unknown>).callType as string ?? "audio",
         createdAt: incomingCall.createdAt,
       },
     });
