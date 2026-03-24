@@ -11,8 +11,6 @@ import {
   Video,
   VideoOff,
   RefreshCw,
-  Circle,
-  Square,
   ChevronLeft,
   AlertCircle,
   Loader2,
@@ -74,6 +72,8 @@ function VideoCallInner() {
   const callingPollRef = useRef<NodeJS.Timeout | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const callCodeRef = useRef("");
+  // Buffer ICE candidates generated before the callCode is known (initiator only)
+  const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
 
   // State
   const [phase, setPhase] = useState<Phase>("setup");
@@ -134,7 +134,12 @@ function VideoCallInner() {
     };
 
     pc.onicecandidate = async ({ candidate }) => {
-      if (!candidate || !callCodeRef.current) return;
+      if (!candidate) return;
+      if (!callCodeRef.current) {
+        // callCode not yet known (initiator waiting for server response) — buffer it
+        pendingIceRef.current.push(candidate.toJSON());
+        return;
+      }
       await fetch(`/api/calls/${callCodeRef.current}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -193,7 +198,7 @@ function VideoCallInner() {
       callCodeRef.current = callCode;
       setRemoteUserName(targetUserName || "");
 
-      // Re-wire ICE with real code now that we have it
+      // Re-wire ICE handler now that we have a real callCode
       pc.onicecandidate = async ({ candidate }) => {
         if (!candidate) return;
         await fetch(`/api/calls/${callCode}`, {
@@ -202,6 +207,16 @@ function VideoCallInner() {
           body: JSON.stringify({ type: "ice-initiator", candidate }),
         });
       };
+
+      // Flush any ICE candidates that were buffered while waiting for callCode
+      for (const candidate of pendingIceRef.current) {
+        await fetch(`/api/calls/${callCode}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "ice-initiator", candidate }),
+        });
+      }
+      pendingIceRef.current = [];
 
       startCallingPoll(callCode);
     } catch (err) {
@@ -296,7 +311,7 @@ function VideoCallInner() {
         }
         processed = candidates.length;
       } catch {}
-    }, 3000);
+    }, 1500);
   }
 
   // ── Timer ─────────────────────────────────────────────────────────────────
@@ -315,16 +330,6 @@ function VideoCallInner() {
   }
 
   // ── Recording ─────────────────────────────────────────────────────────────
-  function toggleRecord() {
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
-      setIsRecording(false);
-      setPhase("connected");
-    } else {
-      startRecording();
-    }
-  }
-
   function startRecording() {
     const remote = remoteStreamRef.current;
     const local = localStreamRef.current;
@@ -354,7 +359,6 @@ function VideoCallInner() {
     };
     rec.start(1000);
     setIsRecording(true);
-    setPhase("recording");
   }
 
   // ── Hang up ───────────────────────────────────────────────────────────────
@@ -482,6 +486,7 @@ function VideoCallInner() {
   // (setup preview → PiP in active call). Without this the user can't see
   // themselves until they switch camera (which is the only other place we
   // assign srcObject to localVideoRef).
+  // Also auto-starts recording the moment the connection is established.
   useEffect(() => {
     if (
       (phase === "connected" || phase === "recording") &&
@@ -490,7 +495,10 @@ function VideoCallInner() {
     ) {
       localVideoRef.current.srcObject = localStreamRef.current;
     }
-  }, [phase]);
+    if (phase === "connected") {
+      startRecording();
+    }
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -758,23 +766,6 @@ function VideoCallInner() {
           title={isVideoOff ? "Turn on camera" : "Turn off camera"}
         >
           {isVideoOff ? <VideoOff size={22} /> : <Video size={22} />}
-        </button>
-
-        {/* Record */}
-        <button
-          onClick={toggleRecord}
-          className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
-            isRecording
-              ? "bg-red-600 hover:bg-red-700"
-              : "bg-white/20 backdrop-blur-sm hover:bg-white/30"
-          }`}
-          title={isRecording ? "Stop recording" : "Start recording"}
-        >
-          {isRecording ? (
-            <Square size={18} className="text-white" fill="white" />
-          ) : (
-            <Circle size={20} className="text-white" />
-          )}
         </button>
       </div>
     </div>
