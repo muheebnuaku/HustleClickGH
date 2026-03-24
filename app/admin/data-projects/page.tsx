@@ -377,7 +377,7 @@ export default function AdminDataProjectsPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Max File Size (MB)</label>
-                  <Input type="number" min="1" max="50" value={form.maxFileSizeMB} onChange={(e) => setForm({ ...form, maxFileSizeMB: e.target.value })} />
+                  <Input type="number" min="1" max="300" value={form.maxFileSizeMB} onChange={(e) => setForm({ ...form, maxFileSizeMB: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Languages (comma-separated)</label>

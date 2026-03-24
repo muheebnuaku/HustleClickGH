@@ -62,7 +62,7 @@ function VideoCallInner() {
 
   // Refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const fullVideoRef = useRef<HTMLVideoElement>(null);   // full-screen element (remote by default)
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -84,6 +84,7 @@ function VideoCallInner() {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isFrontCamera, setIsFrontCamera] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
+  const [isSwapped, setIsSwapped] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [remoteUserName, setRemoteUserName] = useState("");
   const [error, setError] = useState("");
@@ -124,14 +125,14 @@ function VideoCallInner() {
     // Remote stream
     const remoteStream = new MediaStream();
     remoteStreamRef.current = remoteStream;
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
+    if (fullVideoRef.current) fullVideoRef.current.srcObject = remoteStream;
 
     pc.ontrack = (e) => {
       e.streams[0].getTracks().forEach((t) => remoteStream.addTrack(t));
       // iOS requires explicit play() after tracks are added
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStream;
-        remoteVideoRef.current.play().catch(() => {});
+      if (fullVideoRef.current) {
+        fullVideoRef.current.srcObject = remoteStream;
+        fullVideoRef.current.play().catch(() => {});
       }
     };
 
@@ -392,7 +393,7 @@ function VideoCallInner() {
       });
     }
 
-    if (recordedChunksRef.current.length > 0 && isInitiatorRef.current) {
+    if (isInitiatorRef.current) {
       await uploadRecording();
     } else {
       setPhase("ended");
@@ -405,6 +406,8 @@ function VideoCallInner() {
     try {
       const type = recordedChunksRef.current[0]?.type || "video/webm";
       const blob = new Blob(recordedChunksRef.current, { type });
+      // If somehow the recording is empty (call was too brief), skip silently
+      if (blob.size === 0) { setPhase("ended"); return; }
       const ext = type.includes("mp4") ? "mp4" : "webm";
       const fileName = `video-call-${Date.now()}.${ext}`;
 
@@ -495,25 +498,43 @@ function VideoCallInner() {
   // active-call UI mounts on "connected".
   // Also auto-starts recording the moment the connection is established.
   useEffect(() => {
-    if (
-      (phase === "connected" || phase === "recording") &&
-      localVideoRef.current &&
-      localStreamRef.current
-    ) {
-      localVideoRef.current.srcObject = localStreamRef.current;
-    }
-    if (
-      (phase === "connected" || phase === "recording") &&
-      remoteVideoRef.current &&
-      remoteStreamRef.current
-    ) {
-      remoteVideoRef.current.srcObject = remoteStreamRef.current;
-      remoteVideoRef.current.play().catch(() => {});
+    if (phase === "connected" || phase === "recording") {
+      // Local video always shows local stream (muted to prevent echo)
+      if (localVideoRef.current && localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+      // Full-screen video always shows remote stream by default
+      if (fullVideoRef.current && remoteStreamRef.current) {
+        fullVideoRef.current.srcObject = remoteStreamRef.current;
+        fullVideoRef.current.play().catch(() => {});
+      }
     }
     if (phase === "connected") {
       startRecording();
     }
   }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Swap local ↔ remote video positions ───────────────────────────────────
+  function handleSwap() {
+    if (!fullVideoRef.current || !localVideoRef.current) return;
+    const newSwapped = !isSwapped;
+    if (newSwapped) {
+      // Local becomes full screen, remote becomes PiP
+      fullVideoRef.current.srcObject = localStreamRef.current;
+      fullVideoRef.current.muted = true;
+      localVideoRef.current.srcObject = remoteStreamRef.current;
+      localVideoRef.current.muted = false;
+      localVideoRef.current.play().catch(() => {});
+    } else {
+      // Remote back to full screen, local back to PiP
+      fullVideoRef.current.srcObject = remoteStreamRef.current;
+      fullVideoRef.current.muted = false;
+      fullVideoRef.current.play().catch(() => {});
+      localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.muted = true;
+    }
+    setIsSwapped(newSwapped);
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -679,12 +700,12 @@ function VideoCallInner() {
   // ── Active call (connected / recording) ───────────────────────────────────
   return (
     <div className="fixed inset-0 bg-black overflow-hidden select-none">
-      {/* ── Remote video (full screen) ── */}
+      {/* ── Full-screen video (remote by default, local when swapped) ── */}
       <video
-        ref={remoteVideoRef}
+        ref={fullVideoRef}
         autoPlay
         playsInline
-        className="absolute inset-0 w-full h-full object-cover"
+        className={`absolute inset-0 w-full h-full object-cover ${isSwapped ? "scale-x-[-1]" : ""}`}
       />
 
       {/* Top gradient */}
@@ -714,12 +735,14 @@ function VideoCallInner() {
         </div>
       </div>
 
-      {/* ── Local PiP — bottom-right, above controls ── */}
+      {/* ── PiP — tap to swap who's bigger ── */}
       <div
-        className="absolute bottom-48 right-4 z-20 w-28 h-44 rounded-2xl overflow-hidden shadow-2xl bg-zinc-900"
+        onClick={handleSwap}
+        className="absolute bottom-48 right-4 z-20 w-28 h-44 rounded-2xl overflow-hidden shadow-2xl bg-zinc-900 cursor-pointer active:scale-95 transition-transform"
         style={{ border: "2px solid rgba(255,255,255,0.2)" }}
+        title="Tap to swap"
       >
-        {isVideoOff ? (
+        {isVideoOff && !isSwapped ? (
           <div className="w-full h-full flex items-center justify-center">
             <VideoOff size={24} className="text-zinc-500" />
           </div>
@@ -729,9 +752,15 @@ function VideoCallInner() {
             autoPlay
             playsInline
             muted
-            className="w-full h-full object-cover scale-x-[-1]"
+            className={`w-full h-full object-cover ${!isSwapped ? "scale-x-[-1]" : ""}`}
           />
         )}
+        {/* Swap hint */}
+        <div className="absolute inset-0 flex items-end justify-center pb-1.5 pointer-events-none">
+          <span className="text-white/60 text-[10px] font-medium bg-black/30 px-1.5 py-0.5 rounded-full">
+            {isSwapped ? "Remote" : "You"} · tap to swap
+          </span>
+        </div>
       </div>
 
       {/* ── Control bar ── */}
