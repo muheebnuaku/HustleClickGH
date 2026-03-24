@@ -90,6 +90,7 @@ function VideoCallInner() {
   const [remoteUserName, setRemoteUserName] = useState("");
   const [requiresGender, setRequiresGender] = useState(false);
   const [selectedGender, setSelectedGender] = useState<"male" | "female" | "">("");
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState("");
 
   // ── Camera init ───────────────────────────────────────────────────────────
@@ -415,6 +416,7 @@ function VideoCallInner() {
   // ── Upload recording ──────────────────────────────────────────────────────
   async function uploadRecording(gender?: string) {
     setPhase("uploading");
+    setUploadProgress(0);
     try {
       const type = recordedChunksRef.current[0]?.type || "video/webm";
       const blob = new Blob(recordedChunksRef.current, { type });
@@ -424,7 +426,7 @@ function VideoCallInner() {
       const fileName = `video-call-${Date.now()}.${ext}`;
 
       // Step 1: upload blob to storage (Vercel Blob in prod, local in dev)
-      const uploadData = await uploadFile(blob, projectId, fileName);
+      const uploadData = await uploadFile(blob, projectId, fileName, setUploadProgress);
 
       // Step 2: register the submission with the data project
       const submitRes = await fetch(`/api/data-projects/${projectId}/submit`, {
@@ -737,12 +739,20 @@ function VideoCallInner() {
   /* Uploading */
   if (phase === "uploading") {
     return (
-      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center gap-4">
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center gap-6 p-6">
         <Loader2 size={48} className="text-green-500 animate-spin" />
-        <p className="text-white text-lg font-semibold">
-          Uploading recording…
-        </p>
-        <p className="text-zinc-500 text-sm">Please don&apos;t close this page</p>
+        <div className="w-full max-w-xs text-center">
+          <p className="text-white text-lg font-semibold mb-1">Uploading recording…</p>
+          <p className="text-zinc-500 text-sm mb-4">Please don&apos;t close this page</p>
+          {/* Progress bar */}
+          <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden">
+            <div
+              className="bg-green-500 h-2.5 rounded-full transition-all duration-300"
+              style={{ width: `${uploadProgress}%` }}
+            />
+          </div>
+          <p className="text-zinc-400 text-sm mt-2">{uploadProgress}%</p>
+        </div>
       </div>
     );
   }

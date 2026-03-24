@@ -12,7 +12,8 @@
 export async function uploadFile(
   file: File | Blob,
   projectId: string,
-  suggestedName?: string
+  suggestedName?: string,
+  onProgress?: (pct: number) => void,
 ): Promise<{ url: string; fileName: string; fileType: string; fileSizeMB: number }> {
   const name =
     suggestedName ||
@@ -34,6 +35,7 @@ export async function uploadFile(
     const blob = await upload(`datasets/${projectId}/${uniqueName}`, blobFile, {
       access: "public",
       handleUploadUrl: "/api/upload",
+      onUploadProgress: onProgress ? ({ percentage }) => onProgress(percentage) : undefined,
     });
 
     return {
@@ -44,16 +46,32 @@ export async function uploadFile(
     };
   }
 
-  // Local dev: FormData POST to /api/upload → public/uploads/
+  // Local dev: FormData POST via XHR so we can track progress
   const formData = new FormData();
-  const uploadFile =
+  const uploadBlob =
     file instanceof File ? file : new File([file], name, { type: file.type });
-  formData.append("file", uploadFile);
+  formData.append("file", uploadBlob);
   formData.append("projectId", projectId);
 
-  const res = await fetch("/api/upload", { method: "POST", body: formData });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || "Upload failed");
+  const data = await new Promise<{ url: string; fileName: string; fileType: string; fileSizeMB: number }>(
+    (resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/upload");
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(JSON.parse(xhr.responseText));
+        } else {
+          try { reject(new Error(JSON.parse(xhr.responseText).message || "Upload failed")); }
+          catch { reject(new Error("Upload failed")); }
+        }
+      };
+      xhr.onerror = () => reject(new Error("Upload failed"));
+      xhr.send(formData);
+    }
+  );
 
   return {
     url: data.url,
