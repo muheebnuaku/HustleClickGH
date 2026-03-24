@@ -26,10 +26,14 @@ export async function uploadFile(
     const blobFile =
       file instanceof File ? file : new File([file], name, { type: file.type });
 
-    const blob = await upload(`datasets/${projectId}/${name}`, blobFile, {
+    // Add a random suffix to avoid "blob already exists" errors on re-uploads
+    const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
+    const base = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
+    const uniqueName = `${base}-${Date.now()}${ext}`;
+
+    const blob = await upload(`datasets/${projectId}/${uniqueName}`, blobFile, {
       access: "public",
       handleUploadUrl: "/api/upload",
-      addRandomSuffix: true,
     });
 
     return {
