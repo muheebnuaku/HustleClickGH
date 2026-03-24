@@ -873,8 +873,8 @@ export default function CallRecordingPage() {
             </div>
             <div className="text-center py-6 px-5">
               <p className="text-amber-300 text-sm">Network interruption detected</p>
-              <p className="text-slate-500 text-xs mt-1">Waiting for connection to restore (up to 20s)</p>
-              <p className="text-slate-600 text-xs mt-3">Recording is paused — do not close this page</p>
+              <p className="text-slate-500 text-xs mt-1">Reconnecting automatically — do not close this page</p>
+              <p className="text-slate-600 text-xs mt-3">Recording continues in the background</p>
             </div>
           </div>
         )}
