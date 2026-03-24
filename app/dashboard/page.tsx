@@ -15,8 +15,10 @@ import {
   ArrowDownRight,
   Target,
   RefreshCw,
-  PlusCircle,
   Database,
+  Wallet,
+  Bell,
+  Mic,
 } from "lucide-react";
 
 interface DashboardStats {
@@ -31,11 +33,19 @@ interface DashboardStats {
 
 interface RecentActivity {
   id: string;
-  type: "survey" | "withdrawal" | "referral";
+  type: "survey" | "withdrawal" | "referral" | "data_project";
   title: string;
   amount: number;
   status: "completed" | "pending" | "approved" | "rejected";
   date: string;
+}
+
+interface ActiveDataProject {
+  id: string;
+  title: string;
+  description: string;
+  reward: number;
+  slotsRemaining: number;
 }
 
 export default function DashboardPage() {
@@ -54,18 +64,21 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [myActiveSurveys, setMyActiveSurveys] = useState<{ id: string; title: string; description: string }[]>([]);
+  const [activeDataProjects, setActiveDataProjects] = useState<ActiveDataProject[]>([]);
 
   const fetchData = async () => {
     try {
-      const [statsRes, surveysRes, mySurveysRes] = await Promise.all([
+      const [statsRes, surveysRes, mySurveysRes, dataProjectsRes] = await Promise.all([
         fetch("/api/dashboard/stats"),
         fetch("/api/surveys"),
         fetch("/api/my-surveys"),
+        fetch("/api/data-projects"),
       ]);
 
       const statsData = await statsRes.json();
       const surveysData = await surveysRes.json();
       const mySurveysData = await mySurveysRes.json();
+      const dataProjectsData = await dataProjectsRes.json();
 
       setStats({
         balance: statsData.balance || 0,
@@ -81,6 +94,19 @@ export default function DashboardPage() {
       setMyActiveSurveys(Array.isArray(mySurveysData)
         ? mySurveysData.filter((s) => s.status === "active").slice(0, 3)
         : []);
+
+      // Active data projects with slots remaining
+      const projects: ActiveDataProject[] = (dataProjectsData.projects || [])
+        .filter((p: { status: string; slotsRemaining: number }) => p.status === "active" && p.slotsRemaining > 0)
+        .slice(0, 3)
+        .map((p: { id: string; title: string; description: string; reward: number; slotsRemaining: number }) => ({
+          id: p.id,
+          title: p.title,
+          description: p.description,
+          reward: p.reward,
+          slotsRemaining: p.slotsRemaining,
+        }));
+      setActiveDataProjects(projects);
 
       setRecentActivity(statsData.recentActivity || []);
     } catch (error) {
@@ -160,18 +186,11 @@ export default function DashboardPage() {
 
   const quickActions = [
     {
-      title: "Create Survey",
-      description: "Start earning now",
-      icon: PlusCircle,
-      href: "/my-surveys/create",
-      color: "orange",
-    },
-    {
-      title: "My Surveys",
-      description: "View and manage",
-      icon: ClipboardList,
-      href: "/my-surveys",
-      color: "blue",
+      title: "Data Projects",
+      description: "Earn by recording",
+      icon: Database,
+      href: "/data-projects",
+      color: "green",
     },
     {
       title: "Take Surveys",
@@ -181,11 +200,18 @@ export default function DashboardPage() {
       color: "purple",
     },
     {
-      title: "Data Projects",
-      description: "Earn by recording",
-      icon: Database,
-      href: "/data-projects",
-      color: "green",
+      title: "My Surveys",
+      description: "View and manage",
+      icon: ClipboardList,
+      href: "/my-surveys",
+      color: "blue",
+    },
+    {
+      title: "Withdraw",
+      description: "Cash out earnings",
+      icon: Wallet,
+      href: "/income",
+      color: "orange",
     },
   ];
 
@@ -293,77 +319,125 @@ export default function DashboardPage() {
               View all <ChevronRight size={16} />
             </Link>
           </div>
-          
-          {recentActivity.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center">
-                <div className="w-16 h-16 bg-zinc-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <ClipboardList className="text-zinc-400" size={32} />
-                </div>
-                <h3 className="font-semibold text-foreground mb-2">Active Surveys</h3>
-                {/* Show up to 3 active surveys, no buttons or links */}
-                {myActiveSurveys.length > 0 ? (
-                  <div className="space-y-2">
-                    {myActiveSurveys.map((survey) => (
-                      <div key={survey.id} className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-left">
-                        <div className="flex items-center gap-2">
-                          <ClipboardList className="text-blue-600" size={18} />
-                          <span className="font-medium text-foreground">{survey.title}</span>
-                          <span className="ml-auto px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Active</span>
-                        </div>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">{survey.description}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400">No active surveys at the moment.</p>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="p-0">
-                <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                  {recentActivity.slice(0, 5).map((activity) => (
-                    <div key={activity.id} className="flex items-center justify-between p-4">
+
+          <Card>
+            <CardContent className="p-0">
+              <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
+
+                {/* Notifications: Active Data Projects */}
+                {activeDataProjects.map((project) => (
+                  <Link key={project.id} href={`/data-projects/${project.id}`}>
+                    <div className="flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors cursor-pointer">
                       <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                          activity.type === "survey" ? "bg-blue-100 dark:bg-blue-900/30" :
-                          activity.type === "withdrawal" ? "bg-orange-100 dark:bg-orange-900/30" :
-                          activity.type === "referral" ? "bg-purple-100 dark:bg-purple-900/30" :
-                          "bg-green-100 dark:bg-green-900/30"
-                        }`}>
-                          {activity.type === "survey" && <ClipboardList className="text-blue-600" size={18} />}
-                          {activity.type === "withdrawal" && <ArrowDownRight className="text-orange-600" size={18} />}
-                          {activity.type === "referral" && <Users className="text-purple-600" size={18} />}
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center bg-green-100 dark:bg-green-900/30">
+                          <Mic className="text-green-600" size={18} />
                         </div>
                         <div>
-                          <p className="font-medium text-foreground">{activity.title}</p>
-                          <p className="text-sm text-zinc-500 dark:text-zinc-400">{activity.date}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-foreground">{project.title}</p>
+                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 font-medium">NEW</span>
+                          </div>
+                          <p className="text-sm text-zinc-500 dark:text-zinc-400">{project.slotsRemaining} slots left · Tap to earn</p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className={`font-semibold ${
-                          activity.type === "withdrawal" ? "text-orange-600" : "text-green-600"
-                        }`}>
-                          {activity.type === "withdrawal" ? "-" : "+"}{formatCurrency(activity.amount)}
-                        </p>
-                        <p className={`text-xs px-2 py-0.5 rounded-full inline-block ${
-                          activity.status === "completed" || activity.status === "approved"
-                            ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
-                            : activity.status === "pending"
-                            ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400"
-                            : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
-                        }`}>
-                          {activity.status}
-                        </p>
+                        <p className="font-semibold text-green-600">+{formatCurrency(project.reward)}</p>
+                        <p className="text-xs text-zinc-400">per approval</p>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                  </Link>
+                ))}
+
+                {/* Notifications: Available Surveys */}
+                {stats.availableSurveys > 0 && (
+                  <Link href="/surveys">
+                    <div className="flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors cursor-pointer">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center bg-blue-100 dark:bg-blue-900/30">
+                          <Bell className="text-blue-600" size={18} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-foreground">Surveys Available</p>
+                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium">NEW</span>
+                          </div>
+                          <p className="text-sm text-zinc-500 dark:text-zinc-400">{stats.availableSurveys} surveys waiting · Tap to earn</p>
+                        </div>
+                      </div>
+                      <ChevronRight size={16} className="text-zinc-400" />
+                    </div>
+                  </Link>
+                )}
+
+                {/* My Active Surveys */}
+                {myActiveSurveys.map((survey) => (
+                  <div key={survey.id} className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center bg-purple-100 dark:bg-purple-900/30">
+                        <ClipboardList className="text-purple-600" size={18} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-foreground">{survey.title}</p>
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Active</span>
+                        </div>
+                        <p className="text-sm text-zinc-500 dark:text-zinc-400">Your survey · collecting responses</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Transaction History */}
+                {recentActivity.slice(0, 5).map((activity) => (
+                  <div key={activity.id} className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                        activity.type === "survey" ? "bg-blue-100 dark:bg-blue-900/30" :
+                        activity.type === "withdrawal" ? "bg-orange-100 dark:bg-orange-900/30" :
+                        activity.type === "data_project" ? "bg-green-100 dark:bg-green-900/30" :
+                        "bg-purple-100 dark:bg-purple-900/30"
+                      }`}>
+                        {activity.type === "survey" && <ClipboardList className="text-blue-600" size={18} />}
+                        {activity.type === "withdrawal" && <ArrowDownRight className="text-orange-600" size={18} />}
+                        {activity.type === "data_project" && <Mic className="text-green-600" size={18} />}
+                        {activity.type === "referral" && <Users className="text-purple-600" size={18} />}
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground">{activity.title}</p>
+                        <p className="text-sm text-zinc-500 dark:text-zinc-400">{activity.date}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className={`font-semibold ${
+                        activity.type === "withdrawal" ? "text-orange-600" : "text-green-600"
+                      }`}>
+                        {activity.type === "withdrawal" ? "-" : "+"}{formatCurrency(activity.amount)}
+                      </p>
+                      <p className={`text-xs px-2 py-0.5 rounded-full inline-block ${
+                        activity.status === "completed" || activity.status === "approved"
+                          ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                          : activity.status === "pending"
+                          ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400"
+                          : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+                      }`}>
+                        {activity.status}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Empty state */}
+                {activeDataProjects.length === 0 && stats.availableSurveys === 0 && myActiveSurveys.length === 0 && recentActivity.length === 0 && (
+                  <div className="py-10 text-center text-zinc-500 dark:text-zinc-400">
+                    <Bell size={32} className="mx-auto mb-3 opacity-30" />
+                    <p className="font-medium">No activity yet</p>
+                    <p className="text-sm mt-1">Complete a survey or data project to get started</p>
+                  </div>
+                )}
+
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </DashboardLayout>

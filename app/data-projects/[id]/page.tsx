@@ -563,7 +563,7 @@ export default function DataProjectDetailPage() {
                       !file || !consent || uploading ||
                       ((project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
                     }
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                    className="w-full bg-green-500 hover:bg-green-600 text-white"
                   >
                     {uploading ? (
                       <><Loader2 size={16} className="mr-2 animate-spin" />Uploading & Submitting...</>

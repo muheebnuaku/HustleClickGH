@@ -17,7 +17,7 @@ export async function GET() {
     // Run all queries in parallel to minimise total latency.
     // The survey count uses the simplest possible filter — no subqueries —
     // to avoid the 8-second statement timeout on Supabase free tier.
-    const [user, availableSurveys, recentResponses, recentWithdrawals] =
+    const [user, availableSurveys, recentResponses, recentWithdrawals, recentDataSubmissions] =
       await Promise.all([
         prisma.user.findUnique({
           where: { id: userId },
@@ -64,6 +64,18 @@ export async function GET() {
           orderBy: { requestedAt: "desc" },
           take: 3,
         }),
+
+        prisma.dataSubmission.findMany({
+          where: { userId },
+          select: {
+            id: true,
+            submittedAt: true,
+            status: true,
+            project: { select: { title: true, reward: true } },
+          },
+          orderBy: { submittedAt: "desc" },
+          take: 5,
+        }),
       ]);
 
     if (!user) {
@@ -87,6 +99,14 @@ export async function GET() {
         amount: w.amount,
         status: w.status as "pending" | "approved" | "rejected",
         date: new Date(w.requestedAt).toLocaleDateString(),
+      })),
+      ...recentDataSubmissions.map((d) => ({
+        id: d.id,
+        type: "data_project" as const,
+        title: d.project.title,
+        amount: d.project.reward,
+        status: d.status as "pending" | "approved" | "rejected",
+        date: new Date(d.submittedAt).toLocaleDateString(),
       })),
     ]
       .sort((a, b) => (a.date < b.date ? 1 : -1))
