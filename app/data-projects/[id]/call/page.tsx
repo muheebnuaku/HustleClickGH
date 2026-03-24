@@ -123,7 +123,7 @@ export default function CallRecordingPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const pcmChunksRef = useRef<(Float32Array | Int16Array)[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
   const mixedStreamRef = useRef<MediaStream | null>(null);
@@ -156,10 +156,10 @@ export default function CallRecordingPage() {
     seenInitIce.current = 0;
     seenRecvIce.current = 0;
     isRecordingRef.current = false;
-    if (scriptProcessorRef.current) {
-      scriptProcessorRef.current.disconnect();
-      scriptProcessorRef.current.onaudioprocess = null;
-      scriptProcessorRef.current = null;
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.close();
+      workletNodeRef.current.disconnect();
+      workletNodeRef.current = null;
     }
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
     if (remoteStreamRef.current) remoteStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -243,7 +243,7 @@ export default function CallRecordingPage() {
         clearDisconnectTimer();
         stopPoll(); // no more DB polling needed once peer-to-peer is up
         clearConnectTimeout();
-        startRecording();
+        startRecording().catch(() => {});
       }
 
       if (pc.connectionState === "disconnected") {
@@ -283,7 +283,10 @@ export default function CallRecordingPage() {
   };
 
   // ── Start PCM recording (mixes both local and remote audio → WAV) ─────────
-  const startRecording = () => {
+  // Uses AudioWorklet (runs in dedicated audio thread, not the JS main thread).
+  // This prevents the "page reloaded because an error occurred" crash that
+  // ScriptProcessorNode caused by blocking the main thread on mobile browsers.
+  const startRecording = async () => {
     // Guard: connection state can fire "connected" more than once in some browsers
     if (isRecordingRef.current || !streamRef.current) return;
     isRecordingRef.current = true;
@@ -298,7 +301,7 @@ export default function CallRecordingPage() {
     const audioContext = new AudioContext({ sampleRate });
     audioContextRef.current = audioContext;
 
-    // Mix local + remote into a single destination
+    // Mix local + remote into a single destination stream
     const destination = audioContext.createMediaStreamDestination();
     const localSource = audioContext.createMediaStreamSource(streamRef.current);
     localSource.connect(destination);
@@ -310,62 +313,43 @@ export default function CallRecordingPage() {
 
     mixedStreamRef.current = destination.stream;
 
-    // ScriptProcessorNode captures raw PCM at the AudioContext sample rate.
-    // Use a larger buffer (16384) to reduce callback frequency and main-thread pressure.
-    // IMPORTANT: ScriptProcessorNode must have an output path to the destination to fire
-    // onaudioprocess, but we use a GainNode(0) so it doesn't double-play audio to speakers
-    // (remoteAudioRef already handles playback — connecting directly would cause echo+crash).
-    const bufferSize = 16384;
-    const scriptProcessor = audioContext.createScriptProcessor(bufferSize, channels, channels);
-    scriptProcessorRef.current = scriptProcessor;
+    // Load the AudioWorklet processor module (served from /public/)
+    await audioContext.audioWorklet.addModule("/audio-worklet-processor.js");
+
+    // Create the worklet node — runs PCM capture in dedicated audio rendering thread
+    const workletNode = new AudioWorkletNode(audioContext, "pcm-capture", {
+      processorOptions: { channels, chunkSize: 4096 },
+    });
+    workletNodeRef.current = workletNode;
     pcmChunksRef.current = [];
 
-    const mixedSource = audioContext.createMediaStreamSource(destination.stream);
-    mixedSource.connect(scriptProcessor);
+    // Receive PCM chunks from the audio thread and convert/store on the main thread
+    workletNode.port.onmessage = (e) => {
+      try {
+        const samples: Float32Array = e.data;
+        if (bitDepth === 16) {
+          // Convert Float32 → Int16 immediately — halves RAM usage vs. storing Float32
+          const int16 = new Int16Array(samples.length);
+          for (let i = 0; i < samples.length; i++) {
+            const s = Math.max(-1, Math.min(1, samples[i]));
+            int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
+          pcmChunksRef.current.push(int16);
+        } else {
+          pcmChunksRef.current.push(new Float32Array(samples));
+        }
+      } catch { /* swallow — a single bad chunk should not abort recording */ }
+    };
 
-    // Route to a silent gain node — keeps the node alive without playing to speakers
+    // Wire up: mixed stream → worklet → silent gain → destination
+    // Silent gain keeps the worklet graph alive without double-playing audio to speakers
+    // (remoteAudioRef already handles playback — bypassing this would cause echo)
+    const mixedSource = audioContext.createMediaStreamSource(destination.stream);
+    mixedSource.connect(workletNode);
     const silentGain = audioContext.createGain();
     silentGain.gain.value = 0;
-    scriptProcessor.connect(silentGain);
+    workletNode.connect(silentGain);
     silentGain.connect(audioContext.destination);
-
-    scriptProcessor.onaudioprocess = (e) => {
-      try {
-        if (channels === 2) {
-          const left = e.inputBuffer.getChannelData(0);
-          const right = e.inputBuffer.getChannelData(1);
-          if (bitDepth === 16) {
-            const interleaved = new Int16Array(left.length * 2);
-            for (let i = 0; i < left.length; i++) {
-              const l = Math.max(-1, Math.min(1, left[i]));
-              const r = Math.max(-1, Math.min(1, right[i]));
-              interleaved[i * 2]     = l < 0 ? l * 0x8000 : l * 0x7fff;
-              interleaved[i * 2 + 1] = r < 0 ? r * 0x8000 : r * 0x7fff;
-            }
-            pcmChunksRef.current.push(interleaved);
-          } else {
-            const interleaved = new Float32Array(left.length * 2);
-            for (let i = 0; i < left.length; i++) {
-              interleaved[i * 2] = left[i];
-              interleaved[i * 2 + 1] = right[i];
-            }
-            pcmChunksRef.current.push(interleaved);
-          }
-        } else {
-          const mono = e.inputBuffer.getChannelData(0);
-          if (bitDepth === 16) {
-            const samples = new Int16Array(mono.length);
-            for (let i = 0; i < mono.length; i++) {
-              const s = Math.max(-1, Math.min(1, mono[i]));
-              samples[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-            }
-            pcmChunksRef.current.push(samples);
-          } else {
-            pcmChunksRef.current.push(new Float32Array(mono));
-          }
-        }
-      } catch { /* swallow — a single bad buffer should not crash the tab */ }
-    };
 
     setTimer(0);
     timerRef.current = setInterval(() => setTimer((t) => t + 1), 1000);
@@ -588,11 +572,11 @@ export default function CallRecordingPage() {
   const handleHangUp = () => {
     stopPoll();
     stopTimer();
-    // Disconnect ScriptProcessor first so no more samples are added
-    if (scriptProcessorRef.current) {
-      scriptProcessorRef.current.disconnect();
-      scriptProcessorRef.current.onaudioprocess = null;
-      scriptProcessorRef.current = null;
+    // Disconnect AudioWorklet first so no more samples are added
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.close();
+      workletNodeRef.current.disconnect();
+      workletNodeRef.current = null;
     }
     if (callCodeRef.current) {
       fetch(`/api/calls/${callCodeRef.current}`, {
