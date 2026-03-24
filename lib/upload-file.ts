@@ -29,6 +29,7 @@ export async function uploadFile(
     const blob = await upload(`datasets/${projectId}/${name}`, blobFile, {
       access: "public",
       handleUploadUrl: "/api/upload",
+      addRandomSuffix: true,
     });
 
     return {
