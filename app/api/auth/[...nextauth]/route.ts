@@ -5,14 +5,16 @@ import AppleProvider from "next-auth/providers/apple";
 import { compare } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
-// Helper to generate unique user ID
-function generateUserId(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = 'USR';
-  for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+// Helper to generate unique USER + 4-digit ID
+async function generateUserId(): Promise<string> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const digits = Math.floor(1000 + Math.random() * 9000).toString();
+    const userId = `USER${digits}`;
+    const existing = await prisma.user.findUnique({ where: { userId } });
+    if (!existing) return userId;
   }
-  return result;
+  const digits = Math.floor(100000 + Math.random() * 900000).toString();
+  return `USER${digits}`;
 }
 
 export const authOptions: NextAuthOptions = {
@@ -78,7 +80,7 @@ export const authOptions: NextAuthOptions = {
 
           if (!existingUser) {
             // Create new user for OAuth
-            const userId = generateUserId();
+            const userId = await generateUserId();
             await prisma.user.create({
               data: {
                 userId,

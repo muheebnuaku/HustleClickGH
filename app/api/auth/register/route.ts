@@ -4,8 +4,16 @@ import { hash } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { SITE_CONFIG } from "@/lib/constants";
 
-function generateUserId(): string {
-  return `USER${Math.random().toString(36).substr(2, 6).toUpperCase()}${Date.now().toString(36).toUpperCase()}`;
+async function generateUserId(): Promise<string> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const digits = Math.floor(1000 + Math.random() * 9000).toString();
+    const userId = `USER${digits}`;
+    const existing = await prisma.user.findUnique({ where: { userId } });
+    if (!existing) return userId;
+  }
+  // Fallback to 6 digits if 4-digit space is nearly exhausted
+  const digits = Math.floor(100000 + Math.random() * 900000).toString();
+  return `USER${digits}`;
 }
 
 function generateReferralCode(): string {
@@ -51,7 +59,7 @@ export async function POST(request: Request) {
     const hashedPassword = await hash(password, 12);
 
     // Generate unique user ID and referral code
-    const userId = generateUserId();
+    const userId = await generateUserId();
     const referralCode = generateReferralCode();
     const personalCallCode = generatePersonalCallCode();
 

@@ -10,7 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LogIn, Shield, User, Eye, EyeOff, Sparkles, ArrowLeft, ArrowRight, CheckCircle2, UserPlus, Gift, Wallet, TrendingUp, Users, Home } from "lucide-react";
+import { LogIn, Shield, User, Eye, EyeOff, Sparkles, ArrowLeft, ArrowRight, CheckCircle2, UserPlus, Gift, Wallet, TrendingUp, Users, Home, Copy, PartyPopper } from "lucide-react";
 
 const loginSchema = z.object({
   userId: z.string().min(1, "User ID is required"),
@@ -46,6 +46,9 @@ export default function AuthPage() {
   const [selectedRole, setSelectedRole] = useState<UserRole>("user");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [registeredUserId, setRegisteredUserId] = useState("");
+  const [showCongrats, setShowCongrats] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const loginForm = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -111,23 +114,27 @@ export default function AuthPage() {
         throw new Error(result.message || "Registration failed");
       }
 
-      const signInResult = await signIn("credentials", {
-        userId: result.userId,
-        password: data.password,
-        redirect: false,
-      });
-
-      if (signInResult?.ok) {
-        router.push("/dashboard");
-        router.refresh();
-      } else {
-        setIsFlipped(false);
-      }
+      // Show congratulations screen with the new User ID
+      setRegisteredUserId(result.userId);
+      setShowCongrats(true);
+      registerForm.reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleCongratsOk = () => {
+    loginForm.setValue("userId", registeredUserId);
+    setShowCongrats(false);
+    setIsFlipped(false);
+  };
+
+  const handleCopyId = async () => {
+    await navigator.clipboard.writeText(registeredUserId);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const flipToRegister = () => {
@@ -688,12 +695,51 @@ export default function AuthPage() {
       </div>
 
       {/* Floating Home Button */}
-      <Link 
-        href="/" 
+      <Link
+        href="/"
         className="fixed top-6 left-6 z-50 w-12 h-12 bg-white dark:bg-zinc-900 rounded-full shadow-lg border border-zinc-200 dark:border-zinc-800 flex items-center justify-center hover:scale-110 hover:shadow-xl transition-all duration-300 group"
       >
         <Home size={20} className="text-zinc-600 dark:text-zinc-400 group-hover:text-blue-600 transition-colors" />
       </Link>
+
+      {/* Congratulations Overlay */}
+      {showCongrats && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl w-full max-w-sm p-8 text-center animate-in fade-in zoom-in duration-300">
+            {/* Icon */}
+            <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-5">
+              <PartyPopper size={40} className="text-green-600" />
+            </div>
+
+            <h2 className="text-2xl font-bold text-foreground mb-1">Registration Successful!</h2>
+            <p className="text-zinc-500 text-sm mb-6">Welcome to HustleClickGH. Your account is ready.</p>
+
+            {/* User ID display */}
+            <div className="bg-zinc-50 dark:bg-zinc-800 border-2 border-dashed border-green-300 dark:border-green-700 rounded-2xl p-5 mb-4">
+              <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">Your User ID</p>
+              <p className="text-3xl font-bold text-green-600 tracking-widest mb-3">{registeredUserId}</p>
+              <button
+                onClick={handleCopyId}
+                className="flex items-center gap-2 mx-auto text-xs font-medium text-zinc-500 hover:text-green-600 transition-colors"
+              >
+                <Copy size={13} />
+                {copied ? "Copied!" : "Copy ID"}
+              </button>
+            </div>
+
+            <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 mb-6">
+              Save your User ID — you will need it along with your password to log in.
+            </p>
+
+            <Button
+              onClick={handleCongratsOk}
+              className="w-full h-12 rounded-xl font-semibold bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white"
+            >
+              OK, Proceed to Login
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
