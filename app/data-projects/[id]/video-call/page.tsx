@@ -14,6 +14,8 @@ import {
   ChevronLeft,
   AlertCircle,
   Loader2,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 
 // ── ICE servers ──────────────────────────────────────────────────────────────
@@ -75,8 +77,13 @@ function VideoCallInner() {
   const callCodeRef = useRef("");
   // Buffer ICE candidates generated before the callCode is known (initiator only)
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
+  // Animation frame for canvas composite recording
+  const animFrameRef = useRef<number | null>(null);
   // Track whether this user started the call (initiator submits; receiver does not)
   const isInitiatorRef = useRef(false);
+  // Audio context + gain for volume / loudspeaker control
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const remoteGainRef = useRef<GainNode | null>(null);
 
   // State
   const [phase, setPhase] = useState<Phase>("setup");
@@ -91,6 +98,7 @@ function VideoCallInner() {
   const [requiresGender, setRequiresGender] = useState(false);
   const [selectedGender, setSelectedGender] = useState<"male" | "female" | "">("");
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isSpeaker, setIsSpeaker] = useState(false);
   const [error, setError] = useState("");
 
   // ── Camera init ───────────────────────────────────────────────────────────
@@ -110,6 +118,7 @@ function VideoCallInner() {
     [pollingRef, callingPollRef, timerRef].forEach((r) => {
       if (r.current) clearInterval(r.current);
     });
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     peerRef.current?.close();
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
   }
@@ -346,24 +355,67 @@ function VideoCallInner() {
 
     recordedChunksRef.current = [];
 
-    // Mix both sides' audio; keep remote video
-    const ctx = new AudioContext();
-    const dest = ctx.createMediaStreamDestination();
+    // ── Canvas composite ────────────────────────────────────────────────────
+    // Record what the user sees: remote full-screen + local PiP, in portrait.
+    const canvas = document.createElement("canvas");
+    canvas.width = 720;
+    canvas.height = 1280;
+    const ctx2d = canvas.getContext("2d")!;
+    const fullEl = fullVideoRef.current;
+    const pipEl = localVideoRef.current;
 
-    // Route remote audio to recorder AND to speakers (fixes "can't hear" on iOS)
-    const remoteSource = ctx.createMediaStreamSource(remote);
-    remoteSource.connect(dest);
-    remoteSource.connect(ctx.destination);
+    function drawFrame() {
+      ctx2d.fillStyle = "#000";
+      ctx2d.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Route local mic to recorder only (not back to speakers — avoids echo)
-    if (local) ctx.createMediaStreamSource(local).connect(dest);
+      // Full-screen participant
+      if (fullEl && fullEl.readyState >= 2) {
+        ctx2d.drawImage(fullEl, 0, 0, canvas.width, canvas.height);
+      }
+
+      // PiP participant — bottom-right, sized ~28% width in 3:4 ratio
+      if (pipEl && pipEl.readyState >= 2) {
+        const pw = Math.round(canvas.width * 0.28);
+        const ph = Math.round(pw * (4 / 3));
+        const px = canvas.width - pw - 16;
+        const py = canvas.height - ph - 220;
+        ctx2d.drawImage(pipEl, px, py, pw, ph);
+      }
+
+      animFrameRef.current = requestAnimationFrame(drawFrame);
+    }
+    drawFrame();
+
+    const canvasStream = canvas.captureStream(30);
+
+    // ── Audio mixing ────────────────────────────────────────────────────────
+    const audioCtx = new AudioContext();
+    audioCtxRef.current = audioCtx;
+    const audioDest = audioCtx.createMediaStreamDestination();
+
+    // Remote audio: boosted gain so both sides are equally audible
+    const remoteGain = audioCtx.createGain();
+    remoteGain.gain.value = 2.0;
+    remoteGainRef.current = remoteGain;
+    const remoteSource = audioCtx.createMediaStreamSource(remote);
+    remoteSource.connect(remoteGain);
+    remoteGain.connect(audioDest);          // to recorder
+    remoteGain.connect(audioCtx.destination); // to speakers
+
+    // Local mic: normal gain, to recorder only (not to speakers — avoids echo)
+    if (local) {
+      const localGain = audioCtx.createGain();
+      localGain.gain.value = 1.5;
+      audioCtx.createMediaStreamSource(local).connect(localGain);
+      localGain.connect(audioDest);
+    }
 
     // Mute the video element's built-in audio — we handle it via AudioContext
     if (fullVideoRef.current) fullVideoRef.current.muted = true;
 
     const combined = new MediaStream([
-      ...dest.stream.getAudioTracks(),
-      ...remote.getVideoTracks(),
+      ...audioDest.stream.getAudioTracks(),
+      ...canvasStream.getVideoTracks(),
     ]);
 
     const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
@@ -384,6 +436,12 @@ function VideoCallInner() {
     [timerRef, pollingRef, callingPollRef].forEach((r) => {
       if (r.current) clearInterval(r.current);
     });
+
+    // Stop canvas draw loop before stopping the recorder
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
 
     if (mediaRecorderRef.current?.state !== "inactive") {
       await new Promise<void>((resolve) => {
@@ -493,6 +551,32 @@ function VideoCallInner() {
       ?.getVideoTracks()
       .forEach((t) => { t.enabled = isVideoOff; });
     setIsVideoOff((v) => !v);
+  }
+
+  async function toggleSpeaker() {
+    const newSpeaker = !isSpeaker;
+    setIsSpeaker(newSpeaker);
+
+    // Boost gain for loudspeaker mode, normal for earpiece
+    if (remoteGainRef.current) {
+      remoteGainRef.current.gain.value = newSpeaker ? 4.0 : 2.0;
+    }
+
+    // Try setSinkId — supported in Chrome/Edge desktop; no-op elsewhere
+    const el = fullVideoRef.current as (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> }) | null;
+    if (el?.setSinkId) {
+      try {
+        if (newSpeaker) {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const speaker = devices.find(
+            (d) => d.kind === "audiooutput" && /speaker|loud/i.test(d.label)
+          );
+          await el.setSinkId(speaker?.deviceId ?? "default");
+        } else {
+          await el.setSinkId("");
+        }
+      } catch { /* not supported — gain boost above is enough */ }
+    }
   }
 
   // ── Mount ─────────────────────────────────────────────────────────────────
@@ -842,51 +926,64 @@ function VideoCallInner() {
 
       {/* ── Control bar ── */}
       <div
-        className="absolute bottom-0 left-0 right-0 z-20 pt-3 flex items-center justify-center gap-4"
+        className="absolute bottom-0 left-0 right-0 z-20 pt-3 flex items-center justify-center gap-3"
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 2.5rem)" }}
       >
         {/* Flip camera */}
         <button
           onClick={switchCamera}
-          className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition-colors"
+          className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition-colors"
           title="Switch camera"
         >
-          <RefreshCw size={22} className="text-white" />
+          <RefreshCw size={20} className="text-white" />
         </button>
 
         {/* Mute */}
         <button
           onClick={toggleMute}
-          className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
             isMuted
               ? "bg-white text-black"
               : "bg-white/20 backdrop-blur-sm hover:bg-white/30 text-white"
           }`}
           title={isMuted ? "Unmute" : "Mute"}
         >
-          {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+          {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
         </button>
 
         {/* Hang up — larger, centre */}
         <button
           onClick={hangUp}
-          className="w-[72px] h-[72px] rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center transition-colors shadow-2xl"
+          className="w-[68px] h-[68px] rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center transition-colors shadow-2xl"
           title="End call"
         >
-          <PhoneOff size={30} className="text-white" />
+          <PhoneOff size={28} className="text-white" />
         </button>
 
         {/* Camera toggle */}
         <button
           onClick={toggleVideo}
-          className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
             isVideoOff
               ? "bg-white text-black"
               : "bg-white/20 backdrop-blur-sm hover:bg-white/30 text-white"
           }`}
           title={isVideoOff ? "Turn on camera" : "Turn off camera"}
         >
-          {isVideoOff ? <VideoOff size={22} /> : <Video size={22} />}
+          {isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
+        </button>
+
+        {/* Loudspeaker */}
+        <button
+          onClick={toggleSpeaker}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+            isSpeaker
+              ? "bg-white text-black"
+              : "bg-white/20 backdrop-blur-sm hover:bg-white/30 text-white"
+          }`}
+          title={isSpeaker ? "Earpiece" : "Loudspeaker"}
+        >
+          {isSpeaker ? <Volume2 size={20} /> : <VolumeX size={20} />}
         </button>
       </div>
     </div>
