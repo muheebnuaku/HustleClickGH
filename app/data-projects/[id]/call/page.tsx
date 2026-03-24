@@ -448,14 +448,14 @@ export default function CallRecordingPage() {
       setPhase("calling");
       startCallingPoll(data.callCode);
 
-      // 60s timeout — if receiver never accepts, bail out
+      // 5 min timeout — if receiver never accepts, bail out
       connectTimeoutRef.current = setTimeout(() => {
         if (pcRef.current && pcRef.current.connectionState !== "connected") {
           setError("No answer. The person may be unavailable.");
           setPhase("ended");
           cleanup();
         }
-      }, 60_000);
+      }, 300_000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start call");
       setPhase("idle");
