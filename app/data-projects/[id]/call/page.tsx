@@ -40,8 +40,11 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: "turn:openrelay.metered.ca:3478",  username: "openrelayproject", credential: "openrelayproject" },
 ];
 
-// Encode raw PCM Float32 samples into a WAV blob
-function encodeWAV(chunks: Float32Array[], sampleRate: number, channels: number, bitDepth: number): Blob {
+// Encode PCM chunks into a WAV blob.
+// Accepts pre-converted Int16Array chunks (for 16-bit recordings) or
+// raw Float32Array chunks (for 32-bit). Storing Int16 during capture
+// halves RAM usage, which prevents the browser OOM tab-kill on mobile.
+function encodeWAV(chunks: (Float32Array | Int16Array)[], sampleRate: number, channels: number, bitDepth: number): Blob {
   const totalLength = chunks.reduce((s, c) => s + c.length, 0);
   const bytesPerSample = bitDepth / 8;
   const dataSize = totalLength * bytesPerSample;
@@ -68,14 +71,23 @@ function encodeWAV(chunks: Float32Array[], sampleRate: number, channels: number,
 
   let offset = 44;
   for (const chunk of chunks) {
-    for (let i = 0; i < chunk.length; i++) {
-      if (bitDepth === 32) {
-        view.setFloat32(offset, chunk[i], true);
-        offset += 4;
-      } else {
-        const s = Math.max(-1, Math.min(1, chunk[i]));
-        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    if (chunk instanceof Int16Array) {
+      // Already converted on capture — write directly (no extra temp allocation)
+      for (let i = 0; i < chunk.length; i++) {
+        view.setInt16(offset, chunk[i], true);
         offset += 2;
+      }
+    } else {
+      // Float32Array — convert to target bit depth on the fly
+      for (let i = 0; i < chunk.length; i++) {
+        if (bitDepth === 32) {
+          view.setFloat32(offset, chunk[i], true);
+          offset += 4;
+        } else {
+          const s = Math.max(-1, Math.min(1, chunk[i]));
+          view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+          offset += 2;
+        }
       }
     }
   }
@@ -112,7 +124,7 @@ export default function CallRecordingPage() {
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const pcmChunksRef = useRef<Float32Array[]>([]);
+  const pcmChunksRef = useRef<(Float32Array | Int16Array)[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
   const mixedStreamRef = useRef<MediaStream | null>(null);
   const isInitiatorRef = useRef(false);
@@ -296,15 +308,37 @@ export default function CallRecordingPage() {
       if (channels === 2) {
         const left = e.inputBuffer.getChannelData(0);
         const right = e.inputBuffer.getChannelData(1);
-        const interleaved = new Float32Array(left.length * 2);
-        for (let i = 0; i < left.length; i++) {
-          interleaved[i * 2] = left[i];
-          interleaved[i * 2 + 1] = right[i];
+        if (bitDepth === 16) {
+          // Convert float32 → int16 immediately — halves the memory stored per chunk
+          const interleaved = new Int16Array(left.length * 2);
+          for (let i = 0; i < left.length; i++) {
+            const l = Math.max(-1, Math.min(1, left[i]));
+            const r = Math.max(-1, Math.min(1, right[i]));
+            interleaved[i * 2]     = l < 0 ? l * 0x8000 : l * 0x7fff;
+            interleaved[i * 2 + 1] = r < 0 ? r * 0x8000 : r * 0x7fff;
+          }
+          pcmChunksRef.current.push(interleaved);
+        } else {
+          const interleaved = new Float32Array(left.length * 2);
+          for (let i = 0; i < left.length; i++) {
+            interleaved[i * 2] = left[i];
+            interleaved[i * 2 + 1] = right[i];
+          }
+          pcmChunksRef.current.push(interleaved);
         }
-        pcmChunksRef.current.push(interleaved);
       } else {
         const mono = e.inputBuffer.getChannelData(0);
-        pcmChunksRef.current.push(new Float32Array(mono));
+        if (bitDepth === 16) {
+          // Convert float32 → int16 immediately — halves the memory stored per chunk
+          const samples = new Int16Array(mono.length);
+          for (let i = 0; i < mono.length; i++) {
+            const s = Math.max(-1, Math.min(1, mono[i]));
+            samples[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
+          pcmChunksRef.current.push(samples);
+        } else {
+          pcmChunksRef.current.push(new Float32Array(mono));
+        }
       }
     };
 
@@ -314,9 +348,13 @@ export default function CallRecordingPage() {
 
   // ── Poll for signaling updates ────────────────────────────────────────────
   const startPolling = (code: string, asInitiator: boolean) => {
+    let busy = false; // guard against overlapping async callbacks
     pollRef.current = setInterval(async () => {
       // If WebRTC is already up, polling is no longer needed
       if (!pollRef.current) return;
+      // Skip this tick if the previous one is still running (slow network)
+      if (busy) return;
+      busy = true;
 
       try {
         const res = await fetch(`/api/calls/${code}`);
@@ -351,7 +389,7 @@ export default function CallRecordingPage() {
             seenInitIce.current += newInitIce.length;
           }
         }
-      } catch { /* ignore transient errors */ }
+      } catch { /* ignore transient errors */ } finally { busy = false; }
     }, 1500); // 1.5s — fast enough to pick up TURN relay ICE candidates before the ICE timeout
   };
 
@@ -371,11 +409,13 @@ export default function CallRecordingPage() {
 
       const pc = createPC(async (candidate) => {
         if (callCodeRef.current) {
+          // .catch() is critical — an unhandled rejection from a network error
+          // here will crash the browser tab with "page reloaded due to error"
           await fetch(`/api/calls/${callCodeRef.current}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ type: "ice-initiator", candidate }),
-          });
+          }).catch(() => {});
         }
       });
 
@@ -416,8 +456,11 @@ export default function CallRecordingPage() {
 
   // ── Poll while calling (waiting for receiver to accept/decline) ───────────
   const startCallingPoll = (code: string) => {
+    let busy = false;
     pollRef.current = setInterval(async () => {
       if (!pollRef.current) return;
+      if (busy) return;
+      busy = true;
 
       try {
         const res = await fetch(`/api/calls/${code}`);
@@ -443,7 +486,7 @@ export default function CallRecordingPage() {
             startPolling(code, true);
           }
         }
-      } catch { /* ignore */ }
+      } catch { /* ignore */ } finally { busy = false; }
     }, 2000);
   };
 
@@ -471,11 +514,13 @@ export default function CallRecordingPage() {
       if (sessionData.initiatorName) setCallerName(sessionData.initiatorName);
 
       const pc = createPC(async (candidate) => {
+        // .catch() is critical — an unhandled rejection from a network error
+        // here will crash the browser tab with "page reloaded due to error"
         await fetch(`/api/calls/${code}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ type: "ice-receiver", candidate }),
-        });
+        }).catch(() => {});
       });
 
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
