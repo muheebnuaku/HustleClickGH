@@ -251,15 +251,13 @@ export default function AdminCallRecordingsPage() {
             {/* Player */}
             <div className="p-5">
               {playing.callType === "video" ? (
-                <div className="flex justify-center">
-                  <video
-                    src={playing.fileUrl}
-                    controls
-                    autoPlay
-                    className="rounded-xl bg-black"
-                    style={{ outline: "none", width: "260px", aspectRatio: "9/16", objectFit: "contain" }}
-                  />
-                </div>
+                <video
+                  src={playing.fileUrl}
+                  controls
+                  autoPlay
+                  className="w-full rounded-lg bg-black"
+                  style={{ outline: "none", maxHeight: "380px" }}
+                />
               ) : (
                 <audio
                   src={playing.fileUrl}
