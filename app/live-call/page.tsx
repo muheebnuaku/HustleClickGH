@@ -296,6 +296,28 @@ function LiveCallInner() {
     channelCount:      1,
   };
 
+  // Boost outgoing mic through an AudioContext GainNode so the other person
+  // hears us at full volume regardless of the device's default mic gain.
+  // Returns a new MediaStream with the original video tracks + boosted audio.
+  const boostLocalAudio = async (stream: MediaStream): Promise<MediaStream> => {
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) return stream;
+    try {
+      const ctx  = new AudioContext();
+      const src  = ctx.createMediaStreamSource(new MediaStream(audioTracks));
+      const gain = ctx.createGain();
+      gain.gain.value = 2.0; // 2× outgoing mic volume
+      const dest = ctx.createMediaStreamDestination();
+      src.connect(gain);
+      gain.connect(dest);
+      // Auto-close the AudioContext when the mic track ends
+      audioTracks[0].addEventListener("ended", () => ctx.close().catch(() => {}));
+      return new MediaStream([...stream.getVideoTracks(), ...dest.stream.getAudioTracks()]);
+    } catch {
+      return stream; // fallback to original if AudioContext is unsupported
+    }
+  };
+
   const getMedia = async (type: CallType, facingMode: "user" | "environment" = "user"): Promise<MediaStream> => {
     if (type === "video") {
       // 1. Try full video + audio
@@ -495,7 +517,8 @@ function LiveCallInner() {
         }).catch(() => {});
       });
 
-      stream.getTracks().forEach(t => pc.addTrack(t, stream));
+      const outStream = await boostLocalAudio(stream);
+      outStream.getTracks().forEach(t => pc.addTrack(t, outStream));
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
@@ -572,7 +595,8 @@ function LiveCallInner() {
         }).catch(() => {});
       });
 
-      stream.getTracks().forEach(t => pc.addTrack(t, stream));
+      const outStream = await boostLocalAudio(stream);
+      outStream.getTracks().forEach(t => pc.addTrack(t, outStream));
       await pc.setRemoteDescription(new RTCSessionDescription(session.offer));
 
       const initIce: RTCIceCandidateInit[] = session.initiatorIce || [];
