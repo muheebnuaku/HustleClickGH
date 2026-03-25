@@ -65,11 +65,12 @@ function LiveCallInner() {
   const [otherName,       setOtherName]       = useState("");
 
   // ── WebRTC refs ────────────────────────────────────────────────────────────
-  const pcRef          = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  const localVideoRef  = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const pcRef           = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef  = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null); // stored so we can wire it after video UI mounts
+  const remoteAudioRef  = useRef<HTMLAudioElement | null>(null);
+  const localVideoRef   = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef  = useRef<HTMLVideoElement | null>(null);
   const callCodeRef    = useRef("");
   const isInitiatorRef = useRef(false);
   const callTypeRef    = useRef<CallType>("audio"); // stable ref for closures
@@ -90,6 +91,21 @@ function LiveCallInner() {
   const phaseRef       = useRef<Phase>("idle");
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+
+  // Wire up video streams after the full-screen video UI mounts.
+  // ontrack fires during "connecting" when remoteVideoRef is null (video UI not rendered yet).
+  // This effect runs once phase flips to "active" and the <video> elements exist in the DOM.
+  useEffect(() => {
+    if (phase !== "active" || callTypeRef.current !== "video") return;
+    if (remoteVideoRef.current && remoteStreamRef.current) {
+      remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      remoteVideoRef.current.play().catch(() => {});
+    }
+    if (localVideoRef.current && localStreamRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.play().catch(() => {});
+    }
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const stopPoll         = () => { if (pollRef.current)       { clearInterval(pollRef.current);        pollRef.current      = null; } };
@@ -199,9 +215,20 @@ function LiveCallInner() {
       const remote = e.streams[0];
       if (!remote) return;
 
-      if (callTypeRef.current === "video" && remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remote;
-        remoteVideoRef.current.play().catch(() => {});
+      // Always store so the useEffect below can wire it up once the video UI mounts
+      remoteStreamRef.current = remote;
+
+      // Try to assign immediately (works for audio mode where the <audio> is always in DOM)
+      if (callTypeRef.current === "video") {
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remote;
+          remoteVideoRef.current.play().catch(() => {});
+        }
+        // local video PiP — also try now; the useEffect handles the late-mount case
+        if (localVideoRef.current && localStreamRef.current) {
+          localVideoRef.current.srcObject = localStreamRef.current;
+          localVideoRef.current.play().catch(() => {});
+        }
       } else if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = remote;
         remoteAudioRef.current.play().catch(() => {});
