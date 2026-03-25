@@ -154,16 +154,27 @@ function LiveCallInner() {
   }, [phase, swapped]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  // Route remote stream through AudioContext so audio plays even when called
-  // from async ontrack (which is NOT a direct user gesture).
-  // The AudioContext is created/unlocked during handleStartCall/handleJoinCall
-  // (which ARE user gestures), so audio plays immediately when tracks arrive.
+  // Dual-path remote audio:
+  //   Path A — <audio> element: on iOS this routes to the loudspeaker (loud).
+  //             Works because we pre-play it with an empty MediaStream during
+  //             the user gesture, so swapping srcObject later is allowed.
+  //   Path B — AudioContext + GainNode: boosts volume and ensures playback on
+  //             Android/desktop even if the audio element path fails.
   const connectRemoteAudio = (stream: MediaStream) => {
+    // PATH A — loudspeaker via <audio> element (pre-unlocked during user gesture)
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = stream;
+    }
+
+    // PATH B — AudioContext with gain boost (bypasses async-ontrack autoplay block)
     const ctx = remoteAudioCtxRef.current;
     if (!ctx) return;
     try { remoteAudioSrcRef.current?.disconnect(); } catch { /* ignore */ }
-    const src = ctx.createMediaStreamSource(stream);
-    src.connect(ctx.destination);
+    const src  = ctx.createMediaStreamSource(stream);
+    const gain = ctx.createGain();
+    gain.gain.value = 2.0; // double the volume
+    src.connect(gain);
+    gain.connect(ctx.destination);
     remoteAudioSrcRef.current = src;
   };
 
@@ -276,12 +287,21 @@ function LiveCallInner() {
   };
 
   // ── Media helpers ─────────────────────────────────────────────────────────
+  // Voice-optimised audio constraints — applied to every getUserMedia call
+  const voiceAudio: MediaTrackConstraints = {
+    echoCancellation:  true,
+    noiseSuppression:  true,
+    autoGainControl:   true,
+    sampleRate:        48000,
+    channelCount:      1,
+  };
+
   const getMedia = async (type: CallType, facingMode: "user" | "environment" = "user"): Promise<MediaStream> => {
     if (type === "video") {
       // 1. Try full video + audio
       try {
         return await navigator.mediaDevices.getUserMedia({
-          audio: true,
+          audio: voiceAudio,
           video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
         });
       } catch { /* camera denied or unavailable — fall through */ }
@@ -290,12 +310,12 @@ function LiveCallInner() {
       try {
         callTypeRef.current = "audio";
         setCallType("audio");
-        return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        return await navigator.mediaDevices.getUserMedia({ audio: voiceAudio, video: false });
       } catch { /* mic also denied — fall through */ }
     } else {
       // 3. Try audio only
       try {
-        return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        return await navigator.mediaDevices.getUserMedia({ audio: voiceAudio, video: false });
       } catch { /* mic denied — fall through */ }
     }
 
@@ -451,6 +471,12 @@ function LiveCallInner() {
       remoteAudioCtxRef.current = new AudioContext();
     }
     remoteAudioCtxRef.current.resume().catch(() => {});
+    // Pre-play the remote <audio> element with silence so iOS routes future
+    // srcObject changes to the loudspeaker instead of the earpiece.
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = new MediaStream();
+      remoteAudioRef.current.play().catch(() => {});
+    }
     try {
       setPhase("requesting-media");
       callTypeRef.current = callType;
@@ -514,6 +540,11 @@ function LiveCallInner() {
       remoteAudioCtxRef.current = new AudioContext();
     }
     remoteAudioCtxRef.current.resume().catch(() => {});
+    // Pre-play with silence so iOS routes remote audio to loudspeaker.
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = new MediaStream();
+      remoteAudioRef.current.play().catch(() => {});
+    }
     try {
       setPhase("requesting-media");
       const stream = await getMedia(type);
