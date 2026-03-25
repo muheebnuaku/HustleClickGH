@@ -77,12 +77,15 @@ function LiveCallInner() {
   }, []);
 
   // ── WebRTC refs ────────────────────────────────────────────────────────────
-  const pcRef           = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef  = useRef<MediaStream | null>(null);
-  const remoteStreamRef = useRef<MediaStream | null>(null);
-  const remoteAudioRef  = useRef<HTMLAudioElement | null>(null);
-  const localVideoRef   = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef  = useRef<HTMLVideoElement | null>(null);
+  const pcRef             = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef    = useRef<MediaStream | null>(null);
+  const remoteStreamRef   = useRef<MediaStream | null>(null);
+  const remoteAudioRef    = useRef<HTMLAudioElement | null>(null);
+  const localVideoRef     = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef    = useRef<HTMLVideoElement | null>(null);
+  // AudioContext approach for remote audio — bypasses mobile autoplay policy
+  const remoteAudioCtxRef = useRef<AudioContext | null>(null);
+  const remoteAudioSrcRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const callCodeRef    = useRef("");
   const isInitiatorRef = useRef(false);
   const callTypeRef    = useRef<CallType>("audio");
@@ -146,14 +149,24 @@ function LiveCallInner() {
       localVideoRef.current.srcObject = localStreamRef.current;
       localVideoRef.current.play().catch(() => {});
     }
-    // Ensure audio keeps playing through the dedicated element after swap or reconnect
-    if (remoteAudioRef.current && remoteStreamRef.current) {
-      remoteAudioRef.current.srcObject = remoteStreamRef.current;
-      remoteAudioRef.current.play().catch(() => {});
-    }
+    // Re-connect remote audio through AudioContext after swap or reconnect
+    if (remoteStreamRef.current) connectRemoteAudio(remoteStreamRef.current);
   }, [phase, swapped]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+  // Route remote stream through AudioContext so audio plays even when called
+  // from async ontrack (which is NOT a direct user gesture).
+  // The AudioContext is created/unlocked during handleStartCall/handleJoinCall
+  // (which ARE user gestures), so audio plays immediately when tracks arrive.
+  const connectRemoteAudio = (stream: MediaStream) => {
+    const ctx = remoteAudioCtxRef.current;
+    if (!ctx) return;
+    try { remoteAudioSrcRef.current?.disconnect(); } catch { /* ignore */ }
+    const src = ctx.createMediaStreamSource(stream);
+    src.connect(ctx.destination);
+    remoteAudioSrcRef.current = src;
+  };
+
   const stopPoll         = () => { if (pollRef.current)       { clearInterval(pollRef.current);        pollRef.current      = null; } };
   const stopTimer        = () => { if (timerRef.current)      { clearInterval(timerRef.current);       timerRef.current     = null; } };
   const clearConnectTO   = () => { if (connectTORef.current)  { clearTimeout(connectTORef.current);    connectTORef.current  = null; } };
@@ -179,6 +192,11 @@ function LiveCallInner() {
     autoChunksRef.current = [];
     autoAudioCtxRef.current?.close();
     autoAudioCtxRef.current = null;
+    // Close remote AudioContext
+    try { remoteAudioSrcRef.current?.disconnect(); } catch { /* ignore */ }
+    remoteAudioSrcRef.current = null;
+    remoteAudioCtxRef.current?.close();
+    remoteAudioCtxRef.current = null;
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     if (pcRef.current) {
@@ -305,15 +323,11 @@ function LiveCallInner() {
 
       remoteStreamRef.current = remote;
 
-      // Always route remote audio through the dedicated hidden <audio> element.
-      // The <video> elements don't mount until phase="active", so ontrack (which
-      // fires during "connecting") can't rely on remoteVideoRef being available.
-      // Using a separate <audio> element guarantees reliable playback across all
-      // browsers and call types.
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = remote;
-        remoteAudioRef.current.play().catch(() => {});
-      }
+      // Route remote audio through AudioContext — bypasses mobile autoplay policy.
+      // The AudioContext was created & unlocked during the user gesture (handleStartCall /
+      // handleJoinCall), so connecting a source node here always succeeds even though
+      // ontrack fires asynchronously.
+      connectRemoteAudio(remote);
 
       if (callTypeRef.current === "video") {
         if (remoteVideoRef.current) {
@@ -431,6 +445,12 @@ function LiveCallInner() {
     const targetCode = targetCodeInput.trim().toUpperCase();
     if (targetCode.length < 5) { setError("Enter a valid 5-character call code"); return; }
     setError("");
+    // Create + unlock AudioContext during this user gesture so remote audio plays
+    // on iOS/Android without hitting autoplay restrictions in async callbacks.
+    if (!remoteAudioCtxRef.current) {
+      remoteAudioCtxRef.current = new AudioContext();
+    }
+    remoteAudioCtxRef.current.resume().catch(() => {});
     try {
       setPhase("requesting-media");
       callTypeRef.current = callType;
@@ -488,6 +508,12 @@ function LiveCallInner() {
     setError("");
     const type = typeOverride || callType;
     callTypeRef.current = type;
+    // Unlock AudioContext in this user gesture so remote audio plays without
+    // hitting autoplay restrictions when ontrack fires asynchronously.
+    if (!remoteAudioCtxRef.current) {
+      remoteAudioCtxRef.current = new AudioContext();
+    }
+    remoteAudioCtxRef.current.resume().catch(() => {});
     try {
       setPhase("requesting-media");
       const stream = await getMedia(type);
