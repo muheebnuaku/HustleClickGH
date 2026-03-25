@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { uploadFile } from "@/lib/upload-file";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,10 +22,8 @@ type Phase =
   | "joining"
   | "connecting"
   | "reconnecting"
-  | "recording"
+  | "active"
   | "ended"
-  | "submitting"
-  | "done"
   | "declined";
 
 // Fallback ICE servers when TURN credentials are unavailable.
@@ -35,21 +32,6 @@ const FALLBACK_ICE: RTCIceServer[] = [
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
 ];
-
-/** Returns the first audio MIME type this browser can record */
-function getBestMimeType(): string {
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/ogg",
-    "audio/mp4",
-  ];
-  for (const t of candidates) {
-    try { if (MediaRecorder.isTypeSupported(t)) return t; } catch { /* skip */ }
-  }
-  return "";
-}
 
 /** Fire-and-forget client-side activity log */
 function clientLog(
@@ -96,25 +78,13 @@ function CallPageInner() {
   const seenInitIce      = useRef(0);
   const seenRecvIce      = useRef(0);
 
-  // ── Refs — Recording ──────────────────────────────────────────────────────
-  const audioCtxRef      = useRef<AudioContext | null>(null);
-  const audioDestRef     = useRef<MediaStreamAudioDestinationNode | null>(null);
-  const recorderRef      = useRef<MediaRecorder | null>(null);
-  const chunksRef        = useRef<Blob[]>([]);
-  const recStartedRef    = useRef(false);
-
   // ── Refs — Timers ─────────────────────────────────────────────────────────
   const timerRef         = useRef<ReturnType<typeof setInterval> | null>(null);
   const connectTORef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectTORef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wakeLockRef      = useRef<WakeLockSentinel | null>(null);
 
   // ── Refs — Guards ─────────────────────────────────────────────────────────
-  // Prevent the auto-join effect from running more than once (avoids infinite
-  // loop if joinCall fails and sets phase back to "idle").
   const hasAutoJoined    = useRef(false);
-  // Track current phase in a ref so we can read it from beforeunload without
-  // stale-closure issues.
   const phaseRef         = useRef<Phase>("idle");
 
   // Keep phaseRef in sync with phase state
@@ -136,42 +106,24 @@ function CallPageInner() {
     alreadyAnswered.current = false;
     seenInitIce.current     = 0;
     seenRecvIce.current     = 0;
-    recStartedRef.current   = false;
-
-    if (recorderRef.current) {
-      try { if (recorderRef.current.state !== "inactive") recorderRef.current.stop(); } catch { /* ignore */ }
-      recorderRef.current = null;
-    }
-    chunksRef.current = [];
-
-    if (audioCtxRef.current) {
-      audioCtxRef.current.close().catch(() => {});
-      audioCtxRef.current = null;
-    }
-    audioDestRef.current = null;
 
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
 
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-
-    if (wakeLockRef.current) { wakeLockRef.current.release().catch(() => {}); wakeLockRef.current = null; }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => cleanup(), [cleanup]);
 
   // ── beforeunload — warn on page close/refresh during active call ───────────
   useEffect(() => {
-    const activePhases: Phase[] = ["recording", "reconnecting", "connecting", "calling"];
+    const activePhases: Phase[] = ["active", "reconnecting", "connecting", "calling"];
     if (!activePhases.includes(phase)) return;
 
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
-      e.returnValue = "You have an active call. If you leave, your recording will be lost.";
+      e.returnValue = "You have an active call. Are you sure you want to leave?";
 
-      // Best-effort log — navigator.sendBeacon is the only reliable way
-      // to fire a request during page unload.
-      // Send as a Blob with application/json so the server can parse it.
       const callCode = callCodeRef.current;
       try {
         const payload = JSON.stringify({
@@ -192,7 +144,7 @@ function CallPageInner() {
 
   // ── Keyboard refresh block — F5 / Ctrl+R / Cmd+R during active call ─────────
   useEffect(() => {
-    const activePhases: Phase[] = ["recording", "reconnecting", "connecting", "calling"];
+    const activePhases: Phase[] = ["active", "reconnecting", "connecting", "calling"];
     if (!activePhases.includes(phase)) return;
 
     const handler = (e: KeyboardEvent) => {
@@ -208,6 +160,7 @@ function CallPageInner() {
     window.addEventListener("keydown", handler, { capture: true });
     return () => window.removeEventListener("keydown", handler, { capture: true });
   }, [phase]);
+
   useEffect(() => {
     fetch(`/api/data-projects/${projectId}`)
       .then(r => r.json())
@@ -224,7 +177,6 @@ function CallPageInner() {
   }, [status]);
 
   // Auto-join when arriving from an incoming call notification.
-  // hasAutoJoined guard prevents infinite loop if joinCall fails → phase="idle" → effect re-fires.
   useEffect(() => {
     if (joinCode && status === "authenticated" && phase === "idle" && !hasAutoJoined.current) {
       hasAutoJoined.current = true;
@@ -243,36 +195,6 @@ function CallPageInner() {
       }
     } catch { /* fall through */ }
     return FALLBACK_ICE;
-  };
-
-  // ── Recording ─────────────────────────────────────────────────────────────
-  const startMixedRecording = (local: MediaStream, remote: MediaStream) => {
-    if (recStartedRef.current) return;
-    recStartedRef.current = true;
-
-    navigator.wakeLock?.request("screen")
-      .then(l => { wakeLockRef.current = l; })
-      .catch(() => {});
-
-    const ctx  = new AudioContext();
-    const dest = ctx.createMediaStreamDestination();
-    audioCtxRef.current  = ctx;
-    audioDestRef.current = dest;
-    ctx.createMediaStreamSource(local).connect(dest);
-    ctx.createMediaStreamSource(remote).connect(dest);
-
-    const mimeType = getBestMimeType();
-    const recorder = new MediaRecorder(dest.stream, mimeType ? { mimeType } : undefined);
-    chunksRef.current = [];
-    recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-    recorder.start(1000);
-    recorderRef.current = recorder;
-
-    setPhase("recording");
-    setTimer(0);
-    timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
-
-    clientLog("call_connected", { callCode: callCodeRef.current, mimeType }, "success");
   };
 
   // ── WebRTC peer connection ─────────────────────────────────────────────────
@@ -294,15 +216,12 @@ function CallPageInner() {
         remoteAudioRef.current.play().catch(() => {});
       }
 
-      if (!localStreamRef.current) return;
+      // Call is active — start timer
+      setPhase("active");
+      setTimer(0);
+      timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
 
-      if (!recStartedRef.current) {
-        startMixedRecording(localStreamRef.current, remote);
-      } else if (audioCtxRef.current && audioDestRef.current) {
-        try {
-          audioCtxRef.current.createMediaStreamSource(remote).connect(audioDestRef.current);
-        } catch { /* ignore if context is closing */ }
-      }
+      clientLog("call_connected", { callCode: callCodeRef.current }, "success");
     };
 
     pc.onconnectionstatechange = () => {
@@ -311,7 +230,7 @@ function CallPageInner() {
       if (s === "connected") {
         clearReconnectTO();
         clearConnectTO();
-        stopPoll();
+        // Keep ICE poll running to detect remote hangup
       }
 
       if (s === "disconnected" || s === "failed") {
@@ -327,7 +246,7 @@ function CallPageInner() {
         reconnectTORef.current = setTimeout(() => {
           if (pcRef.current?.connectionState !== "connected") {
             clientLog("call_timeout", { callCode: callCodeRef.current, reason: "reconnect_timeout_10min" }, "error");
-            setError("Connection lost. Saving your recording…");
+            setError("Connection lost. The call has ended.");
             handleHangUp("reconnect_timeout");
           }
         }, 600_000);
@@ -336,7 +255,6 @@ function CallPageInner() {
 
     pc.onicecandidateerror = (e: Event) => {
       const ev = e as RTCPeerConnectionIceErrorEvent;
-      // Log only serious ICE errors (not normal candidate failures like 701)
       if (ev.errorCode >= 400) {
         clientLog("call_error", {
           callCode: callCodeRef.current,
@@ -364,7 +282,6 @@ function CallPageInner() {
         const data = await res.json();
 
         // Detect when the OTHER side ends the call server-side.
-        // Use handleHangUp so any captured recording gets saved before exiting.
         if (data.status === "completed" || data.status === "missed") {
           stopPoll();
           clientLog("call_end", { callCode: code, reason: "remote_hangup", detectedBy: "ice_poll" }, "info");
@@ -570,74 +487,8 @@ function CallPageInner() {
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-    if (wakeLockRef.current) { wakeLockRef.current.release().catch(() => {}); wakeLockRef.current = null; }
 
-    if (audioCtxRef.current) {
-      audioCtxRef.current.close().catch(() => {});
-      audioCtxRef.current = null;
-    }
-    audioDestRef.current = null;
-
-    const recorder = recorderRef.current;
-    recorderRef.current = null;
-    recStartedRef.current = false;
-
-    if (recorder && recorder.state !== "inactive") {
-      recorder.onstop = () => submitRecording();
-      try { recorder.stop(); } catch { submitRecording(); }
-    } else if (chunksRef.current.length > 0) {
-      submitRecording();
-    } else {
-      setPhase("ended");
-    }
-  };
-
-  // ── Upload recording ──────────────────────────────────────────────────────
-  const submitRecording = async () => {
-    setPhase("submitting");
-    const chunks = chunksRef.current;
-    chunksRef.current = [];
-
-    if (!chunks.length) {
-      setError("No recording was captured. Please try again.");
-      setPhase("ended");
-      return;
-    }
-
-    try {
-      const mimeType = chunks[0].type || "audio/webm";
-      const ext = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
-      const blob = new Blob(chunks, { type: mimeType });
-      const name = `call-recording-${Date.now()}.${ext}`;
-
-      const uploaded = await uploadFile(blob, projectId, name);
-
-      const res = await fetch(`/api/data-projects/${projectId}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileUrl:    uploaded.url,
-          fileName:   uploaded.fileName,
-          fileType:   mimeType,
-          fileSizeMB: uploaded.fileSizeMB,
-          language:   null,
-          promptUsed: "Live call recording",
-          consentGiven: true,
-        }),
-      });
-      const data = await res.json();
-
-      if (!res.ok && data.message !== "You have already submitted to this project") {
-        throw new Error(data.message);
-      }
-      setPhase("done");
-
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Upload failed. Your recording was not saved.";
-      clientLog("call_error", { phase: "submit", error: msg }, "error");
-      setError(msg);
-      setPhase("ended");
-    }
+    setPhase("ended");
   };
 
   // ── Controls ──────────────────────────────────────────────────────────────
@@ -670,7 +521,7 @@ function CallPageInner() {
         </Link>
 
         <div>
-          <h1 className="text-xl font-bold text-foreground">Live Call Recording</h1>
+          <h1 className="text-xl font-bold text-foreground">Live Call</h1>
           <p className="text-sm text-zinc-500 mt-0.5">{projectTitle}</p>
         </div>
 
@@ -709,7 +560,7 @@ function CallPageInner() {
                 <li>Enter their code below and click <strong>Call</strong></li>
                 <li>They&apos;ll see an incoming call notification</li>
                 <li>When they accept, you&apos;ll be connected automatically</li>
-                <li>Recording starts — click <strong>Hang Up</strong> when done</li>
+                <li>Click <strong>Hang Up</strong> when you&apos;re done</li>
               </ol>
             </Card>
 
@@ -845,7 +696,6 @@ function CallPageInner() {
             <div className="text-center py-6 px-5">
               <p className="text-amber-300 text-sm">Network interruption detected</p>
               <p className="text-slate-500 text-xs mt-1">Reconnecting automatically — do not close this page</p>
-              <p className="text-slate-600 text-xs mt-3">Recording continues in the background</p>
             </div>
             <div className="px-5 pb-5 flex justify-center">
               <Button
@@ -853,14 +703,14 @@ function CallPageInner() {
                 className="border-slate-600 text-slate-400 hover:bg-slate-800 text-sm"
                 onClick={() => handleHangUp("user_hangup_during_reconnect")}
               >
-                <PhoneOff size={16} className="mr-2" />End Call &amp; Save Recording
+                <PhoneOff size={16} className="mr-2" />End Call
               </Button>
             </div>
           </div>
         )}
 
-        {/* ── RECORDING ── */}
-        {phase === "recording" && (
+        {/* ── ACTIVE ── */}
+        {phase === "active" && (
           <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-slate-700">
             {/* Top bar */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
@@ -873,35 +723,19 @@ function CallPageInner() {
                   <p className="text-slate-400 text-xs">Live call</p>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 bg-red-600/20 border border-red-500/40 rounded-full px-3 py-1">
-                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-red-400 text-xs font-semibold tracking-wide">REC</span>
+              <div className="flex items-center gap-1.5 bg-green-600/20 border border-green-500/40 rounded-full px-3 py-1">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-green-400 text-xs font-semibold tracking-wide">LIVE</span>
               </div>
             </div>
 
             {/* Timer */}
-            <div className="text-center py-4">
+            <div className="text-center py-8">
               <p className="text-5xl font-mono font-bold text-white tracking-wider">{fmt(timer)}</p>
             </div>
 
-            {/* Audio bars */}
-            <div className="flex items-end justify-center gap-1 h-16 px-8 mb-4">
-              {[...Array(16)].map((_, i) => (
-                <div
-                  key={i}
-                  className="flex-1 bg-blue-500 rounded-full opacity-80"
-                  style={{
-                    minHeight: "4px",
-                    animation: `pulse ${0.4 + i * 0.08}s ease-in-out infinite alternate`,
-                    animationDelay: `${i * 0.04}s`,
-                    height: `${25 + Math.abs(Math.sin(i * 0.7)) * 65}%`,
-                  }}
-                />
-              ))}
-            </div>
-
             {isMuted && (
-              <div className="text-center mb-2">
+              <div className="text-center mb-4">
                 <span className="bg-red-500/20 border border-red-500/40 text-red-400 text-xs px-3 py-1 rounded-full">
                   Microphone muted
                 </span>
@@ -937,36 +771,6 @@ function CallPageInner() {
           </div>
         )}
 
-        {/* ── SUBMITTING ── */}
-        {phase === "submitting" && (
-          <Card className="p-8 text-center">
-            <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
-            <p className="font-medium">Uploading your recording…</p>
-            <p className="text-sm text-zinc-400 mt-1">Please wait, do not close this page</p>
-          </Card>
-        )}
-
-        {/* ── DONE ── */}
-        {phase === "done" && (
-          <Card className="p-6 text-center space-y-4">
-            <CheckCircle2 size={48} className="text-green-500 mx-auto" />
-            <div>
-              <p className="text-lg font-bold text-foreground">Recording Submitted!</p>
-              <p className="text-sm text-zinc-500 mt-1">
-                Your recording has been submitted for review. You&apos;ll be paid once it&apos;s approved.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <Link href={`/data-projects/${projectId}`} className="flex-1">
-                <Button variant="outline" className="w-full">View Project</Button>
-              </Link>
-              <Link href="/data-projects" className="flex-1">
-                <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white">Browse More</Button>
-              </Link>
-            </div>
-          </Card>
-        )}
-
         {/* ── ENDED ── */}
         {phase === "ended" && (
           <Card className="p-6 text-center space-y-4">
@@ -983,7 +787,7 @@ function CallPageInner() {
               }}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
-              Try Again
+              New Call
             </Button>
           </Card>
         )}
@@ -993,9 +797,7 @@ function CallPageInner() {
 }
 
 // ── Public export — wraps inner component in Suspense ─────────────────────────
-// Required by Next.js 15 App Router: components that call useSearchParams()
-// must be inside a Suspense boundary to avoid the parent page suspending.
-export default function CallRecordingPage() {
+export default function CallPage() {
   return (
     <Suspense fallback={
       <DashboardLayout>

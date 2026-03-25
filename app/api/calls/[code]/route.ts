@@ -90,14 +90,11 @@ export async function PATCH(
         projectId: callSession.projectId,
       });
     } else if (type === "decline") {
-      // Receiver declines the incoming call
       await prisma.callSession.update({
         where: { callCode: code },
-        data: {
-          status: "declined",
-        },
+        data: { status: "declined" },
       });
-      logActivity({
+      await logActivity({
         type: "call_decline",
         userId: session.user.id,
         userName: session.user.name ?? null,
@@ -106,17 +103,14 @@ export async function PATCH(
         ip: getIp(request),
       });
     } else if (type === "cancel") {
-      // Caller cancels the outgoing call
       if (callSession.initiatorId !== session.user.id) {
         return NextResponse.json({ message: "Only the caller can cancel" }, { status: 403 });
       }
       await prisma.callSession.update({
         where: { callCode: code },
-        data: {
-          status: "missed",
-        },
+        data: { status: "missed" },
       });
-      logActivity({
+      await logActivity({
         type: "call_cancel",
         userId: session.user.id,
         userName: session.user.name ?? null,
@@ -125,7 +119,6 @@ export async function PATCH(
         ip: getIp(request),
       });
     } else if (type === "answer") {
-      // Receiver joins: sets answer + receiverId
       await prisma.callSession.update({
         where: { callCode: code },
         data: {
@@ -134,7 +127,7 @@ export async function PATCH(
           status: "active",
         },
       });
-      logActivity({
+      await logActivity({
         type: "call_connecting",
         userId: session.user.id,
         userName: session.user.name ?? null,
@@ -143,7 +136,6 @@ export async function PATCH(
         ip: getIp(request),
       });
     } else if (type === "ice-initiator") {
-      // Initiator appends an ICE candidate
       const existing: object[] = JSON.parse(callSession.initiatorIce);
       existing.push(body.candidate);
       await prisma.callSession.update({
@@ -151,7 +143,6 @@ export async function PATCH(
         data: { initiatorIce: JSON.stringify(existing) },
       });
     } else if (type === "ice-receiver") {
-      // Receiver appends an ICE candidate
       const existing: object[] = JSON.parse(callSession.receiverIce);
       existing.push(body.candidate);
       await prisma.callSession.update({
@@ -164,7 +155,7 @@ export async function PATCH(
         data: { status: body.status },
       });
       if (body.status === "completed") {
-        logActivity({
+        await logActivity({
           type: "call_end",
           userId: session.user.id,
           userName: session.user.name ?? null,

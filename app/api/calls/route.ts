@@ -74,7 +74,7 @@ export async function POST(request: Request) {
       },
     });
 
-    logActivity({
+    await logActivity({
       type: "call_start",
       userId: session.user.id,
       userName: session.user.name ?? null,
