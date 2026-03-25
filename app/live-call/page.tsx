@@ -514,7 +514,8 @@ function LiveCallInner() {
         body: JSON.stringify({ type: "status", status: "completed", reason }),
       }).catch(() => {});
     }
-    callCodeRef.current = "";
+    // NOTE: callCodeRef.current is intentionally NOT cleared here — the auto-stop
+    // recording effect reads it when phase flips to "ended". It gets cleared in resetToIdle.
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     if (pcRef.current) {
@@ -563,6 +564,7 @@ function LiveCallInner() {
     setError(""); setPhase("idle"); setTargetCodeInput("");
     setOtherName(""); setTimer(0); setIsMuted(false); setIsVideoOff(false);
     setSwapped(false); setPipPos(null);
+    callCodeRef.current = "";
   };
 
   // Auto-return to idle 1.5 s after a call ends so the user can immediately redial
@@ -648,6 +650,9 @@ function LiveCallInner() {
     if (autoRecRef.current) return;
     setTimeout(() => {
       try {
+        const isVideo = callTypeRef.current === "video";
+
+        // Mix local + remote audio via AudioContext
         const audioCtx = new AudioContext();
         autoAudioCtxRef.current = audioCtx;
         const dest = audioCtx.createMediaStreamDestination();
@@ -655,21 +660,44 @@ function LiveCallInner() {
         if (localAudio.length) audioCtx.createMediaStreamSource(new MediaStream(localAudio)).connect(dest);
         const remoteAudio = remoteStreamRef.current?.getAudioTracks() ?? [];
         if (remoteAudio.length) audioCtx.createMediaStreamSource(new MediaStream(remoteAudio)).connect(dest);
-        const tracks = dest.stream.getAudioTracks();
-        if (tracks.length === 0) { audioCtx.close(); return; }
-        // Audio-only recording with low bitrate for small file sizes (~1-2 MB per 5 min)
-        const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg"]
-          .find(t => MediaRecorder.isTypeSupported(t)) || "";
-        const rec = new MediaRecorder(new MediaStream(tracks), {
+        const audioTracks = dest.stream.getAudioTracks();
+        if (audioTracks.length === 0) { audioCtx.close(); return; }
+
+        let mimeType: string;
+        let recordStream: MediaStream;
+
+        if (isVideo) {
+          const remoteVideo = remoteStreamRef.current?.getVideoTracks() ?? [];
+          if (remoteVideo.length > 0) {
+            // Video call: record remote video + mixed audio
+            mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
+              .find(t => MediaRecorder.isTypeSupported(t)) || "";
+            recordStream = new MediaStream([...remoteVideo, ...audioTracks]);
+          } else {
+            // No remote video yet — fall back to audio only
+            mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg"]
+              .find(t => MediaRecorder.isTypeSupported(t)) || "";
+            recordStream = new MediaStream(audioTracks);
+          }
+        } else {
+          // Audio call: record mixed audio only
+          mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg"]
+            .find(t => MediaRecorder.isTypeSupported(t)) || "";
+          recordStream = new MediaStream(audioTracks);
+        }
+
+        const rec = new MediaRecorder(recordStream, {
           ...(mimeType ? { mimeType } : {}),
-          audioBitsPerSecond: 32_000, // 32 kbps — excellent voice quality, tiny files
+          ...(isVideo
+            ? { videoBitsPerSecond: 600_000, audioBitsPerSecond: 64_000 }
+            : { audioBitsPerSecond: 32_000 }),
         });
         autoRecRef.current = rec;
         autoChunksRef.current = [];
         rec.ondataavailable = e => { if (e.data.size > 0) autoChunksRef.current.push(e.data); };
         rec.start(1000);
       } catch { /* best-effort */ }
-    }, 200);
+    }, 500);
   }, []); // eslint-disable-line
 
   // Auto-start recording when call becomes active
