@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
-  Loader2, ScanFace, ArrowLeft, Upload,
+  Loader2, Mic, Video, ScanFace, ArrowLeft, Upload,
   CheckCircle2, Clock, XCircle, AlertCircle, FileAudio, FileVideo, File
 } from "lucide-react";
 import Link from "next/link";
