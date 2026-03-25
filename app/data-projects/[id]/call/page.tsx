@@ -364,13 +364,11 @@ function CallPageInner() {
         const data = await res.json();
 
         // Detect when the OTHER side ends the call server-side.
-        // This covers: other party hangs up, call times out, etc.
+        // Use handleHangUp so any captured recording gets saved before exiting.
         if (data.status === "completed" || data.status === "missed") {
           stopPoll();
           clientLog("call_end", { callCode: code, reason: "remote_hangup", detectedBy: "ice_poll" }, "info");
-          cleanup();
-          setPhase("ended");
-          setError("The other person ended the call.");
+          handleHangUp("remote_hangup");
           return;
         }
 
@@ -401,6 +399,7 @@ function CallPageInner() {
         const data = await res.json();
 
         if (data.status === "declined") { stopPoll(); setPhase("declined"); cleanup(); return; }
+        if (data.status === "completed" || data.status === "missed") { stopPoll(); setPhase("ended"); cleanup(); return; }
 
         if ((data.status === "active" || data.answer) && !alreadyAnswered.current) {
           alreadyAnswered.current = true;
