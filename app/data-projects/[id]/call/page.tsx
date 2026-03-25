@@ -64,6 +64,12 @@ function CallPageInner() {
   const [personalCode,    setPersonalCode]    = useState("");
   const [targetCodeInput, setTargetCodeInput] = useState("");
   const [otherName,       setOtherName]       = useState("");
+  const [isIOS,           setIsIOS]           = useState(false);
+
+  useEffect(() => {
+    setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+  }, []);
 
   // ── Refs — WebRTC ─────────────────────────────────────────────────────────
   const pcRef            = useRef<RTCPeerConnection | null>(null);
@@ -565,6 +571,22 @@ function CallPageInner() {
                   </div>
                   <p className="text-xs text-zinc-500 mt-1">Share this with others so they can call you</p>
                 </div>
+              </Card>
+            )}
+
+            {isIOS && (
+              <Card className="p-4 bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-700">
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-2">
+                  📱 Screen recording on iPhone?
+                </p>
+                <ol className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-decimal list-inside">
+                  <li>Open <strong>Control Centre</strong> → long-press the screen record button</li>
+                  <li>Tap the <strong>Microphone</strong> icon so it turns red (on)</li>
+                  <li>Tap <strong>Start Recording</strong>, then come back here and make your call</li>
+                </ol>
+                <p className="text-xs text-amber-600 dark:text-amber-500 mt-2">
+                  Your voice and the other person's voice (from speaker) will both be captured.
+                </p>
               </Card>
             )}
 
