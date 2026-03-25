@@ -8,7 +8,6 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -20,29 +19,29 @@ export async function DELETE(
   if (user?.role !== "admin")
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const recording = await prisma.callRecording.findUnique({
-    where: { id },
-    select: { id: true, fileUrl: true },
-  });
+  const { id } = await params;
+
+  const recording = await prisma.callRecording.findUnique({ where: { id } });
   if (!recording)
     return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Try to delete the stored file
+  // Delete file from storage — best-effort, don't fail if file is missing
   try {
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
-      // Production: delete from Vercel Blob
-      const { del } = await import("@vercel/blob");
-      await del(recording.fileUrl);
-    } else {
-      // Dev: delete from public/uploads/
-      const { unlink } = await import("fs/promises");
-      const { join } = await import("path");
-      const urlPath = new URL(recording.fileUrl).pathname; // e.g. /uploads/xxx/file.webm
-      const filePath = join(process.cwd(), "public", urlPath);
-      await unlink(filePath);
+    if (recording.fileUrl) {
+      if (process.env.BLOB_READ_WRITE_TOKEN) {
+        // Production: Vercel Blob
+        const { del } = await import("@vercel/blob");
+        await del(recording.fileUrl);
+      } else {
+        // Local dev: file lives in public/uploads/
+        const { unlink } = await import("fs/promises");
+        const { join } = await import("path");
+        const relativePath = new URL(recording.fileUrl, "http://localhost").pathname;
+        await unlink(join(process.cwd(), "public", relativePath)).catch(() => {});
+      }
     }
   } catch {
-    // File already gone or inaccessible — continue to remove the DB row
+    // Storage deletion failed — still delete the DB record
   }
 
   await prisma.callRecording.delete({ where: { id } });
