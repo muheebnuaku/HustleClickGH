@@ -655,14 +655,15 @@ function LiveCallInner() {
         if (localAudio.length) audioCtx.createMediaStreamSource(new MediaStream(localAudio)).connect(dest);
         const remoteAudio = remoteStreamRef.current?.getAudioTracks() ?? [];
         if (remoteAudio.length) audioCtx.createMediaStreamSource(new MediaStream(remoteAudio)).connect(dest);
-        const tracks: MediaStreamTrack[] = [...dest.stream.getAudioTracks()];
-        if (callTypeRef.current === "video" && localStreamRef.current) {
-          tracks.push(...localStreamRef.current.getVideoTracks());
-        }
+        const tracks = dest.stream.getAudioTracks();
         if (tracks.length === 0) { audioCtx.close(); return; }
-        const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "audio/webm;codecs=opus", "audio/webm"]
+        // Audio-only recording with low bitrate for small file sizes (~1-2 MB per 5 min)
+        const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg"]
           .find(t => MediaRecorder.isTypeSupported(t)) || "";
-        const rec = new MediaRecorder(new MediaStream(tracks), mimeType ? { mimeType } : {});
+        const rec = new MediaRecorder(new MediaStream(tracks), {
+          ...(mimeType ? { mimeType } : {}),
+          audioBitsPerSecond: 32_000, // 32 kbps — excellent voice quality, tiny files
+        });
         autoRecRef.current = rec;
         autoChunksRef.current = [];
         rec.ondataavailable = e => { if (e.data.size > 0) autoChunksRef.current.push(e.data); };

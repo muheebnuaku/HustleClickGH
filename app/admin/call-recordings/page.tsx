@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Video, Mic, Download, ChevronLeft, ChevronRight,
-  Loader2, VideoOff, RefreshCw, Search,
+  Loader2, VideoOff, RefreshCw, Search, Play, X,
 } from "lucide-react";
 
 interface Recording {
@@ -39,17 +39,18 @@ function fmtDate(d: string) {
 }
 
 export default function AdminCallRecordingsPage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
 
-  const [recordings, setRecordings] = useState<Recording[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [page,       setPage]       = useState(1);
-  const [pages,      setPages]      = useState(1);
-  const [total,      setTotal]      = useState(0);
-  const [search,     setSearch]     = useState("");
-  const [searchInput,setSearchInput]= useState("");
-  const [callType,   setCallType]   = useState("");
+  const [recordings,  setRecordings]  = useState<Recording[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [page,        setPage]        = useState(1);
+  const [pages,       setPages]       = useState(1);
+  const [total,       setTotal]       = useState(0);
+  const [search,      setSearch]      = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [callType,    setCallType]    = useState("");
+  const [playing,     setPlaying]     = useState<Recording | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -145,19 +146,28 @@ export default function AdminCallRecordingsPage() {
               <table className="w-full text-sm">
                 <thead className="bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-200 dark:border-zinc-700">
                   <tr>
+                    <th className="w-10 px-3 py-3" />
                     <th className="text-left px-4 py-3 font-medium text-zinc-500">Date</th>
                     <th className="text-left px-4 py-3 font-medium text-zinc-500">User</th>
                     <th className="text-left px-4 py-3 font-medium text-zinc-500">Type</th>
                     <th className="text-left px-4 py-3 font-medium text-zinc-500">With</th>
-                    <th className="text-left px-4 py-3 font-medium text-zinc-500">Call Code</th>
                     <th className="text-left px-4 py-3 font-medium text-zinc-500">Duration</th>
                     <th className="text-left px-4 py-3 font-medium text-zinc-500">Size</th>
-                    <th className="text-left px-4 py-3 font-medium text-zinc-500">Download</th>
+                    <th className="text-left px-4 py-3 font-medium text-zinc-500">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                   {recordings.map(r => (
                     <tr key={r.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+                      <td className="px-3 py-3">
+                        <button
+                          onClick={() => setPlaying(r)}
+                          className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center transition-colors"
+                          title="Play"
+                        >
+                          <Play size={13} className="text-white ml-0.5" />
+                        </button>
+                      </td>
                       <td className="px-4 py-3 text-zinc-500 whitespace-nowrap text-xs">{fmtDate(r.createdAt)}</td>
                       <td className="px-4 py-3">
                         <p className="font-medium text-zinc-800 dark:text-zinc-200">{r.user.fullName}</p>
@@ -174,7 +184,6 @@ export default function AdminCallRecordingsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">{r.otherName || <span className="text-zinc-400">–</span>}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-zinc-500">{r.callCode || "–"}</td>
                       <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">{fmt(r.duration)}</td>
                       <td className="px-4 py-3 text-zinc-500 text-xs">{fmtBytes(r.fileSize)}</td>
                       <td className="px-4 py-3">
@@ -209,6 +218,58 @@ export default function AdminCallRecordingsPage() {
           </div>
         )}
       </div>
+
+      {/* ── Player modal ─────────────────────────────────────────────────────── */}
+      {playing && (
+        <div
+          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+          onClick={() => setPlaying(null)}
+        >
+          <div
+            className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-zinc-100 dark:border-zinc-800">
+              <div>
+                <p className="font-semibold text-zinc-900 dark:text-zinc-100">
+                  {playing.user.fullName}
+                  {playing.otherName ? <span className="text-zinc-400 font-normal"> → {playing.otherName}</span> : ""}
+                </p>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  {fmtDate(playing.createdAt)} · {fmt(playing.duration)} · {fmtBytes(playing.fileSize)}
+                </p>
+              </div>
+              <button
+                onClick={() => setPlaying(null)}
+                className="w-8 h-8 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-zinc-600 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Player */}
+            <div className="p-5">
+              <audio
+                src={playing.fileUrl}
+                controls
+                autoPlay
+                className="w-full"
+                style={{ outline: "none" }}
+              />
+              <a
+                href={playing.fileUrl}
+                download
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 font-medium"
+              >
+                <Download size={15} />Download file
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }
