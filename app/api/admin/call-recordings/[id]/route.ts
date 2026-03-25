@@ -6,8 +6,9 @@ import { prisma } from "@/lib/prisma";
 // DELETE /api/admin/call-recordings/[id] — delete a recording (admin only)
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -20,7 +21,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const recording = await prisma.callRecording.findUnique({
-    where: { id: params.id },
+    where: { id },
     select: { id: true, fileUrl: true },
   });
   if (!recording)
@@ -44,7 +45,7 @@ export async function DELETE(
     // File already gone or inaccessible — continue to remove the DB row
   }
 
-  await prisma.callRecording.delete({ where: { id: params.id } });
+  await prisma.callRecording.delete({ where: { id } });
 
   return NextResponse.json({ success: true });
 }
