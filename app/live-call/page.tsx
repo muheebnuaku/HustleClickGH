@@ -67,6 +67,8 @@ function LiveCallInner() {
   const [isIOS,             setIsIOS]             = useState(false);
   const [isRecording,       setIsRecording]       = useState(false);
   const [supportsRecording, setSupportsRecording] = useState(false);
+  const [swapped,           setSwapped]           = useState(false);
+  const [pipPos,            setPipPos]            = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -90,6 +92,14 @@ function LiveCallInner() {
   const mediaRecorderRef  = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const audioCtxRef       = useRef<AudioContext | null>(null);
+
+  // ── Auto-recording refs ────────────────────────────────────────────────────
+  const autoRecRef       = useRef<MediaRecorder | null>(null);
+  const autoChunksRef    = useRef<Blob[]>([]);
+  const autoAudioCtxRef  = useRef<AudioContext | null>(null);
+
+  // ── PiP drag ref ──────────────────────────────────────────────────────────
+  const pipDragRef = useRef<{ px: number; py: number; ex: number; ey: number; moved: boolean } | null>(null);
 
   // ── Signaling refs ─────────────────────────────────────────────────────────
   const pollRef        = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -121,7 +131,7 @@ function LiveCallInner() {
       localVideoRef.current.srcObject = localStreamRef.current;
       localVideoRef.current.play().catch(() => {});
     }
-  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase, swapped]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const stopPoll         = () => { if (pollRef.current)       { clearInterval(pollRef.current);        pollRef.current      = null; } };
@@ -135,12 +145,18 @@ function LiveCallInner() {
     seenInitIce.current = 0;
     seenRecvIce.current = 0;
     callCodeRef.current = "";
-    // Stop any active screen recording
+    // Stop manual screen recording
     if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
     screenStreamRef.current = null;
     audioCtxRef.current?.close();
     audioCtxRef.current = null;
+    // Stop auto-recording (no upload on cleanup — call was aborted)
+    if (autoRecRef.current?.state === "recording") autoRecRef.current.stop();
+    autoRecRef.current = null;
+    autoChunksRef.current = [];
+    autoAudioCtxRef.current?.close();
+    autoAudioCtxRef.current = null;
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     if (pcRef.current) {
@@ -540,6 +556,7 @@ function LiveCallInner() {
   const resetToIdle = () => {
     setError(""); setPhase("idle"); setTargetCodeInput("");
     setOtherName(""); setTimer(0); setIsMuted(false); setIsVideoOff(false);
+    setSwapped(false); setPipPos(null);
   };
 
   // Auto-return to idle 1.5 s after a call ends so the user can immediately redial
@@ -620,6 +637,104 @@ function LiveCallInner() {
     if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
   };
 
+  // ── Auto-recording (starts automatically on call connect, uploads on end) ──
+  const startAutoRecord = useCallback(() => {
+    if (autoRecRef.current) return;
+    setTimeout(() => {
+      try {
+        const audioCtx = new AudioContext();
+        autoAudioCtxRef.current = audioCtx;
+        const dest = audioCtx.createMediaStreamDestination();
+        const localAudio = localStreamRef.current?.getAudioTracks() ?? [];
+        if (localAudio.length) audioCtx.createMediaStreamSource(new MediaStream(localAudio)).connect(dest);
+        const remoteAudio = remoteStreamRef.current?.getAudioTracks() ?? [];
+        if (remoteAudio.length) audioCtx.createMediaStreamSource(new MediaStream(remoteAudio)).connect(dest);
+        const tracks: MediaStreamTrack[] = [...dest.stream.getAudioTracks()];
+        if (callTypeRef.current === "video" && localStreamRef.current) {
+          tracks.push(...localStreamRef.current.getVideoTracks());
+        }
+        if (tracks.length === 0) { audioCtx.close(); return; }
+        const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "audio/webm;codecs=opus", "audio/webm"]
+          .find(t => MediaRecorder.isTypeSupported(t)) || "";
+        const rec = new MediaRecorder(new MediaStream(tracks), mimeType ? { mimeType } : {});
+        autoRecRef.current = rec;
+        autoChunksRef.current = [];
+        rec.ondataavailable = e => { if (e.data.size > 0) autoChunksRef.current.push(e.data); };
+        rec.start(1000);
+      } catch { /* best-effort */ }
+    }, 200);
+  }, []); // eslint-disable-line
+
+  // Auto-start recording when call becomes active
+  useEffect(() => {
+    if (phase !== "active") return;
+    startAutoRecord();
+  }, [phase]); // eslint-disable-line
+
+  // Auto-stop and upload recording when call ends
+  useEffect(() => {
+    if (phase !== "ended") return;
+    const rec = autoRecRef.current;
+    const code = callCodeRef.current;
+    const dur  = timerRef.current ? 0 : 0; // captured below via closure
+    void dur; // suppress lint; actual value captured inline
+    const capturedTimer     = timer;
+    const capturedType      = callTypeRef.current;
+    const capturedOtherName = otherName;
+    if (!rec || rec.state === "inactive") {
+      autoAudioCtxRef.current?.close(); autoAudioCtxRef.current = null;
+      autoRecRef.current = null; autoChunksRef.current = [];
+      return;
+    }
+    rec.onstop = async () => {
+      const chunks = [...autoChunksRef.current];
+      autoChunksRef.current = [];
+      autoAudioCtxRef.current?.close(); autoAudioCtxRef.current = null;
+      autoRecRef.current = null;
+      if (!code || chunks.length === 0) return;
+      const mimeType = chunks[0].type || "audio/webm";
+      const blob = new Blob(chunks, { type: mimeType });
+      try {
+        const { uploadFile } = await import("@/lib/upload-file");
+        const fileName = `call-${code}-${Date.now()}.webm`;
+        const { url, fileSizeMB } = await uploadFile(blob, "call-recordings", fileName);
+        await fetch("/api/call-recordings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            callCode: code, fileUrl: url, duration: capturedTimer,
+            callType: capturedType, otherName: capturedOtherName,
+            fileSize: Math.round(fileSizeMB * 1024 * 1024),
+          }),
+        }).catch(() => {});
+      } catch { /* best-effort */ }
+    };
+    rec.stop();
+  }, [phase]); // eslint-disable-line
+
+  // ── PiP drag / tap handlers ────────────────────────────────────────────────
+  const handlePipPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const rect = e.currentTarget.getBoundingClientRect();
+    pipDragRef.current = { px: e.clientX, py: e.clientY, ex: rect.left, ey: rect.top, moved: false };
+  };
+  const handlePipPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pipDragRef.current) return;
+    const dx = e.clientX - pipDragRef.current.px;
+    const dy = e.clientY - pipDragRef.current.py;
+    if (!pipDragRef.current.moved && Math.abs(dx) + Math.abs(dy) > 6) pipDragRef.current.moved = true;
+    if (!pipDragRef.current.moved) return;
+    const W = 112, H = 176; // PiP size (w-28=112, h-44=176)
+    setPipPos({
+      x: Math.max(0, Math.min(window.innerWidth  - W, pipDragRef.current.ex + dx)),
+      y: Math.max(0, Math.min(window.innerHeight - H, pipDragRef.current.ey + dy)),
+    });
+  };
+  const handlePipPointerUp = () => {
+    if (!pipDragRef.current?.moved) setSwapped(s => !s);
+    pipDragRef.current = null;
+  };
+
   // ── Active VIDEO call — full-screen layout (outside DashboardLayout) ───────
   if ((phase === "active" || phase === "reconnecting") && callTypeRef.current === "video") {
     return (
@@ -627,8 +742,13 @@ function LiveCallInner() {
         {/* Hidden audio — only used for audio mode; video uses the <video> element */}
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
 
-        {/* Remote video — full screen */}
-        <video ref={remoteVideoRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover" />
+        {/* Remote/main video — swapped: shows local; default: shows remote */}
+        <video
+          ref={swapped ? localVideoRef : remoteVideoRef}
+          autoPlay playsInline
+          muted={swapped}
+          className="absolute inset-0 w-full h-full object-cover"
+        />
 
         {phase === "reconnecting" && (
           <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-3 z-30">
@@ -648,23 +768,38 @@ function LiveCallInner() {
             <p className="text-white font-semibold text-lg">{otherName || "In Call"}</p>
             <p className="text-white/60 text-sm">{fmt(timer)}</p>
           </div>
-          {isRecording && (
-            <div className="flex items-center gap-1.5 bg-red-500/30 border border-red-500/50 rounded-full px-3 py-1 mt-1">
+          <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-1.5 bg-red-500/30 border border-red-500/50 rounded-full px-3 py-1">
               <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
               <span className="text-red-300 text-xs font-semibold tracking-wide">REC</span>
             </div>
-          )}
+            {isRecording && (
+              <div className="flex items-center gap-1.5 bg-purple-500/30 border border-purple-500/50 rounded-full px-3 py-1">
+                <span className="text-purple-300 text-xs font-semibold tracking-wide">SCREEN</span>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Local PiP — bottom right */}
-        <div className="absolute bottom-44 right-4 z-20 w-28 h-44 rounded-2xl overflow-hidden shadow-2xl bg-zinc-900 border border-white/20">
-          {isVideoOff ? (
-            <div className="w-full h-full flex items-center justify-center">
-              <VideoOff size={24} className="text-zinc-500" />
-            </div>
-          ) : (
-            <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
-          )}
+        {/* PiP — drag to move, tap to swap with main screen */}
+        <div
+          onPointerDown={handlePipPointerDown}
+          onPointerMove={handlePipPointerMove}
+          onPointerUp={handlePipPointerUp}
+          onPointerCancel={handlePipPointerUp}
+          className="absolute z-20 w-28 h-44 rounded-2xl overflow-hidden shadow-2xl bg-zinc-900 border-2 border-white/30 cursor-pointer touch-none select-none"
+          style={pipPos ? { left: pipPos.x, top: pipPos.y } : { bottom: "11rem", right: "1rem" }}
+        >
+          <video
+            ref={swapped ? remoteVideoRef : localVideoRef}
+            autoPlay playsInline
+            muted={!swapped}
+            className={`w-full h-full object-cover ${!swapped ? "scale-x-[-1]" : ""}`}
+          />
+          {/* Swap hint */}
+          <div className="absolute inset-0 flex items-end justify-center pb-1.5 pointer-events-none">
+            <span className="text-white/50 text-[9px] font-medium bg-black/30 rounded px-1">tap to swap</span>
+          </div>
         </div>
 
         {/* Controls */}

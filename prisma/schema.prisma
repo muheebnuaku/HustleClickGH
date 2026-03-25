@@ -36,6 +36,7 @@ model User {
   referrals        Referral[]       @relation("Referrer")
   referredUsers    Referral[]       @relation("Referred")
   dataSubmissions  DataSubmission[]
+  callRecordings   CallRecording[]
 }
 
 model Survey {
@@ -209,4 +210,17 @@ model CallSession {
   callType        String    @default("audio")   // "audio" | "video"
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+}
+
+model CallRecording {
+  id        String   @id @default(cuid())
+  callCode  String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  duration  Int      // seconds
+  fileUrl   String
+  fileSize  Int?     // bytes
+  callType  String   @default("audio")
+  otherName String?
+  createdAt DateTime @default(now())
 }
