@@ -99,6 +99,11 @@ function LiveCallInner() {
   const autoAudioCtxRef  = useRef<AudioContext | null>(null);
   const autoCanvasRef    = useRef<HTMLCanvasElement | null>(null);
   const autoAnimRef      = useRef<number | null>(null);
+  // Refs that mirror state so drawFrame (created inside a [] useCallback) sees live values
+  const isMutedRef    = useRef(false);
+  const isVideoOffRef = useRef(false);
+  const timerValRef   = useRef(0);
+  const otherNameRef  = useRef("");
 
   // ── PiP drag ref ──────────────────────────────────────────────────────────
   const pipDragRef = useRef<{ px: number; py: number; ex: number; ey: number; moved: boolean } | null>(null);
@@ -123,6 +128,10 @@ function LiveCallInner() {
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { swappedRef.current = swapped; }, [swapped]);
   useEffect(() => { pipPosRef.current = pipPos; }, [pipPos]);
+  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+  useEffect(() => { isVideoOffRef.current = isVideoOff; }, [isVideoOff]);
+  useEffect(() => { timerValRef.current = timer; }, [timer]);
+  useEffect(() => { otherNameRef.current = otherName; }, [otherName]);
 
   // Wire up video streams after the full-screen video UI mounts.
   // ontrack fires during "connecting" when remoteVideoRef is null (video UI not rendered yet).
@@ -136,6 +145,11 @@ function LiveCallInner() {
     if (localVideoRef.current && localStreamRef.current) {
       localVideoRef.current.srcObject = localStreamRef.current;
       localVideoRef.current.play().catch(() => {});
+    }
+    // Ensure audio keeps playing through the dedicated element after swap or reconnect
+    if (remoteAudioRef.current && remoteStreamRef.current) {
+      remoteAudioRef.current.srcObject = remoteStreamRef.current;
+      remoteAudioRef.current.play().catch(() => {});
     }
   }, [phase, swapped]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -271,6 +285,16 @@ function LiveCallInner() {
 
       remoteStreamRef.current = remote;
 
+      // Always route remote audio through the dedicated hidden <audio> element.
+      // The <video> elements don't mount until phase="active", so ontrack (which
+      // fires during "connecting") can't rely on remoteVideoRef being available.
+      // Using a separate <audio> element guarantees reliable playback across all
+      // browsers and call types.
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = remote;
+        remoteAudioRef.current.play().catch(() => {});
+      }
+
       if (callTypeRef.current === "video") {
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = remote;
@@ -280,9 +304,6 @@ function LiveCallInner() {
           localVideoRef.current.srcObject = localStreamRef.current;
           localVideoRef.current.play().catch(() => {});
         }
-      } else if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = remote;
-        remoteAudioRef.current.play().catch(() => {});
       }
     };
 
@@ -741,6 +762,80 @@ function LiveCallInner() {
               ctx.restore();
             }
 
+            // ── Overlay: top bar + bottom controls ────────────────────────
+            ctx.save();
+
+            // Top gradient
+            const topGrad = ctx.createLinearGradient(0, 0, 0, 140);
+            topGrad.addColorStop(0, "rgba(0,0,0,0.72)");
+            topGrad.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.fillStyle = topGrad;
+            ctx.fillRect(0, 0, CW, 140);
+
+            // Name (top-left)
+            ctx.fillStyle = "rgba(255,255,255,0.95)";
+            ctx.font = "bold 28px sans-serif";
+            ctx.textAlign = "left";
+            ctx.textBaseline = "alphabetic";
+            ctx.fillText(otherNameRef.current || "In Call", 28, 56);
+
+            // Timer
+            const tv = timerValRef.current;
+            const ts = `${String(Math.floor(tv / 60)).padStart(2, "0")}:${String(tv % 60).padStart(2, "0")}`;
+            ctx.font = "20px sans-serif";
+            ctx.fillStyle = "rgba(255,255,255,0.52)";
+            ctx.fillText(ts, 28, 86);
+
+            // REC pill (top-right)
+            const rpX = CW - 112, rpY = 24;
+            drawRoundedRect(rpX, rpY, 84, 30, 15);
+            ctx.fillStyle = "rgba(239,68,68,0.35)";
+            ctx.fill();
+            ctx.fillStyle = "#ef4444";
+            ctx.beginPath();
+            ctx.arc(rpX + 18, rpY + 15, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.font = "bold 13px sans-serif";
+            ctx.fillStyle = "rgba(252,165,165,0.9)";
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            ctx.fillText("REC", rpX + 30, rpY + 15);
+
+            // Bottom gradient
+            const botGrad = ctx.createLinearGradient(0, CH - 200, 0, CH);
+            botGrad.addColorStop(0, "rgba(0,0,0,0)");
+            botGrad.addColorStop(1, "rgba(0,0,0,0.9)");
+            ctx.fillStyle = botGrad;
+            ctx.fillRect(0, CH - 200, CW, 200);
+
+            // Control buttons (mirrors actual UI: flip, mute, end, camera, record)
+            const muted  = isMutedRef.current;
+            const vidOff = isVideoOffRef.current;
+            const bY     = CH - 70;
+            const sp     = 80;
+            const bX0    = CW / 2 - sp * 2;
+
+            const drawBtn = (cx: number, r: number, bgColor: string, iconTxt: string, labelTxt: string, iconColor: string) => {
+              ctx.fillStyle = bgColor;
+              ctx.beginPath(); ctx.arc(cx, bY, r, 0, Math.PI * 2); ctx.fill();
+              ctx.fillStyle = iconColor;
+              ctx.font = `bold ${r > 28 ? 13 : 12}px sans-serif`;
+              ctx.textAlign = "center"; ctx.textBaseline = "middle";
+              ctx.fillText(iconTxt, cx, bY);
+              ctx.font = "11px sans-serif";
+              ctx.fillStyle = "rgba(255,255,255,0.48)";
+              ctx.textBaseline = "top";
+              ctx.fillText(labelTxt, cx, bY + r + 5);
+            };
+
+            drawBtn(bX0,          24, "rgba(255,255,255,0.2)",                                         "FLIP",  "Flip",    "#fff");
+            drawBtn(bX0 + sp,     24, muted  ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.2)",      muted  ? "MUTE" : "MIC",  muted  ? "Unmute"  : "Mute",   muted  ? "#dc2626" : "#fff");
+            drawBtn(bX0 + sp * 2, 32, "#dc2626",                                                       "END",   "End",     "#fff");
+            drawBtn(bX0 + sp * 3, 24, vidOff ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.2)",      vidOff ? "OFF"  : "CAM",  vidOff ? "Cam Off" : "Camera", vidOff ? "#dc2626" : "#fff");
+            drawBtn(bX0 + sp * 4, 24, "rgba(255,255,255,0.2)",                                         "SCR",   "Record",  "#fff");
+
+            ctx.restore();
+
             autoAnimRef.current = requestAnimationFrame(drawFrame);
           };
           autoAnimRef.current = requestAnimationFrame(drawFrame);
@@ -850,11 +945,11 @@ function LiveCallInner() {
         {/* Hidden audio — only used for audio mode; video uses the <video> element */}
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
 
-        {/* Remote/main video — swapped: shows local; default: shows remote */}
+        {/* Remote/main video — always muted; audio plays from the hidden <audio> element */}
         <video
           ref={swapped ? localVideoRef : remoteVideoRef}
           autoPlay playsInline
-          muted={swapped}
+          muted
           className="absolute inset-0 w-full h-full object-cover"
         />
 
@@ -901,7 +996,7 @@ function LiveCallInner() {
           <video
             ref={swapped ? remoteVideoRef : localVideoRef}
             autoPlay playsInline
-            muted={!swapped}
+            muted
             className={`w-full h-full object-cover ${!swapped ? "scale-x-[-1]" : ""}`}
           />
           {/* Swap hint */}
