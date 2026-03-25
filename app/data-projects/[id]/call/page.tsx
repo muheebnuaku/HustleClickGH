@@ -106,11 +106,22 @@ function CallPageInner() {
     alreadyAnswered.current = false;
     seenInitIce.current     = 0;
     seenRecvIce.current     = 0;
+    callCodeRef.current     = "";
 
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
 
-    if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
+    if (pcRef.current) {
+      // Null handlers first so stale async events (disconnected → closed)
+      // fired after pc.close() don't bleed into the next call.
+      pcRef.current.onconnectionstatechange    = null;
+      pcRef.current.oniceconnectionstatechange = null;
+      pcRef.current.onicecandidate             = null;
+      pcRef.current.ontrack                    = null;
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => cleanup(), [cleanup]);
