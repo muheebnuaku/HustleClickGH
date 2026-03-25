@@ -227,8 +227,10 @@ function CallPageInner() {
         clearReconnectTO();
         clearConnectTO();
 
-        // Advance to active only once (guard against duplicate events)
-        if (phaseRef.current === "connecting" || phaseRef.current === "reconnecting") {
+        // Advance to active from any in-call phase (connection can fire before
+        // setPhase("connecting") propagates to phaseRef on fast networks)
+        const inCall: Phase[] = ["calling", "joining", "connecting", "reconnecting"];
+        if (inCall.includes(phaseRef.current)) {
           setPhase("active");
           setTimer(0);
           if (!timerRef.current) timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
