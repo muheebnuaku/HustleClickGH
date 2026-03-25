@@ -610,56 +610,6 @@ function CallPageInner() {
             <p className="font-medium">Setting up call…</p>
           </Card>
         )}
-        {phase === "joining" && (
-          <Card className="p-8 text-center">
-            <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
-            <p className="font-medium">Joining call…</p>
-          </Card>
-        )}
-        {phase === "connecting" && (
-          <Card className="p-8 text-center">
-            <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
-            <p className="font-medium">Connecting…</p>
-            <p className="text-sm text-zinc-400 mt-1">Establishing peer-to-peer connection</p>
-          </Card>
-        )}
-
-        {/* ── CALLING (waiting for receiver) ── */}
-        {phase === "calling" && (
-          <Card className="p-6 text-center space-y-4">
-            <div className="w-20 h-20 mx-auto rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center animate-pulse">
-              <User className="w-10 h-10 text-green-600" />
-            </div>
-            <div>
-              <p className="font-medium text-lg">Calling {otherName || "…"}…</p>
-              <p className="text-sm text-zinc-500 mt-1">Waiting for them to answer</p>
-            </div>
-            <div className="flex items-center justify-center gap-2">
-              {[0, 0.2, 0.4].map((d, i) => (
-                <div key={i} className="w-2 h-2 rounded-full bg-green-500 animate-ping"
-                  style={{ animationDelay: `${d}s` }} />
-              ))}
-            </div>
-            <Button
-              variant="outline"
-              className="border-red-200 text-red-500 hover:bg-red-50"
-              onClick={() => {
-                if (callCodeRef.current) {
-                  fetch(`/api/calls/${callCodeRef.current}`, {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ type: "cancel" }),
-                  }).catch(() => {});
-                }
-                cleanup();
-                setPhase("ended");
-              }}
-            >
-              <PhoneOff size={18} className="mr-2" />Cancel Call
-            </Button>
-          </Card>
-        )}
-
         {/* ── DECLINED ── */}
         {phase === "declined" && (
           <Card className="p-6 text-center space-y-4">
@@ -681,95 +631,115 @@ function CallPageInner() {
           </Card>
         )}
 
-        {/* ── RECONNECTING ── */}
-        {phase === "reconnecting" && (
-          <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-amber-600/40">
-            <div className="flex items-center justify-between px-5 pt-5 pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center border-2 border-slate-600">
-                  <User className="w-5 h-5 text-slate-300" />
+        {/* ── DARK CALL INTERFACE — calling / joining / connecting / reconnecting / active ── */}
+        {(phase === "calling" || phase === "joining" || phase === "connecting" || phase === "reconnecting" || phase === "active") && (() => {
+          const statusText =
+            phase === "calling"      ? "Ringing…" :
+            phase === "joining"      ? "Joining…" :
+            phase === "connecting"   ? "Connecting…" :
+            phase === "reconnecting" ? "Reconnecting…" :
+                                       "Live call";
+
+          const borderColor =
+            phase === "reconnecting" ? "border-amber-600/40" : "border-slate-700";
+
+          const statusColor =
+            phase === "reconnecting" ? "text-amber-400" : "text-slate-400";
+
+          const spinnerColor =
+            phase === "reconnecting" ? "text-amber-400" : "text-slate-400";
+
+          return (
+            <div className={`rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border ${borderColor}`}>
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 pt-5 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center border-2 border-slate-600">
+                    <User className="w-5 h-5 text-slate-300" />
+                  </div>
+                  <div>
+                    <p className="text-white font-semibold text-base leading-tight">
+                      {otherName || (phase === "calling" ? "…" : "Your Partner")}
+                    </p>
+                    <p className={`text-xs ${statusColor}`}>{statusText}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-white font-semibold text-base leading-tight">{otherName || "Your Partner"}</p>
-                  <p className="text-amber-400 text-xs">Reconnecting…</p>
+                {phase === "active" ? (
+                  <div className="flex items-center gap-1.5 bg-green-600/20 border border-green-500/40 rounded-full px-3 py-1">
+                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                    <span className="text-green-400 text-xs font-semibold tracking-wide">LIVE</span>
+                  </div>
+                ) : (
+                  <Loader2 size={20} className={`animate-spin ${spinnerColor}`} />
+                )}
+              </div>
+
+              {/* Timer / status body */}
+              {phase === "reconnecting" ? (
+                <div className="text-center py-6 px-5">
+                  <p className="text-amber-300 text-sm">Network interruption detected</p>
+                  <p className="text-slate-500 text-xs mt-1">Reconnecting automatically — do not close this page</p>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-5xl font-mono font-bold text-white tracking-wider">{fmt(timer)}</p>
+                </div>
+              )}
+
+              {/* Muted badge */}
+              {isMuted && phase === "active" && (
+                <div className="text-center mb-4">
+                  <span className="bg-red-500/20 border border-red-500/40 text-red-400 text-xs px-3 py-1 rounded-full">
+                    Microphone muted
+                  </span>
+                </div>
+              )}
+
+              {/* Controls */}
+              <div className="flex items-center justify-center gap-8 px-6 py-6 border-t border-slate-700/60">
+                {phase === "active" && (
+                  <div className="flex flex-col items-center gap-1.5">
+                    <button
+                      onClick={toggleMute}
+                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
+                        isMuted ? "bg-red-600 hover:bg-red-700" : "bg-slate-700 hover:bg-slate-600"
+                      }`}
+                    >
+                      {isMuted
+                        ? <MicOff size={22} className="text-white" />
+                        : <Mic size={22} className="text-white" />}
+                    </button>
+                    <span className="text-slate-400 text-xs">{isMuted ? "Unmute" : "Mute"}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-col items-center gap-1.5">
+                  <button
+                    onClick={() => {
+                      if (phase === "calling" && callCodeRef.current) {
+                        fetch(`/api/calls/${callCodeRef.current}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ type: "cancel" }),
+                        }).catch(() => {});
+                        cleanup();
+                        setPhase("ended");
+                      } else {
+                        handleHangUp(phase === "reconnecting" ? "user_hangup_during_reconnect" : "user_hangup");
+                      }
+                    }}
+                    className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center transition-colors shadow-lg"
+                  >
+                    <PhoneOff size={26} className="text-white" />
+                  </button>
+                  <span className="text-slate-400 text-xs">
+                    {phase === "calling" ? "Cancel" : "Hang Up"}
+                  </span>
                 </div>
               </div>
-              <Loader2 size={20} className="animate-spin text-amber-400" />
             </div>
-            <div className="text-center py-6 px-5">
-              <p className="text-amber-300 text-sm">Network interruption detected</p>
-              <p className="text-slate-500 text-xs mt-1">Reconnecting automatically — do not close this page</p>
-            </div>
-            <div className="px-5 pb-5 flex justify-center">
-              <Button
-                variant="outline"
-                className="border-slate-600 text-slate-400 hover:bg-slate-800 text-sm"
-                onClick={() => handleHangUp("user_hangup_during_reconnect")}
-              >
-                <PhoneOff size={16} className="mr-2" />End Call
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* ── ACTIVE ── */}
-        {phase === "active" && (
-          <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-slate-700">
-            <div className="flex items-center justify-between px-5 pt-5 pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center border-2 border-slate-600">
-                  <User className="w-5 h-5 text-slate-300" />
-                </div>
-                <div>
-                  <p className="text-white font-semibold text-base leading-tight">{otherName || "Your Partner"}</p>
-                  <p className="text-slate-400 text-xs">Live call</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 bg-green-600/20 border border-green-500/40 rounded-full px-3 py-1">
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-green-400 text-xs font-semibold tracking-wide">LIVE</span>
-              </div>
-            </div>
-
-            <div className="text-center py-8">
-              <p className="text-5xl font-mono font-bold text-white tracking-wider">{fmt(timer)}</p>
-            </div>
-
-            {isMuted && (
-              <div className="text-center mb-4">
-                <span className="bg-red-500/20 border border-red-500/40 text-red-400 text-xs px-3 py-1 rounded-full">
-                  Microphone muted
-                </span>
-              </div>
-            )}
-
-            <div className="flex items-center justify-center gap-8 px-6 py-6 border-t border-slate-700/60">
-              <div className="flex flex-col items-center gap-1.5">
-                <button
-                  onClick={toggleMute}
-                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
-                    isMuted ? "bg-red-600 hover:bg-red-700" : "bg-slate-700 hover:bg-slate-600"
-                  }`}
-                >
-                  {isMuted
-                    ? <MicOff size={22} className="text-white" />
-                    : <Mic size={22} className="text-white" />}
-                </button>
-                <span className="text-slate-400 text-xs">{isMuted ? "Unmute" : "Mute"}</span>
-              </div>
-
-              <div className="flex flex-col items-center gap-1.5">
-                <button
-                  onClick={() => handleHangUp()}
-                  className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center transition-colors shadow-lg"
-                >
-                  <PhoneOff size={26} className="text-white" />
-                </button>
-                <span className="text-slate-400 text-xs">Hang Up</span>
-              </div>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ── ENDED ── */}
         {phase === "ended" && (
