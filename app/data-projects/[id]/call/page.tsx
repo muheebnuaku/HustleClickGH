@@ -122,7 +122,6 @@ function CallPageInner() {
       pcRef.current = null;
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => cleanup(), [cleanup]);
 
