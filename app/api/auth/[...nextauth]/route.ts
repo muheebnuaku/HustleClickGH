@@ -66,18 +66,6 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid password");
         }
 
-        // Check if selected role matches actual user role
-        if (credentials.selectedRole && credentials.selectedRole !== user.role) {
-          await logActivity({
-            type: "login_failed",
-            userId: user.id,
-            userName: user.fullName,
-            severity: "error",
-            metadata: { userId: credentials.userId, reason: "Role mismatch", selectedRole: credentials.selectedRole, actualRole: user.role },
-          });
-          throw new Error("Account type mismatch. Please select the correct account type.");
-        }
-
         await logActivity({
           type: "login",
           userId: user.id,

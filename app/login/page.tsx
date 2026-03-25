@@ -10,7 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LogIn, Shield, User, Eye, EyeOff, Sparkles, ArrowLeft, ArrowRight, CheckCircle2, UserPlus, Gift, Wallet, TrendingUp, Users, Home, Copy, PartyPopper } from "lucide-react";
+import { LogIn, Eye, EyeOff, Sparkles, ArrowLeft, ArrowRight, CheckCircle2, UserPlus, Gift, Wallet, TrendingUp, Users, Home, Copy, PartyPopper } from "lucide-react";
 
 const loginSchema = z.object({
   userId: z.string().min(1, "User ID is required"),
@@ -36,14 +36,12 @@ const registerSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 type RegisterFormData = z.infer<typeof registerSchema>;
-type UserRole = "user" | "admin";
 
 export default function AuthPage() {
   const router = useRouter();
   const [isFlipped, setIsFlipped] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [selectedRole, setSelectedRole] = useState<UserRole>("user");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [registeredUserId, setRegisteredUserId] = useState("");
@@ -66,23 +64,18 @@ export default function AuthPage() {
       const result = await signIn("credentials", {
         userId: data.userId,
         password: data.password,
-        selectedRole: selectedRole,
         redirect: false,
       });
 
       if (result?.error) {
-        if (result.error.includes("mismatch") || result.error.includes("Account type")) {
-          setError("Account type mismatch. Please select the correct account type (User or Admin).");
-        } else {
-          setError("Invalid User ID or password");
-        }
+        setError("Invalid User ID or password");
         return;
       }
 
       if (result?.ok) {
         const sessionRes = await fetch("/api/auth/session");
         const sessionData = await sessionRes.json();
-        
+
         if (sessionData?.user?.role === "admin") {
           router.push("/admin");
         } else {
@@ -263,52 +256,6 @@ export default function AuthPage() {
                     </p>
                   </div>
 
-                  {/* Role Selection */}
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-foreground">Account Type</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRole("user")}
-                        className={`relative flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all duration-300 ${
-                          selectedRole === "user"
-                            ? "border-blue-600 bg-blue-50 dark:bg-blue-900/20 shadow-lg shadow-blue-500/20"
-                            : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300"
-                        }`}
-                      >
-                        {selectedRole === "user" && (
-                          <CheckCircle2 size={14} className="absolute top-2 right-2 text-blue-600" />
-                        )}
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                          selectedRole === "user" ? "bg-gradient-to-br from-blue-500 to-blue-600" : "bg-zinc-100 dark:bg-zinc-800"
-                        }`}>
-                          <User size={20} className={selectedRole === "user" ? "text-white" : "text-zinc-400"} />
-                        </div>
-                        <span className={`text-xs font-semibold ${selectedRole === "user" ? "text-blue-600" : "text-zinc-500"}`}>User</span>
-                      </button>
-                      
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRole("admin")}
-                        className={`relative flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all duration-300 ${
-                          selectedRole === "admin"
-                            ? "border-purple-600 bg-purple-50 dark:bg-purple-900/20 shadow-lg shadow-purple-500/20"
-                            : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300"
-                        }`}
-                      >
-                        {selectedRole === "admin" && (
-                          <CheckCircle2 size={14} className="absolute top-2 right-2 text-purple-600" />
-                        )}
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                          selectedRole === "admin" ? "bg-gradient-to-br from-purple-500 to-purple-600" : "bg-zinc-100 dark:bg-zinc-800"
-                        }`}>
-                          <Shield size={20} className={selectedRole === "admin" ? "text-white" : "text-zinc-400"} />
-                        </div>
-                        <span className={`text-xs font-semibold ${selectedRole === "admin" ? "text-purple-600" : "text-zinc-500"}`}>Admin</span>
-                      </button>
-                    </div>
-                  </div>
-
                   <form onSubmit={loginForm.handleSubmit(handleLogin)} className="space-y-4">
                     {error && !isFlipped && (
                       <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-xl text-sm border border-red-200 dark:border-red-800">
@@ -351,13 +298,9 @@ export default function AuthPage() {
                       </div>
                     </div>
 
-                    <Button 
-                      type="submit" 
-                      className={`w-full h-11 rounded-xl font-semibold ${
-                        selectedRole === "admin"
-                          ? "bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
-                          : "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
-                      }`} 
+                    <Button
+                      type="submit"
+                      className="w-full h-11 rounded-xl font-semibold bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
                       disabled={isLoading}
                     >
                       {isLoading ? (

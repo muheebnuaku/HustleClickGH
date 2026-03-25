@@ -190,7 +190,24 @@ function CallPageInner() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [phase]);
 
-  // ── Data loading ──────────────────────────────────────────────────────────
+  // ── Keyboard refresh block — F5 / Ctrl+R / Cmd+R during active call ─────────
+  useEffect(() => {
+    const activePhases: Phase[] = ["recording", "reconnecting", "connecting", "calling"];
+    if (!activePhases.includes(phase)) return;
+
+    const handler = (e: KeyboardEvent) => {
+      const isRefresh =
+        e.key === "F5" ||
+        ((e.ctrlKey || e.metaKey) && (e.key === "r" || e.key === "R"));
+      if (isRefresh) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    window.addEventListener("keydown", handler, { capture: true });
+    return () => window.removeEventListener("keydown", handler, { capture: true });
+  }, [phase]);
   useEffect(() => {
     fetch(`/api/data-projects/${projectId}`)
       .then(r => r.json())
@@ -345,6 +362,18 @@ function CallPageInner() {
         const res = await fetch(`/api/calls/${code}`);
         if (!res.ok) return;
         const data = await res.json();
+
+        // Detect when the OTHER side ends the call server-side.
+        // This covers: other party hangs up, call times out, etc.
+        if (data.status === "completed" || data.status === "missed") {
+          stopPoll();
+          clientLog("call_end", { callCode: code, reason: "remote_hangup", detectedBy: "ice_poll" }, "info");
+          cleanup();
+          setPhase("ended");
+          setError("The other person ended the call.");
+          return;
+        }
+
         const pc = pcRef.current;
         if (!pc || !pc.remoteDescription) return;
 
