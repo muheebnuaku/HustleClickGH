@@ -10,197 +10,159 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Mic, MicOff, PhoneOff, PhoneCall, Copy, CheckCircle2,
-  Loader2, AlertCircle, ArrowLeft, Radio, User
+  Loader2, AlertCircle, ArrowLeft, Radio, User,
 } from "lucide-react";
 import Link from "next/link";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 type Phase =
   | "idle"
   | "requesting-mic"
   | "creating-offer"
-  | "calling"        // caller is waiting for receiver to accept
+  | "calling"
   | "joining"
   | "connecting"
-  | "reconnecting"   // briefly disconnected — WebRTC is trying to recover
+  | "reconnecting"
   | "recording"
   | "ended"
   | "submitting"
   | "done"
-  | "declined";      // receiver declined the call
+  | "declined";
 
-const FALLBACK_ICE_SERVERS: RTCIceServer[] = [
+// Fallback ICE servers when TURN credentials are unavailable.
+// Works for direct connections; carrier NAT (MTN/Vodafone) needs TURN via /api/turn-credentials.
+const FALLBACK_ICE: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
 ];
 
-// Encode PCM chunks into a WAV blob.
-// Accepts pre-converted Int16Array chunks (for 16-bit recordings) or
-// raw Float32Array chunks (for 32-bit). Storing Int16 during capture
-// halves RAM usage, which prevents the browser OOM tab-kill on mobile.
-function encodeWAV(chunks: (Float32Array | Int16Array)[], sampleRate: number, channels: number, bitDepth: number): Blob {
-  const totalLength = chunks.reduce((s, c) => s + c.length, 0);
-  const bytesPerSample = bitDepth / 8;
-  const dataSize = totalLength * bytesPerSample;
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-
-  const ws = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-  };
-
-  ws(0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  ws(8, "WAVE");
-  ws(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, bitDepth === 32 ? 3 : 1, true); // 1=PCM int, 3=IEEE float
-  view.setUint16(22, channels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * channels * bytesPerSample, true);
-  view.setUint16(32, channels * bytesPerSample, true);
-  view.setUint16(34, bitDepth, true);
-  ws(36, "data");
-  view.setUint32(40, dataSize, true);
-
-  let offset = 44;
-  for (const chunk of chunks) {
-    if (chunk instanceof Int16Array) {
-      // Already converted on capture — write directly (no extra temp allocation)
-      for (let i = 0; i < chunk.length; i++) {
-        view.setInt16(offset, chunk[i], true);
-        offset += 2;
-      }
-    } else {
-      // Float32Array — convert to target bit depth on the fly
-      for (let i = 0; i < chunk.length; i++) {
-        if (bitDepth === 32) {
-          view.setFloat32(offset, chunk[i], true);
-          offset += 4;
-        } else {
-          const s = Math.max(-1, Math.min(1, chunk[i]));
-          view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-          offset += 2;
-        }
-      }
-    }
+/** Returns the first audio MIME type this browser can record */
+function getBestMimeType(): string {
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/ogg",
+    "audio/mp4",
+  ];
+  for (const t of candidates) {
+    try { if (MediaRecorder.isTypeSupported(t)) return t; } catch { /* skip */ }
   }
-
-  return new Blob([buffer], { type: "audio/wav" });
+  return "";
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
 export default function CallRecordingPage() {
-  const params = useParams();
-  const searchParams = useSearchParams();
-  const projectId = params.id as string;
-  const joinCode = searchParams.get("join"); // For incoming call acceptance
-  const { status } = useSession();
+  const params        = useParams();
+  const searchParams  = useSearchParams();
+  const projectId     = params.id as string;
+  const joinCode      = searchParams.get("join");
+  const { status }    = useSession();
 
   // ── UI state ──────────────────────────────────────────────────────────────
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [myCallCode, setMyCallCode] = useState("");
+  const [phase,           setPhase]           = useState<Phase>("idle");
+  const [timer,           setTimer]           = useState(0);
+  const [isMuted,         setIsMuted]         = useState(false);
+  const [error,           setError]           = useState("");
+  const [copied,          setCopied]          = useState(false);
+  const [projectTitle,    setProjectTitle]    = useState("");
+  const [personalCode,    setPersonalCode]    = useState("");
   const [targetCodeInput, setTargetCodeInput] = useState("");
-  const [targetUserName, setTargetUserName] = useState("");
-  const [timer, setTimer] = useState(0);
-  const [isMuted, setIsMuted] = useState(false);
-  const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
-  const [projectTitle, setProjectTitle] = useState("");
-  const [callerName, setCallerName] = useState("");
-  const [personalCallCode, setPersonalCallCode] = useState("");
-  const [audioSpecs, setAudioSpecs] = useState<{
-    sampleRate: number; channels: number; bitDepth: number; recordingType: string | null;
-  }>({ sampleRate: 16000, channels: 1, bitDepth: 16, recordingType: null });
+  const [otherName,       setOtherName]       = useState("");
 
-  // ── WebRTC / recording refs ───────────────────────────────────────────────
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const remoteStreamRef = useRef<MediaStream | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
-  const pcmChunksRef = useRef<(Float32Array | Int16Array)[]>([]);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const destinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
-  const mixedStreamRef = useRef<MediaStream | null>(null);
-  const isInitiatorRef = useRef(false);
-  const callCodeRef = useRef("");
-  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const seenInitIce = useRef(0);
-  const seenRecvIce = useRef(0);
-  const alreadySetAnswer = useRef(false);
-  const isRecordingRef = useRef(false);
+  // ── Refs — WebRTC ─────────────────────────────────────────────────────────
+  const pcRef            = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef   = useRef<MediaStream | null>(null);
+  const remoteAudioRef   = useRef<HTMLAudioElement | null>(null);
+  const callCodeRef      = useRef("");
+  const isInitiatorRef   = useRef(false);
+
+  // ── Refs — Signaling ──────────────────────────────────────────────────────
+  const pollRef          = useRef<ReturnType<typeof setInterval> | null>(null);
+  const alreadyAnswered  = useRef(false);
+  const seenInitIce      = useRef(0);
+  const seenRecvIce      = useRef(0);
+
+  // ── Refs — Recording ──────────────────────────────────────────────────────
+  // We use the browser-native MediaRecorder API.
+  // It runs in a dedicated browser thread — no AudioWorklet, no ScriptProcessorNode,
+  // no main-thread blocking, no page-crash risk from audio processing.
+  const audioCtxRef      = useRef<AudioContext | null>(null);
+  const audioDestRef     = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const recorderRef      = useRef<MediaRecorder | null>(null);
+  const chunksRef        = useRef<Blob[]>([]);
+  const recStartedRef    = useRef(false);
+
+  // ── Refs — Timers ─────────────────────────────────────────────────────────
+  const timerRef         = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectTORef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectTORef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wakeLockRef      = useRef<WakeLockSentinel | null>(null);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  const otherPersonName = targetUserName || callerName || "Your Partner";
-  const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
-  const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
-  const clearConnectTimeout = () => { if (connectTimeoutRef.current) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null; } };
-  const clearDisconnectTimer = () => { if (disconnectTimerRef.current) { clearTimeout(disconnectTimerRef.current); disconnectTimerRef.current = null; } };
+  const stopPoll          = () => { if (pollRef.current)       { clearInterval(pollRef.current);  pollRef.current      = null; } };
+  const stopTimer         = () => { if (timerRef.current)      { clearInterval(timerRef.current); timerRef.current     = null; } };
+  const clearConnectTO    = () => { if (connectTORef.current)  { clearTimeout(connectTORef.current);   connectTORef.current  = null; } };
+  const clearReconnectTO  = () => { if (reconnectTORef.current){ clearTimeout(reconnectTORef.current); reconnectTORef.current = null; } };
 
+  // Full cleanup — safe to call from anywhere
   const cleanup = useCallback(() => {
     stopPoll();
     stopTimer();
-    clearConnectTimeout();
-    clearDisconnectTimer();
-    // Reset signaling refs so retry attempts start fresh
-    alreadySetAnswer.current = false;
-    seenInitIce.current = 0;
-    seenRecvIce.current = 0;
-    isRecordingRef.current = false;
-    if (workletNodeRef.current) {
-      workletNodeRef.current.port.close();
-      workletNodeRef.current.disconnect();
-      workletNodeRef.current = null;
+    clearConnectTO();
+    clearReconnectTO();
+
+    // Reset signaling dups
+    alreadyAnswered.current = false;
+    seenInitIce.current     = 0;
+    seenRecvIce.current     = 0;
+    recStartedRef.current   = false;
+
+    // Stop MediaRecorder (do NOT call submitRecording here — user hasn't hung up)
+    if (recorderRef.current) {
+      try { if (recorderRef.current.state !== "inactive") recorderRef.current.stop(); } catch { /* ignore */ }
+      recorderRef.current = null;
     }
-    destinationRef.current = null;
-    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
-    if (remoteStreamRef.current) remoteStreamRef.current.getTracks().forEach((t) => t.stop());
-    if (mixedStreamRef.current) mixedStreamRef.current.getTracks().forEach((t) => t.stop());
-    if (audioContextRef.current) { audioContextRef.current.close(); audioContextRef.current = null; }
+    chunksRef.current = [];
+
+    // Close AudioContext
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+    audioDestRef.current = null;
+
+    // Stop local mic tracks
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    localStreamRef.current = null;
+
+    // Close RTCPeerConnection
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-    // Release the screen wake lock so the screen can sleep again
+
+    // Release wake lock
     if (wakeLockRef.current) { wakeLockRef.current.release().catch(() => {}); wakeLockRef.current = null; }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => cleanup(), [cleanup]);
 
-  // ── Fetch project title and audio format specs ────────────────────────────
+  // ── Data loading ──────────────────────────────────────────────────────────
   useEffect(() => {
     fetch(`/api/data-projects/${projectId}`)
-      .then((r) => r.json())
-      .then((d) => {
-        setProjectTitle(d.project?.title || "Dataset Project");
-        if (d.project) {
-          setAudioSpecs({
-            sampleRate: d.project.audioSampleRate || 16000,
-            channels: d.project.audioChannels || 1,
-            bitDepth: d.project.audioBitDepth || 16,
-            recordingType: d.project.recordingType || null,
-          });
-        }
-      });
+      .then(r => r.json())
+      .then(d => setProjectTitle(d.project?.title || "Dataset Project"))
+      .catch(() => {});
   }, [projectId]);
 
-  // ── Fetch user's personal call code when authenticated ────────────────────
   useEffect(() => {
-    if (status === "authenticated") {
-      fetch("/api/profile")
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.user?.personalCallCode) {
-            setPersonalCallCode(d.user.personalCallCode);
-          }
-        })
-        .catch(() => {});
-    }
+    if (status !== "authenticated") return;
+    fetch("/api/profile")
+      .then(r => r.json())
+      .then(d => { if (d.user?.personalCallCode) setPersonalCode(d.user.personalCallCode); })
+      .catch(() => {});
   }, [status]);
 
-  // ── Auto-join if redirected from incoming call acceptance ─────────────────
+  // Auto-join when arriving from an incoming call notification
   useEffect(() => {
     if (joinCode && status === "authenticated" && phase === "idle") {
       handleJoinCall(joinCode);
@@ -208,252 +170,213 @@ export default function CallRecordingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinCode, status, phase]);
 
-  // ── Get microphone ────────────────────────────────────────────────────────
-  const getMic = async (): Promise<MediaStream> => {
-    setPhase("requesting-mic");
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    streamRef.current = stream;
-    return stream;
-  };
-
-  // ── Fetch ICE servers (STUN + time-limited TURN) from server ─────────────
+  // ── TURN credentials ──────────────────────────────────────────────────────
   const fetchIceServers = async (): Promise<RTCIceServer[]> => {
     try {
       const res = await fetch("/api/turn-credentials");
       if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.iceServers) && data.iceServers.length > 0) {
-          return data.iceServers;
-        }
+        const d = await res.json();
+        if (Array.isArray(d.iceServers) && d.iceServers.length) return d.iceServers;
       }
     } catch { /* fall through */ }
-    return FALLBACK_ICE_SERVERS;
+    return FALLBACK_ICE;
   };
 
-  // ── Create RTCPeerConnection ──────────────────────────────────────────────
-  const createPC = (iceServers: RTCIceServer[], onIceCandidate: (c: RTCIceCandidate) => void): RTCPeerConnection => {
+  // ── Recording ─────────────────────────────────────────────────────────────
+  /**
+   * Start recording by mixing local + remote audio through an AudioContext,
+   * then feeding the mix into a MediaRecorder. MediaRecorder handles encoding
+   * in the browser's own media thread — completely separate from the JS main
+   * thread, eliminating the crash risk from AudioWorklet/ScriptProcessorNode.
+   */
+  const startMixedRecording = (local: MediaStream, remote: MediaStream) => {
+    if (recStartedRef.current) return;
+    recStartedRef.current = true;
+
+    // Prevent Android screen sleep from killing the WebRTC connection
+    navigator.wakeLock?.request("screen")
+      .then(l => { wakeLockRef.current = l; })
+      .catch(() => {});
+
+    // Mix local mic + remote audio into a single MediaStream
+    const ctx  = new AudioContext();
+    const dest = ctx.createMediaStreamDestination();
+    audioCtxRef.current  = ctx;
+    audioDestRef.current = dest;
+    ctx.createMediaStreamSource(local).connect(dest);
+    ctx.createMediaStreamSource(remote).connect(dest);
+
+    // Start recording — collect chunks every second for resilience
+    const mimeType = getBestMimeType();
+    const recorder = new MediaRecorder(dest.stream, mimeType ? { mimeType } : undefined);
+    chunksRef.current = [];
+    recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+    recorder.start(1000);
+    recorderRef.current = recorder;
+
+    setPhase("recording");
+    setTimer(0);
+    timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
+  };
+
+  // ── WebRTC peer connection ─────────────────────────────────────────────────
+  const createPC = (
+    iceServers: RTCIceServer[],
+    onIce: (c: RTCIceCandidate) => void,
+  ): RTCPeerConnection => {
     const pc = new RTCPeerConnection({ iceServers });
     pcRef.current = pc;
 
-    pc.onicecandidate = (e) => { if (e.candidate) onIceCandidate(e.candidate); };
+    // Send our ICE candidates to the signaling server
+    pc.onicecandidate = e => { if (e.candidate) onIce(e.candidate); };
 
-    // Capture and play the remote audio stream as it arrives.
-    // Also reconnect it into the recording mix if startRecording() already ran
-    // (can fire again with a new stream after ICE restart / reconnect).
-    pc.ontrack = (e) => {
-      if (e.streams[0]) {
-        remoteStreamRef.current = e.streams[0];
-        if (remoteAudioRef.current) {
-          remoteAudioRef.current.srcObject = e.streams[0];
-          remoteAudioRef.current.play().catch(() => {});
-        }
-        // If recording is already active, wire the new remote stream into the mix
-        if (audioContextRef.current && destinationRef.current && isRecordingRef.current) {
-          try {
-            const src = audioContextRef.current.createMediaStreamSource(e.streams[0]);
-            src.connect(destinationRef.current);
-          } catch { /* ignore if context is closing */ }
-        }
+    // Remote track received — play it and start/update recording mix
+    pc.ontrack = e => {
+      const remote = e.streams[0];
+      if (!remote) return;
+
+      // Always keep the audio element up to date (handles reconnect with new stream)
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = remote;
+        remoteAudioRef.current.play().catch(() => {});
+      }
+
+      if (!localStreamRef.current) return;
+
+      if (!recStartedRef.current) {
+        // First time both streams are available — start recording
+        startMixedRecording(localStreamRef.current, remote);
+      } else if (audioCtxRef.current && audioDestRef.current) {
+        // Reconnected with a new remote stream — splice it into the existing mix
+        // so the recording is continuous without restarting MediaRecorder
+        try {
+          audioCtxRef.current.createMediaStreamSource(remote).connect(audioDestRef.current);
+        } catch { /* ignore if context is closing */ }
       }
     };
 
+    // Resilient connection state handling
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "connected") {
-        clearDisconnectTimer();
+      const s = pc.connectionState;
+
+      if (s === "connected") {
+        clearReconnectTO();
+        clearConnectTO();
         stopPoll();
-        clearConnectTimeout();
-        startRecording().catch(() => {});
+        // Recording starts from ontrack; stay in "connecting" until that fires
       }
 
-      // Both "disconnected" (transient) and "failed" (ICE gave up) go to reconnecting.
-      // WebRTC can self-recover from "disconnected". "failed" rarely self-recovers,
-      // but on Ghana mobile networks either state can flip back to "connected" when
-      // the radio gets a new path. We give 5 full minutes before giving up.
-      if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
-        // Prevent stacking timers if the state bounces rapidly
-        clearDisconnectTimer();
+      // Both "disconnected" (transient) and "failed" (ICE exhausted) get the same
+      // treatment: show reconnecting, resume ICE polling, wait up to 10 minutes.
+      // Ghana carrier networks (MTN/Vodafone/AirtelTigo) can take minutes to
+      // reassign NAT paths — never end the call automatically on a blip.
+      if (s === "disconnected" || s === "failed") {
+        clearReconnectTO();
         setPhase("reconnecting");
 
-        // Resume DB polling so ICE candidates can be relayed if WebRTC needs a
-        // new network path (e.g. cell tower handoff on MTN/Vodafone/AirtelTigo).
+        // Resume ICE candidate relay polling so WebRTC can find a new path
         if (callCodeRef.current && !pollRef.current) {
-          startPolling(callCodeRef.current, isInitiatorRef.current);
+          startIcePoll(callCodeRef.current, isInitiatorRef.current);
         }
 
-        // 5-minute grace period before giving up.
-        // Call handleHangUp so the recording captured so far is encoded + uploaded
-        // rather than being silently discarded.
-        disconnectTimerRef.current = setTimeout(() => {
-          if (pcRef.current && pcRef.current.connectionState !== "connected") {
+        // After 10 minutes of no recovery, hang up and save whatever was recorded
+        reconnectTORef.current = setTimeout(() => {
+          if (pcRef.current?.connectionState !== "connected") {
             setError("Connection lost. Saving your recording…");
             handleHangUp();
           }
-        }, 300_000);
+        }, 600_000);
       }
     };
 
     return pc;
   };
 
-  // ── Start PCM recording (mixes both local and remote audio → WAV) ─────────
-  // Uses AudioWorklet (runs in dedicated audio thread, not the JS main thread).
-  // This prevents the "page reloaded because an error occurred" crash that
-  // ScriptProcessorNode caused by blocking the main thread on mobile browsers.
-  const startRecording = async () => {
-    // Guard: connection state can fire "connected" more than once in some browsers
-    if (isRecordingRef.current || !streamRef.current) return;
-    isRecordingRef.current = true;
-    setPhase("recording");
+  // ── Signaling polls ───────────────────────────────────────────────────────
 
-    // Keep the screen on — many Android browsers suspend WebRTC/audio when screen sleeps
-    navigator.wakeLock?.request("screen").then((lock) => { wakeLockRef.current = lock; }).catch(() => {});
-
-    const { sampleRate, channels, bitDepth } = audioSpecs;
-
-    // Create AudioContext at the project's configured sample rate
-    const audioContext = new AudioContext({ sampleRate });
-    audioContextRef.current = audioContext;
-
-    // Mix local + remote into a single destination stream
-    const destination = audioContext.createMediaStreamDestination();
-    destinationRef.current = destination;
-    const localSource = audioContext.createMediaStreamSource(streamRef.current);
-    localSource.connect(destination);
-
-    if (remoteStreamRef.current) {
-      const remoteSource = audioContext.createMediaStreamSource(remoteStreamRef.current);
-      remoteSource.connect(destination);
-    }
-
-    mixedStreamRef.current = destination.stream;
-
-    // Load the AudioWorklet processor module (served from /public/)
-    await audioContext.audioWorklet.addModule("/audio-worklet-processor.js");
-
-    // Create the worklet node — runs PCM capture in dedicated audio rendering thread
-    const workletNode = new AudioWorkletNode(audioContext, "pcm-capture", {
-      processorOptions: { channels, chunkSize: 4096 },
-    });
-    workletNodeRef.current = workletNode;
-    pcmChunksRef.current = [];
-
-    // Prevent an AudioWorklet crash from becoming an unhandled error that kills the tab
-    workletNode.onprocessorerror = () => {};
-
-    // Receive PCM chunks from the audio thread and convert/store on the main thread
-    workletNode.port.onmessage = (e) => {
+  /** Poll for new ICE candidates — used during connection and on reconnect */
+  const startIcePoll = (code: string, asInitiator: boolean) => {
+    if (pollRef.current) return; // already running
+    let busy = false;
+    pollRef.current = setInterval(async () => {
+      if (busy || !pollRef.current) return;
+      busy = true;
       try {
-        const samples: Float32Array = e.data;
-        if (bitDepth === 16) {
-          // Convert Float32 → Int16 immediately — halves RAM usage vs. storing Float32
-          const int16 = new Int16Array(samples.length);
-          for (let i = 0; i < samples.length; i++) {
-            const s = Math.max(-1, Math.min(1, samples[i]));
-            int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-          }
-          pcmChunksRef.current.push(int16);
+        const res = await fetch(`/api/calls/${code}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const pc = pcRef.current;
+        if (!pc || !pc.remoteDescription) return;
+
+        if (asInitiator) {
+          const fresh: RTCIceCandidateInit[] = data.receiverIce.slice(seenRecvIce.current);
+          for (const c of fresh) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+          seenRecvIce.current += fresh.length;
         } else {
-          pcmChunksRef.current.push(new Float32Array(samples));
+          const fresh: RTCIceCandidateInit[] = data.initiatorIce.slice(seenInitIce.current);
+          for (const c of fresh) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+          seenInitIce.current += fresh.length;
         }
-      } catch { /* swallow — a single bad chunk should not abort recording */ }
-    };
-
-    // Wire up: mixed stream → worklet → silent gain → destination
-    // Silent gain keeps the worklet graph alive without double-playing audio to speakers
-    // (remoteAudioRef already handles playback — bypassing this would cause echo)
-    const mixedSource = audioContext.createMediaStreamSource(destination.stream);
-    mixedSource.connect(workletNode);
-    const silentGain = audioContext.createGain();
-    silentGain.gain.value = 0;
-    workletNode.connect(silentGain);
-    silentGain.connect(audioContext.destination);
-
-    setTimer(0);
-    timerRef.current = setInterval(() => setTimer((t) => t + 1), 1000);
+      } catch { /* ignore transient network errors */ } finally { busy = false; }
+    }, 1500);
   };
 
-  // ── Poll for signaling updates ────────────────────────────────────────────
-  const startPolling = (code: string, asInitiator: boolean) => {
-    let busy = false; // guard against overlapping async callbacks
+  /** Poll while the caller waits for the receiver to pick up */
+  const startCallingPoll = (code: string) => {
+    let busy = false;
     pollRef.current = setInterval(async () => {
-      // If WebRTC is already up, polling is no longer needed
-      if (!pollRef.current) return;
-      // Skip this tick if the previous one is still running (slow network)
-      if (busy) return;
+      if (busy || !pollRef.current) return;
       busy = true;
-
       try {
         const res = await fetch(`/api/calls/${code}`);
         if (!res.ok) return;
         const data = await res.json();
 
-        const pc = pcRef.current;
-        if (!pc) return;
+        if (data.status === "declined") { stopPoll(); setPhase("declined"); cleanup(); return; }
 
-        if (asInitiator) {
-          // Initiator: wait for answer
-          if (data.answer && !alreadySetAnswer.current && pc.signalingState === "have-local-offer") {
-            alreadySetAnswer.current = true;
-            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-            setPhase("connecting");
-          }
-          // Initiator: apply incoming ICE from receiver — only increment counter when applied
-          if (pc.remoteDescription) {
-            const newRecvIce: RTCIceCandidateInit[] = data.receiverIce.slice(seenRecvIce.current);
-            for (const c of newRecvIce) {
-              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
-            }
-            seenRecvIce.current += newRecvIce.length;
-          }
-        } else {
-          // Receiver: apply incoming ICE from initiator — only increment counter when applied
-          if (pc.remoteDescription) {
-            const newInitIce: RTCIceCandidateInit[] = data.initiatorIce.slice(seenInitIce.current);
-            for (const c of newInitIce) {
-              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
-            }
-            seenInitIce.current += newInitIce.length;
-          }
+        if ((data.status === "active" || data.answer) && !alreadyAnswered.current) {
+          alreadyAnswered.current = true;
+          stopPoll();
+          const pc = pcRef.current;
+          if (!pc) return;
+          await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+          setPhase("connecting");
+          startIcePoll(code, true);
         }
-      } catch { /* ignore transient errors */ } finally { busy = false; }
-    }, 1500); // 1.5s — fast enough to pick up TURN relay ICE candidates before the ICE timeout
+      } catch { /* ignore */ } finally { busy = false; }
+    }, 2000);
   };
 
-  // ── START CALL (initiator/caller - dialer mode) ────────────────────────────
+  // ── Start call (caller side) ──────────────────────────────────────────────
   const handleStartCall = async () => {
     const targetCode = targetCodeInput.trim().toUpperCase();
-    if (!targetCode || targetCode.length < 5) {
-      setError("Enter a valid 5-character call code");
-      return;
-    }
-
+    if (targetCode.length < 5) { setError("Enter a valid 5-character call code"); return; }
     setError("");
+
     try {
-      const stream = await getMic();
+      setPhase("requesting-mic");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStreamRef.current = stream;
+
       setPhase("creating-offer");
       isInitiatorRef.current = true;
 
-      // Fetch time-limited TURN credentials (1-hour session, no 60s cutoff)
       const iceServers = await fetchIceServers();
 
-      const pc = createPC(iceServers, async (candidate) => {
-        if (callCodeRef.current) {
-          // .catch() is critical — an unhandled rejection from a network error
-          // here will crash the browser tab with "page reloaded due to error"
-          await fetch(`/api/calls/${callCodeRef.current}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "ice-initiator", candidate }),
-          }).catch(() => {});
-        }
+      const pc = createPC(iceServers, async candidate => {
+        if (!callCodeRef.current) return;
+        await fetch(`/api/calls/${callCodeRef.current}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "ice-initiator", candidate }),
+        }).catch(() => {});
       });
 
-      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // Call the target user by their personal code
       const res = await fetch("/api/calls", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -463,19 +386,19 @@ export default function CallRecordingPage() {
       if (!res.ok) throw new Error(data.message);
 
       callCodeRef.current = data.callCode;
-      setMyCallCode(data.callCode);
-      setTargetUserName(data.targetUserName || "Unknown");
+      setOtherName(data.targetUserName || "");
       setPhase("calling");
       startCallingPoll(data.callCode);
 
-      // 5 min timeout — if receiver never accepts, bail out
-      connectTimeoutRef.current = setTimeout(() => {
-        if (pcRef.current && pcRef.current.connectionState !== "connected") {
+      // 5-minute ring timeout — if they never pick up, give up
+      connectTORef.current = setTimeout(() => {
+        if (pcRef.current?.connectionState !== "connected") {
           setError("No answer. The person may be unavailable.");
           setPhase("ended");
           cleanup();
         }
       }, 300_000);
+
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start call");
       setPhase("idle");
@@ -483,71 +406,34 @@ export default function CallRecordingPage() {
     }
   };
 
-  // ── Poll while calling (waiting for receiver to accept/decline) ───────────
-  const startCallingPoll = (code: string) => {
-    let busy = false;
-    pollRef.current = setInterval(async () => {
-      if (!pollRef.current) return;
-      if (busy) return;
-      busy = true;
-
-      try {
-        const res = await fetch(`/api/calls/${code}`);
-        if (!res.ok) return;
-        const data = await res.json();
-
-        // Check if receiver declined
-        if (data.status === "declined") {
-          setPhase("declined");
-          cleanup();
-          return;
-        }
-
-        // Check if receiver accepted and provided answer
-        if (data.status === "active" || data.answer) {
-          // Guard must wrap stopPoll+startPolling together so concurrent
-          // interval callbacks cannot race and wipe the newly started poll
-          if (pcRef.current && !alreadySetAnswer.current) {
-            alreadySetAnswer.current = true;
-            stopPoll(); // stop the 2s calling-poll before starting the ICE poll
-            await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
-            setPhase("connecting");
-            startPolling(code, true);
-          }
-        }
-      } catch { /* ignore */ } finally { busy = false; }
-    }, 2000);
-  };
-
-  // ── JOIN CALL (receiver - either from dialer input or incoming call) ───────
+  // ── Join call (receiver side) ─────────────────────────────────────────────
   const handleJoinCall = async (codeOverride?: string) => {
     const code = (codeOverride || targetCodeInput).trim().toUpperCase();
-    if (!code || code.length < 5) { setError("Enter a valid call code"); return; }
+    if (code.length < 5) { setError("Enter a valid call code"); return; }
     setError("");
 
     try {
-      const stream = await getMic();
+      setPhase("requesting-mic");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStreamRef.current = stream;
+
       setPhase("joining");
       isInitiatorRef.current = false;
-      callCodeRef.current = code;
+      callCodeRef.current    = code;
 
-      // Fetch the session to get the offer
       const res = await fetch(`/api/calls/${code}`);
-      if (!res.ok) { throw new Error("Call not found. Check the code and try again."); }
-      const sessionData = await res.json();
-      if (!sessionData.offer) throw new Error("Call setup incomplete — try again in a moment.");
-      if (sessionData.status === "active") throw new Error("This call is already in progress.");
-      if (sessionData.status === "completed") throw new Error("This call has ended.");
-      if (sessionData.status === "declined") throw new Error("This call was declined.");
+      if (!res.ok) throw new Error("Call not found. Check the code and try again.");
+      const session = await res.json();
+      if (!session.offer)                        throw new Error("Call setup not ready — try again in a moment.");
+      if (session.status === "active")           throw new Error("This call is already in progress.");
+      if (session.status === "completed")        throw new Error("This call has ended.");
+      if (session.status === "declined")         throw new Error("This call was declined.");
 
-      if (sessionData.initiatorName) setCallerName(sessionData.initiatorName);
+      if (session.initiatorName) setOtherName(session.initiatorName);
 
-      // Fetch time-limited TURN credentials (1-hour session, no 60s cutoff)
       const iceServers = await fetchIceServers();
 
-      const pc = createPC(iceServers, async (candidate) => {
-        // .catch() is critical — an unhandled rejection from a network error
-        // here will crash the browser tab with "page reloaded due to error"
+      const pc = createPC(iceServers, async candidate => {
         await fetch(`/api/calls/${code}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -555,13 +441,13 @@ export default function CallRecordingPage() {
         }).catch(() => {});
       });
 
-      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
-      await pc.setRemoteDescription(new RTCSessionDescription(sessionData.offer));
+      await pc.setRemoteDescription(new RTCSessionDescription(session.offer));
 
-      // Apply any ICE candidates already received from initiator
-      const initIce: RTCIceCandidateInit[] = sessionData.initiatorIce;
-      for (const c of initIce) await pc.addIceCandidate(new RTCIceCandidate(c));
+      // Apply any ICE candidates the initiator already sent
+      const initIce: RTCIceCandidateInit[] = session.initiatorIce || [];
+      for (const c of initIce) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
       seenInitIce.current = initIce.length;
 
       const answer = await pc.createAnswer();
@@ -574,16 +460,17 @@ export default function CallRecordingPage() {
       });
 
       setPhase("connecting");
-      startPolling(code, false);
+      startIcePoll(code, false);
 
-      // 30 s timeout — if peer-to-peer never reaches "connected", bail out
-      connectTimeoutRef.current = setTimeout(() => {
-        if (pcRef.current && pcRef.current.connectionState !== "connected") {
+      // 60s to establish peer-to-peer — TURN relay can be slow on first hop
+      connectTORef.current = setTimeout(() => {
+        if (pcRef.current?.connectionState !== "connected") {
           setError("Could not connect to the caller. Check your network and try again.");
           setPhase("ended");
           cleanup();
         }
-      }, 30_000);
+      }, 60_000);
+
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to join call");
       setPhase("idle");
@@ -591,16 +478,14 @@ export default function CallRecordingPage() {
     }
   };
 
-  // ── HANG UP ───────────────────────────────────────────────────────────────
+  // ── Hang up ───────────────────────────────────────────────────────────────
   const handleHangUp = () => {
     stopPoll();
     stopTimer();
-    // Disconnect AudioWorklet first so no more samples are added
-    if (workletNodeRef.current) {
-      workletNodeRef.current.port.close();
-      workletNodeRef.current.disconnect();
-      workletNodeRef.current = null;
-    }
+    clearReconnectTO();
+    clearConnectTO();
+
+    // Mark call completed on server (fire-and-forget)
     if (callCodeRef.current) {
       fetch(`/api/calls/${callCodeRef.current}`, {
         method: "PATCH",
@@ -608,88 +493,110 @@ export default function CallRecordingPage() {
         body: JSON.stringify({ type: "status", status: "completed" }),
       }).catch(() => {});
     }
-    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+
+    // Close WebRTC and mic
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    localStreamRef.current = null;
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-    // handleRecordingDone is async — must catch or an unhandled rejection crashes the tab
-    handleRecordingDone().catch(() => {
-      setError("Upload failed. Your recording was not saved.");
+    if (wakeLockRef.current) { wakeLockRef.current.release().catch(() => {}); wakeLockRef.current = null; }
+
+    // Close AudioContext (no more mixing needed)
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+    audioDestRef.current = null;
+
+    // Stop MediaRecorder then immediately submit
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    recStartedRef.current = false;
+
+    if (recorder && recorder.state !== "inactive") {
+      // onstop fires after the final chunk is flushed — then submit
+      recorder.onstop = () => submitRecording();
+      try { recorder.stop(); } catch { submitRecording(); }
+    } else if (chunksRef.current.length > 0) {
+      submitRecording();
+    } else {
       setPhase("ended");
-    });
+    }
   };
 
-  // ── AUTO SUBMIT AFTER RECORDING STOPS ────────────────────────────────────
-  const handleRecordingDone = async () => {
+  // ── Upload recording ──────────────────────────────────────────────────────
+  const submitRecording = async () => {
     setPhase("submitting");
-    const { sampleRate, channels, bitDepth } = audioSpecs;
-    const chunks = pcmChunksRef.current;
+    const chunks = chunksRef.current;
+    chunksRef.current = [];
 
-    if (chunks.length === 0) {
-      setError("Recording was too short. Please try again.");
+    if (!chunks.length) {
+      setError("No recording was captured. Please try again.");
       setPhase("ended");
       return;
     }
 
     try {
-      // encodeWAV allocates a large ArrayBuffer — keep inside try so OOM throws are caught
-      const wavBlob = encodeWAV(chunks, sampleRate, channels, bitDepth);
+      // Determine extension from the first chunk's MIME type
+      const mimeType = chunks[0].type || "audio/webm";
+      const ext = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
+      const blob = new Blob(chunks, { type: mimeType });
+      const name = `call-recording-${Date.now()}.${ext}`;
 
-      if (wavBlob.size < 1000) {
-        setError("Recording was too short. Please try again.");
-        setPhase("ended");
-        return;
-      }
+      const uploaded = await uploadFile(blob, projectId, name);
 
-      const recordingName = `call-recording-${Date.now()}.wav`;
-      const uploadData = await uploadFile(wavBlob, projectId, recordingName);
-
-      const submitRes = await fetch(`/api/data-projects/${projectId}/submit`, {
+      const res = await fetch(`/api/data-projects/${projectId}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fileUrl: uploadData.url,
-          fileName: uploadData.fileName,
-          fileType: "audio/wav",
-          fileSizeMB: uploadData.fileSizeMB,
-          language: null,
+          fileUrl:    uploaded.url,
+          fileName:   uploaded.fileName,
+          fileType:   mimeType,
+          fileSizeMB: uploaded.fileSizeMB,
+          language:   null,
           promptUsed: "Live call recording",
           consentGiven: true,
         }),
       });
-      const submitData = await submitRes.json();
+      const data = await res.json();
 
-      if (!submitRes.ok && submitData.message !== "You have already submitted to this project") {
-        throw new Error(submitData.message);
+      // "already submitted" is not a hard error — still show done screen
+      if (!res.ok && data.message !== "You have already submitted to this project") {
+        throw new Error(data.message);
       }
-
       setPhase("done");
+
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed. Your recording was not saved.");
       setPhase("ended");
     }
   };
 
+  // ── Controls ──────────────────────────────────────────────────────────────
   const toggleMute = () => {
-    if (!streamRef.current) return;
-    streamRef.current.getAudioTracks().forEach((t) => { t.enabled = !t.enabled; });
-    setIsMuted((m) => !m);
+    localStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = !t.enabled; });
+    setIsMuted(m => !m);
   };
 
   const copyCode = () => {
-    const codeToCopy = myCallCode || personalCallCode;
-    navigator.clipboard.writeText(codeToCopy).catch(() => {});
+    navigator.clipboard.writeText(personalCode).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const formatTime = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  const fmt = (s: number) =>
+    `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <DashboardLayout>
-      {/* Hidden audio element to play the remote stream */}
+      {/* Hidden audio element — plays remote stream to speakers */}
       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+
       <div className="max-w-lg space-y-5">
-        <Link href={`/data-projects/${projectId}`} className="inline-flex items-center gap-2 text-sm text-zinc-500 hover:text-foreground">
+        <Link
+          href={`/data-projects/${projectId}`}
+          className="inline-flex items-center gap-2 text-sm text-zinc-500 hover:text-foreground"
+        >
           <ArrowLeft size={16} />Back to project
         </Link>
 
@@ -704,20 +611,21 @@ export default function CallRecordingPage() {
           </div>
         )}
 
-        {/* ── IDLE: entry screen (Dialer UI) ── */}
+        {/* ── IDLE ── */}
         {phase === "idle" && (
           <div className="space-y-4">
-            {/* Personal Call Code Display */}
-            {personalCallCode && (
+            {personalCode && (
               <Card className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-blue-200 dark:border-blue-800">
                 <div className="text-center">
                   <p className="text-xs text-zinc-500 mb-1 uppercase tracking-wide">Your Personal Call Code</p>
                   <div className="inline-flex items-center gap-2">
                     <span className="text-2xl font-bold tracking-[0.3em] font-mono text-foreground">
-                      {personalCallCode}
+                      {personalCode}
                     </span>
                     <button onClick={copyCode} className="text-zinc-400 hover:text-blue-600 transition-colors">
-                      {copied ? <CheckCircle2 size={18} className="text-green-500" /> : <Copy size={18} />}
+                      {copied
+                        ? <CheckCircle2 size={18} className="text-green-500" />
+                        : <Copy size={18} />}
                     </button>
                   </div>
                   <p className="text-xs text-zinc-500 mt-1">Share this with others so they can call you</p>
@@ -731,8 +639,8 @@ export default function CallRecordingPage() {
                 <li>Get the <strong>5-character code</strong> of the person you want to call</li>
                 <li>Enter their code below and click <strong>Call</strong></li>
                 <li>They&apos;ll see an incoming call notification</li>
-                <li>When they accept, you&apos;ll be connected</li>
-                <li>Recording starts automatically — click <strong>Hang Up</strong> to finish</li>
+                <li>When they accept, you&apos;ll be connected automatically</li>
+                <li>Recording starts — click <strong>Hang Up</strong> when done</li>
               </ol>
             </Card>
 
@@ -747,63 +655,72 @@ export default function CallRecordingPage() {
                   <Input
                     placeholder="XXXXX"
                     value={targetCodeInput}
-                    onChange={(e) => setTargetCodeInput(e.target.value.toUpperCase())}
+                    onChange={e => setTargetCodeInput(e.target.value.toUpperCase())}
                     className="tracking-[0.3em] font-mono uppercase text-center text-xl py-6"
                     maxLength={5}
-                    onKeyDown={(e) => e.key === "Enter" && handleStartCall()}
+                    onKeyDown={e => e.key === "Enter" && handleStartCall()}
                   />
                 </div>
-                <Button 
-                  onClick={handleStartCall} 
+                <Button
+                  onClick={handleStartCall}
                   className="w-full bg-green-600 hover:bg-green-700 text-white py-6"
                   disabled={targetCodeInput.length < 5}
                 >
-                  <PhoneCall size={20} className="mr-2" />
-                  Call
+                  <PhoneCall size={20} className="mr-2" />Call
                 </Button>
               </div>
             </Card>
           </div>
         )}
 
-        {/* ── REQUESTING MIC ── */}
+        {/* ── INTERMEDIATE LOADING STATES ── */}
         {phase === "requesting-mic" && (
           <Card className="p-8 text-center">
             <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
-            <p className="font-medium">Requesting microphone access...</p>
+            <p className="font-medium">Requesting microphone access…</p>
             <p className="text-sm text-zinc-400 mt-1">Please allow microphone access when prompted</p>
           </Card>
         )}
-
-        {/* ── CREATING OFFER ── */}
         {phase === "creating-offer" && (
           <Card className="p-8 text-center">
             <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
-            <p className="font-medium">Setting up call...</p>
+            <p className="font-medium">Setting up call…</p>
+          </Card>
+        )}
+        {phase === "joining" && (
+          <Card className="p-8 text-center">
+            <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
+            <p className="font-medium">Joining call…</p>
+          </Card>
+        )}
+        {phase === "connecting" && (
+          <Card className="p-8 text-center">
+            <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
+            <p className="font-medium">Connecting…</p>
+            <p className="text-sm text-zinc-400 mt-1">Establishing peer-to-peer connection</p>
           </Card>
         )}
 
-        {/* ── CALLING (waiting for receiver to accept) ── */}
+        {/* ── CALLING (waiting for receiver) ── */}
         {phase === "calling" && (
           <Card className="p-6 text-center space-y-4">
             <div className="w-20 h-20 mx-auto rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center animate-pulse">
               <User className="w-10 h-10 text-green-600" />
             </div>
-            
             <div>
-              <p className="font-medium text-lg">Calling {otherPersonName}...</p>
+              <p className="font-medium text-lg">Calling {otherName || "…"}…</p>
               <p className="text-sm text-zinc-500 mt-1">Waiting for them to answer</p>
             </div>
-
-            <div className="flex items-center justify-center gap-2 text-green-600">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" />
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" style={{ animationDelay: "0.2s" }} />
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" style={{ animationDelay: "0.4s" }} />
+            <div className="flex items-center justify-center gap-2">
+              {[0, 0.2, 0.4].map((d, i) => (
+                <div key={i} className="w-2 h-2 rounded-full bg-green-500 animate-ping"
+                  style={{ animationDelay: `${d}s` }} />
+              ))}
             </div>
-
             <Button
+              variant="outline"
+              className="border-red-200 text-red-500 hover:bg-red-50"
               onClick={() => {
-                // Cancel the call
                 if (callCodeRef.current) {
                   fetch(`/api/calls/${callCodeRef.current}`, {
                     method: "PATCH",
@@ -814,16 +731,13 @@ export default function CallRecordingPage() {
                 cleanup();
                 setPhase("ended");
               }}
-              variant="outline"
-              className="border-red-200 text-red-500 hover:bg-red-50"
             >
-              <PhoneOff size={18} className="mr-2" />
-              Cancel Call
+              <PhoneOff size={18} className="mr-2" />Cancel Call
             </Button>
           </Card>
         )}
 
-        {/* ── DECLINED (receiver declined the call) ── */}
+        {/* ── DECLINED ── */}
         {phase === "declined" && (
           <Card className="p-6 text-center space-y-4">
             <div className="w-16 h-16 mx-auto rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
@@ -831,32 +745,20 @@ export default function CallRecordingPage() {
             </div>
             <div>
               <p className="font-medium text-lg">Call Declined</p>
-              <p className="text-sm text-zinc-500 mt-1">{otherPersonName} declined your call</p>
+              <p className="text-sm text-zinc-500 mt-1">
+                {otherName || "The other person"} declined your call
+              </p>
             </div>
-            <Button onClick={() => { setError(""); setPhase("idle"); setTargetCodeInput(""); setTargetUserName(""); setCallerName(""); }} className="bg-blue-600 hover:bg-blue-700 text-white">
+            <Button
+              onClick={() => { setError(""); setPhase("idle"); setTargetCodeInput(""); setOtherName(""); }}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
               Try Again
             </Button>
           </Card>
         )}
 
-        {/* ── JOINING ── */}
-        {(phase === "joining") && (
-          <Card className="p-8 text-center">
-            <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
-            <p className="font-medium">Joining call...</p>
-          </Card>
-        )}
-
-        {/* ── CONNECTING ── */}
-        {phase === "connecting" && (
-          <Card className="p-8 text-center">
-            <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
-            <p className="font-medium">Connecting...</p>
-            <p className="text-sm text-zinc-400 mt-1">Establishing peer-to-peer connection</p>
-          </Card>
-        )}
-
-        {/* ── RECONNECTING (transient network blip — give WebRTC 8s to self-recover) ── */}
+        {/* ── RECONNECTING ── */}
         {phase === "reconnecting" && (
           <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-amber-600/40">
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
@@ -865,8 +767,8 @@ export default function CallRecordingPage() {
                   <User className="w-5 h-5 text-slate-300" />
                 </div>
                 <div>
-                  <p className="text-white font-semibold text-base leading-tight">{otherPersonName}</p>
-                  <p className="text-amber-400 text-xs">Reconnecting...</p>
+                  <p className="text-white font-semibold text-base leading-tight">{otherName || "Your Partner"}</p>
+                  <p className="text-amber-400 text-xs">Reconnecting…</p>
                 </div>
               </div>
               <Loader2 size={20} className="animate-spin text-amber-400" />
@@ -876,24 +778,32 @@ export default function CallRecordingPage() {
               <p className="text-slate-500 text-xs mt-1">Reconnecting automatically — do not close this page</p>
               <p className="text-slate-600 text-xs mt-3">Recording continues in the background</p>
             </div>
+            <div className="px-5 pb-5 flex justify-center">
+              <Button
+                variant="outline"
+                className="border-slate-600 text-slate-400 hover:bg-slate-800 text-sm"
+                onClick={handleHangUp}
+              >
+                <PhoneOff size={16} className="mr-2" />End Call &amp; Save Recording
+              </Button>
+            </div>
           </div>
         )}
 
         {/* ── RECORDING ── */}
         {phase === "recording" && (
           <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-slate-700">
-            {/* Top bar — name of person */}
+            {/* Top bar */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center border-2 border-slate-600">
                   <User className="w-5 h-5 text-slate-300" />
                 </div>
                 <div>
-                  <p className="text-white font-semibold text-base leading-tight">{otherPersonName}</p>
+                  <p className="text-white font-semibold text-base leading-tight">{otherName || "Your Partner"}</p>
                   <p className="text-slate-400 text-xs">Live call</p>
                 </div>
               </div>
-              {/* Recording badge */}
               <div className="flex items-center gap-1.5 bg-red-600/20 border border-red-500/40 rounded-full px-3 py-1">
                 <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                 <span className="text-red-400 text-xs font-semibold tracking-wide">REC</span>
@@ -902,13 +812,10 @@ export default function CallRecordingPage() {
 
             {/* Timer */}
             <div className="text-center py-4">
-              <p className="text-5xl font-mono font-bold text-white tracking-wider">{formatTime(timer)}</p>
-              <p className="text-slate-500 text-xs mt-1.5">
-                WAV · {audioSpecs.sampleRate >= 1000 ? `${audioSpecs.sampleRate / 1000} kHz` : `${audioSpecs.sampleRate} Hz`} · {audioSpecs.channels === 1 ? "Mono" : "Stereo"} · {audioSpecs.bitDepth}-bit
-              </p>
+              <p className="text-5xl font-mono font-bold text-white tracking-wider">{fmt(timer)}</p>
             </div>
 
-            {/* Audio bars animation */}
+            {/* Audio bars */}
             <div className="flex items-end justify-center gap-1 h-16 px-8 mb-4">
               {[...Array(16)].map((_, i) => (
                 <div
@@ -924,7 +831,6 @@ export default function CallRecordingPage() {
               ))}
             </div>
 
-            {/* Muted indicator */}
             {isMuted && (
               <div className="text-center mb-2">
                 <span className="bg-red-500/20 border border-red-500/40 text-red-400 text-xs px-3 py-1 rounded-full">
@@ -933,24 +839,22 @@ export default function CallRecordingPage() {
               </div>
             )}
 
-            {/* Controls — circular buttons like WhatsApp */}
+            {/* Controls */}
             <div className="flex items-center justify-center gap-8 px-6 py-6 border-t border-slate-700/60">
-              {/* Mute button */}
               <div className="flex flex-col items-center gap-1.5">
                 <button
                   onClick={toggleMute}
                   className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
-                    isMuted
-                      ? "bg-red-600 hover:bg-red-700"
-                      : "bg-slate-700 hover:bg-slate-600"
+                    isMuted ? "bg-red-600 hover:bg-red-700" : "bg-slate-700 hover:bg-slate-600"
                   }`}
                 >
-                  {isMuted ? <MicOff size={22} className="text-white" /> : <Mic size={22} className="text-white" />}
+                  {isMuted
+                    ? <MicOff size={22} className="text-white" />
+                    : <Mic size={22} className="text-white" />}
                 </button>
                 <span className="text-slate-400 text-xs">{isMuted ? "Unmute" : "Mute"}</span>
               </div>
 
-              {/* Hang Up button */}
               <div className="flex flex-col items-center gap-1.5">
                 <button
                   onClick={handleHangUp}
@@ -968,7 +872,7 @@ export default function CallRecordingPage() {
         {phase === "submitting" && (
           <Card className="p-8 text-center">
             <Loader2 size={32} className="animate-spin mx-auto mb-3 text-blue-600" />
-            <p className="font-medium">Uploading your recording...</p>
+            <p className="font-medium">Uploading your recording…</p>
             <p className="text-sm text-zinc-400 mt-1">Please wait, do not close this page</p>
           </Card>
         )}
@@ -994,12 +898,22 @@ export default function CallRecordingPage() {
           </Card>
         )}
 
-        {/* ── ENDED (no recording / error) ── */}
+        {/* ── ENDED ── */}
         {phase === "ended" && (
           <Card className="p-6 text-center space-y-4">
             <Radio size={40} className="mx-auto text-zinc-400" />
             <p className="font-medium text-zinc-600">Call ended</p>
-            <Button onClick={() => { setError(""); setPhase("idle"); setMyCallCode(""); setTargetCodeInput(""); setTargetUserName(""); setCallerName(""); setTimer(0); }} className="bg-blue-600 hover:bg-blue-700 text-white">
+            <Button
+              onClick={() => {
+                setError("");
+                setPhase("idle");
+                setTargetCodeInput("");
+                setOtherName("");
+                setTimer(0);
+                setIsMuted(false);
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
               Try Again
             </Button>
           </Card>
