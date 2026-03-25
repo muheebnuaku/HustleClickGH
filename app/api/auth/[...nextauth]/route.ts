@@ -109,7 +109,7 @@ export const authOptions: NextAuthOptions = {
           if (!existingUser) {
             // Create new user for OAuth
             const userId = await generateUserId();
-            await prisma.user.create({
+            const created = await prisma.user.create({
               data: {
                 userId,
                 fullName: user.name || "User",
@@ -122,6 +122,21 @@ export const authOptions: NextAuthOptions = {
                 balance: 0,
                 totalEarned: 0,
               },
+            });
+            await logActivity({
+              type: "register",
+              userId: created.id,
+              userName: created.fullName,
+              severity: "success",
+              metadata: { provider: account.provider, email: user.email, userId: created.userId },
+            });
+          } else {
+            await logActivity({
+              type: "login",
+              userId: existingUser.id,
+              userName: existingUser.fullName,
+              severity: "success",
+              metadata: { provider: account.provider, email: user.email, userId: existingUser.userId, role: existingUser.role },
             });
           }
           return true;

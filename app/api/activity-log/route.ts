@@ -8,17 +8,28 @@ import { logActivity, getIp, LogType, LogSeverity } from "@/lib/activity-log";
  * POST /api/activity-log
  * Called from the client (call page) to log events the server can't see,
  * such as WebRTC connection states, recording start/stop, and page-close during call.
+ *
+ * Accepts both application/json and text/plain (sendBeacon fallback).
  */
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
 
-    const body = await request.json();
-    const { type, severity, metadata } = body as {
-      type: LogType;
-      severity?: LogSeverity;
-      metadata?: Record<string, unknown>;
-    };
+    // Parse body — sendBeacon may send text/plain even when content is JSON
+    let body: { type?: LogType; severity?: LogSeverity; metadata?: Record<string, unknown> };
+    try {
+      body = await request.json();
+    } catch {
+      // Fallback: try reading as plain text then parse
+      const text = await request.text();
+      try {
+        body = JSON.parse(text);
+      } catch {
+        return NextResponse.json({ message: "Invalid body" }, { status: 400 });
+      }
+    }
+
+    const { type, severity, metadata } = body;
 
     if (!type) {
       return NextResponse.json({ message: "type is required" }, { status: 400 });
@@ -53,3 +64,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "Failed to log" }, { status: 500 });
   }
 }
+

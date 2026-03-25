@@ -171,15 +171,17 @@ function CallPageInner() {
 
       // Best-effort log — navigator.sendBeacon is the only reliable way
       // to fire a request during page unload.
+      // Send as a Blob with application/json so the server can parse it.
       const callCode = callCodeRef.current;
       try {
+        const payload = JSON.stringify({
+          type: "page_close_during_call",
+          severity: "warning",
+          metadata: { callCode, phase: phaseRef.current },
+        });
         navigator.sendBeacon(
           "/api/activity-log",
-          JSON.stringify({
-            type: "page_close_during_call",
-            severity: "warning",
-            metadata: { callCode, phase: phaseRef.current },
-          }),
+          new Blob([payload], { type: "application/json" }),
         );
       } catch { /* ignore */ }
     };
