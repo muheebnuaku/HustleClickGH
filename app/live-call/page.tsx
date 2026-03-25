@@ -283,8 +283,9 @@ function LiveCallInner() {
       clearReconnectTO(); clearConnectTO();
       const inCall: Phase[] = ["calling", "joining", "connecting", "reconnecting"];
       if (inCall.includes(phaseRef.current)) {
+        const isReconnect = phaseRef.current === "reconnecting";
         setPhase("active");
-        setTimer(0);
+        if (!isReconnect) setTimer(0); // keep running timer on reconnect
         if (!timerRef.current) timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
         clientLog("call_connected", { callCode: callCodeRef.current, callType: callTypeRef.current }, "success");
       }
@@ -503,12 +504,17 @@ function LiveCallInner() {
   // ── Hang up ───────────────────────────────────────────────────────────────
   const handleHangUp = (reason = "user_hangup") => {
     stopPoll(); stopTimer(); clearReconnectTO(); clearConnectTO();
+    // Reset signaling state so the next call starts clean
+    alreadyAnswered.current = false;
+    seenInitIce.current     = 0;
+    seenRecvIce.current     = 0;
     if (callCodeRef.current) {
       fetch(`/api/calls/${callCodeRef.current}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "status", status: "completed", reason }),
       }).catch(() => {});
     }
+    callCodeRef.current = "";
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     if (pcRef.current) {
