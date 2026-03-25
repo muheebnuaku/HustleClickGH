@@ -742,8 +742,8 @@ function LiveCallInner() {
         let recordStream: MediaStream;
 
         if (isVideo) {
-          // Canvas-based recording: renders both streams in PiP layout, mirrors actual screen
-          const CW = 1280, CH = 720;
+          // Canvas-based recording: portrait orientation (720×1280) — mirrors phone screen layout
+          const CW = 720, CH = 1280;
           const canvas = document.createElement("canvas");
           canvas.width = CW; canvas.height = CH;
           autoCanvasRef.current = canvas;
@@ -773,17 +773,17 @@ function LiveCallInner() {
             ctx.fillStyle = "#111827";
             ctx.fillRect(0, 0, CW, CH);
 
-            // Main video — object-cover fill
+            // Main video — object-contain so landscape video letterboxes cleanly in portrait canvas
             if (mainEl && mainEl.readyState >= 2) {
               const vw = mainEl.videoWidth || CW, vh = mainEl.videoHeight || CH;
-              const scale = Math.max(CW / vw, CH / vh);
+              const scale = Math.min(CW / vw, CH / vh);
               const dw = vw * scale, dh = vh * scale;
               ctx.drawImage(mainEl, (CW - dw) / 2, (CH - dh) / 2, dw, dh);
             }
 
-            // PiP overlay — mirrors position from actual screen
-            const pipW = Math.round(CW * 0.22); // ~281px
-            const pipH = Math.round(pipW * 9 / 16); // ~158px
+            // PiP overlay — small landscape pip in corner (landscape camera in portrait canvas)
+            const pipW = Math.round(CW * 0.38); // ~273px
+            const pipH = Math.round(pipW * 9 / 16); // ~153px
             const pos  = pipPosRef.current;
             const pipX = pos
               ? Math.max(0, Math.min(CW - pipW, Math.round((pos.x / Math.max(1, window.innerWidth  - 112)) * (CW - pipW))))
