@@ -495,7 +495,14 @@ function LiveCallInner() {
     }
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
-    if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
+    if (pcRef.current) {
+      pcRef.current.onconnectionstatechange    = null;
+      pcRef.current.oniceconnectionstatechange = null;
+      pcRef.current.onicecandidate             = null;
+      pcRef.current.ontrack                    = null;
+      pcRef.current.close();
+      pcRef.current = null;
+    }
     setPhase("ended");
   };
 
