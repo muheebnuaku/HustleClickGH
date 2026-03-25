@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { LogOut, LayoutDashboard, Users, Wallet, FileText, MessageSquare, QrCode, Menu, X, Home, Shield, Database } from "lucide-react";
+import { LogOut, LayoutDashboard, Users, Wallet, FileText, MessageSquare, QrCode, Menu, X, Home, Shield, Database, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
@@ -35,6 +35,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     { href: "/admin/users", label: "Users", icon: Users },
     { href: "/admin/payments", label: "Payments", icon: Wallet },
     { href: "/admin/responses", label: "Responses", icon: FileText },
+    { href: "/admin/activity-log", label: "Activity Log", icon: Activity },
     { href: "/admin/blog", label: "Blog", icon: MessageSquare },
     { href: "/admin/qr-code", label: "QR Code", icon: QrCode },
   ];

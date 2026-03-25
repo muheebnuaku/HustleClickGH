@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { logActivity, getIp } from "@/lib/activity-log";
 
 // GET: Poll for session state (both sides use this)
 export async function GET(
@@ -81,9 +82,9 @@ export async function PATCH(
           status: "waiting", // waiting for WebRTC answer
         },
       });
-      
+
       // Return the offer so receiver can create their answer
-      return NextResponse.json({ 
+      return NextResponse.json({
         ok: true,
         offer: callSession.offer ? JSON.parse(callSession.offer) : null,
         projectId: callSession.projectId,
@@ -96,6 +97,14 @@ export async function PATCH(
           status: "declined",
         },
       });
+      logActivity({
+        type: "call_decline",
+        userId: session.user.id,
+        userName: session.user.name ?? null,
+        severity: "warning",
+        metadata: { callCode: code, initiatorId: callSession.initiatorId },
+        ip: getIp(request),
+      });
     } else if (type === "cancel") {
       // Caller cancels the outgoing call
       if (callSession.initiatorId !== session.user.id) {
@@ -107,6 +116,14 @@ export async function PATCH(
           status: "missed",
         },
       });
+      logActivity({
+        type: "call_cancel",
+        userId: session.user.id,
+        userName: session.user.name ?? null,
+        severity: "warning",
+        metadata: { callCode: code, targetUserCode: callSession.targetUserCode },
+        ip: getIp(request),
+      });
     } else if (type === "answer") {
       // Receiver joins: sets answer + receiverId
       await prisma.callSession.update({
@@ -116,6 +133,14 @@ export async function PATCH(
           receiverId: session.user.id,
           status: "active",
         },
+      });
+      logActivity({
+        type: "call_connecting",
+        userId: session.user.id,
+        userName: session.user.name ?? null,
+        severity: "info",
+        metadata: { callCode: code, initiatorId: callSession.initiatorId, role: "receiver" },
+        ip: getIp(request),
       });
     } else if (type === "ice-initiator") {
       // Initiator appends an ICE candidate
@@ -138,6 +163,21 @@ export async function PATCH(
         where: { callCode: code },
         data: { status: body.status },
       });
+      if (body.status === "completed") {
+        logActivity({
+          type: "call_end",
+          userId: session.user.id,
+          userName: session.user.name ?? null,
+          severity: "success",
+          metadata: {
+            callCode: code,
+            initiatorId: callSession.initiatorId,
+            receiverId: callSession.receiverId,
+            reason: body.reason ?? "user_hangup",
+          },
+          ip: getIp(request),
+        });
+      }
     }
 
     return NextResponse.json({ ok: true });

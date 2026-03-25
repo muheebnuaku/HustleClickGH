@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { logActivity, getIp } from "@/lib/activity-log";
 
 export async function POST(
   request: Request,
@@ -141,6 +142,24 @@ export async function POST(
         consentGivenAt: new Date(),
         status: "pending",
       },
+    });
+
+    logActivity({
+      type: "submission",
+      userId,
+      userName: session.user.name ?? null,
+      severity: "success",
+      metadata: {
+        submissionId: submission.id,
+        projectId,
+        projectTitle: project.title,
+        fileName,
+        fileType,
+        fileSizeMB,
+        language: language || null,
+        gender: gender || null,
+      },
+      ip: getIp(request),
     });
 
     return NextResponse.json({

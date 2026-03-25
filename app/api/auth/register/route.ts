@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { hash } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { SITE_CONFIG } from "@/lib/constants";
+import { logActivity, getIp } from "@/lib/activity-log";
 
 async function generateUserId(): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -108,6 +109,15 @@ export async function POST(request: Request) {
         }),
       ]);
     }
+
+    logActivity({
+      type: "register",
+      userId: user.id,
+      userName: user.fullName,
+      severity: "success",
+      metadata: { userId: user.userId, email: user.email, referredBy: referredBy ?? undefined },
+      ip: getIp(request),
+    });
 
     return NextResponse.json({
       message: "User created successfully",

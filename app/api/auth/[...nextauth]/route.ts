@@ -4,6 +4,7 @@ import GoogleProvider from "next-auth/providers/google";
 import AppleProvider from "next-auth/providers/apple";
 import { compare } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { logActivity } from "@/lib/activity-log";
 
 // Helper to generate unique USER + 4-digit ID
 async function generateUserId(): Promise<string> {
@@ -44,19 +45,46 @@ export const authOptions: NextAuthOptions = {
         });
 
         if (!user) {
+          await logActivity({
+            type: "login_failed",
+            severity: "error",
+            metadata: { userId: credentials.userId, reason: "User not found" },
+          });
           throw new Error("User not found");
         }
 
         const isPasswordValid = await compare(credentials.password, user.password);
 
         if (!isPasswordValid) {
+          await logActivity({
+            type: "login_failed",
+            userId: user.id,
+            userName: user.fullName,
+            severity: "error",
+            metadata: { userId: credentials.userId, reason: "Invalid password" },
+          });
           throw new Error("Invalid password");
         }
 
         // Check if selected role matches actual user role
         if (credentials.selectedRole && credentials.selectedRole !== user.role) {
+          await logActivity({
+            type: "login_failed",
+            userId: user.id,
+            userName: user.fullName,
+            severity: "error",
+            metadata: { userId: credentials.userId, reason: "Role mismatch", selectedRole: credentials.selectedRole, actualRole: user.role },
+          });
           throw new Error("Account type mismatch. Please select the correct account type.");
         }
+
+        await logActivity({
+          type: "login",
+          userId: user.id,
+          userName: user.fullName,
+          severity: "success",
+          metadata: { userId: user.userId, role: user.role },
+        });
 
         return {
           id: user.id,

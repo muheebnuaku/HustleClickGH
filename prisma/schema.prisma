@@ -183,6 +183,17 @@ model DataSubmission {
   @@unique([projectId, userId])
 }
 
+model ActivityLog {
+  id          String   @id @default(cuid())
+  type        String   // login | logout | register | call_start | call_end | call_error | call_cancel | call_decline | submission | withdrawal_request | call_connecting | call_reconnecting
+  userId      String?  // null for system events
+  userName    String?
+  severity    String   @default("info") // info | warning | error | success
+  metadata    String?  // JSON blob with extra details
+  ip          String?
+  createdAt   DateTime @default(now())
+}
+
 model CallSession {
   id              String    @id @default(cuid())
   callCode        String    @unique  // short code shared between users — personal 5-char or generated

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { uploadFile } from "@/lib/upload-file";
@@ -30,7 +30,6 @@ type Phase =
   | "declined";
 
 // Fallback ICE servers when TURN credentials are unavailable.
-// Works for direct connections; carrier NAT (MTN/Vodafone) needs TURN via /api/turn-credentials.
 const FALLBACK_ICE: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
@@ -52,8 +51,21 @@ function getBestMimeType(): string {
   return "";
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
-export default function CallRecordingPage() {
+/** Fire-and-forget client-side activity log */
+function clientLog(
+  type: string,
+  metadata?: Record<string, unknown>,
+  severity: "info" | "warning" | "error" | "success" = "info",
+) {
+  fetch("/api/activity-log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, severity, metadata }),
+  }).catch(() => {});
+}
+
+// ── Inner component (uses useSearchParams — must be inside Suspense) ──────────
+function CallPageInner() {
   const params        = useParams();
   const searchParams  = useSearchParams();
   const projectId     = params.id as string;
@@ -85,9 +97,6 @@ export default function CallRecordingPage() {
   const seenRecvIce      = useRef(0);
 
   // ── Refs — Recording ──────────────────────────────────────────────────────
-  // We use the browser-native MediaRecorder API.
-  // It runs in a dedicated browser thread — no AudioWorklet, no ScriptProcessorNode,
-  // no main-thread blocking, no page-crash risk from audio processing.
   const audioCtxRef      = useRef<AudioContext | null>(null);
   const audioDestRef     = useRef<MediaStreamAudioDestinationNode | null>(null);
   const recorderRef      = useRef<MediaRecorder | null>(null);
@@ -99,6 +108,17 @@ export default function CallRecordingPage() {
   const connectTORef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectTORef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeLockRef      = useRef<WakeLockSentinel | null>(null);
+
+  // ── Refs — Guards ─────────────────────────────────────────────────────────
+  // Prevent the auto-join effect from running more than once (avoids infinite
+  // loop if joinCall fails and sets phase back to "idle").
+  const hasAutoJoined    = useRef(false);
+  // Track current phase in a ref so we can read it from beforeunload without
+  // stale-closure issues.
+  const phaseRef         = useRef<Phase>("idle");
+
+  // Keep phaseRef in sync with phase state
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const stopPoll          = () => { if (pollRef.current)       { clearInterval(pollRef.current);  pollRef.current      = null; } };
@@ -113,38 +133,60 @@ export default function CallRecordingPage() {
     clearConnectTO();
     clearReconnectTO();
 
-    // Reset signaling dups
     alreadyAnswered.current = false;
     seenInitIce.current     = 0;
     seenRecvIce.current     = 0;
     recStartedRef.current   = false;
 
-    // Stop MediaRecorder (do NOT call submitRecording here — user hasn't hung up)
     if (recorderRef.current) {
       try { if (recorderRef.current.state !== "inactive") recorderRef.current.stop(); } catch { /* ignore */ }
       recorderRef.current = null;
     }
     chunksRef.current = [];
 
-    // Close AudioContext
     if (audioCtxRef.current) {
       audioCtxRef.current.close().catch(() => {});
       audioCtxRef.current = null;
     }
     audioDestRef.current = null;
 
-    // Stop local mic tracks
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
 
-    // Close RTCPeerConnection
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
 
-    // Release wake lock
     if (wakeLockRef.current) { wakeLockRef.current.release().catch(() => {}); wakeLockRef.current = null; }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => cleanup(), [cleanup]);
+
+  // ── beforeunload — warn on page close/refresh during active call ───────────
+  useEffect(() => {
+    const activePhases: Phase[] = ["recording", "reconnecting", "connecting", "calling"];
+    if (!activePhases.includes(phase)) return;
+
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "You have an active call. If you leave, your recording will be lost.";
+
+      // Best-effort log — navigator.sendBeacon is the only reliable way
+      // to fire a request during page unload.
+      const callCode = callCodeRef.current;
+      try {
+        navigator.sendBeacon(
+          "/api/activity-log",
+          JSON.stringify({
+            type: "page_close_during_call",
+            severity: "warning",
+            metadata: { callCode, phase: phaseRef.current },
+          }),
+        );
+      } catch { /* ignore */ }
+    };
+
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [phase]);
 
   // ── Data loading ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -162,9 +204,11 @@ export default function CallRecordingPage() {
       .catch(() => {});
   }, [status]);
 
-  // Auto-join when arriving from an incoming call notification
+  // Auto-join when arriving from an incoming call notification.
+  // hasAutoJoined guard prevents infinite loop if joinCall fails → phase="idle" → effect re-fires.
   useEffect(() => {
-    if (joinCode && status === "authenticated" && phase === "idle") {
+    if (joinCode && status === "authenticated" && phase === "idle" && !hasAutoJoined.current) {
+      hasAutoJoined.current = true;
       handleJoinCall(joinCode);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,22 +227,14 @@ export default function CallRecordingPage() {
   };
 
   // ── Recording ─────────────────────────────────────────────────────────────
-  /**
-   * Start recording by mixing local + remote audio through an AudioContext,
-   * then feeding the mix into a MediaRecorder. MediaRecorder handles encoding
-   * in the browser's own media thread — completely separate from the JS main
-   * thread, eliminating the crash risk from AudioWorklet/ScriptProcessorNode.
-   */
   const startMixedRecording = (local: MediaStream, remote: MediaStream) => {
     if (recStartedRef.current) return;
     recStartedRef.current = true;
 
-    // Prevent Android screen sleep from killing the WebRTC connection
     navigator.wakeLock?.request("screen")
       .then(l => { wakeLockRef.current = l; })
       .catch(() => {});
 
-    // Mix local mic + remote audio into a single MediaStream
     const ctx  = new AudioContext();
     const dest = ctx.createMediaStreamDestination();
     audioCtxRef.current  = ctx;
@@ -206,7 +242,6 @@ export default function CallRecordingPage() {
     ctx.createMediaStreamSource(local).connect(dest);
     ctx.createMediaStreamSource(remote).connect(dest);
 
-    // Start recording — collect chunks every second for resilience
     const mimeType = getBestMimeType();
     const recorder = new MediaRecorder(dest.stream, mimeType ? { mimeType } : undefined);
     chunksRef.current = [];
@@ -217,6 +252,8 @@ export default function CallRecordingPage() {
     setPhase("recording");
     setTimer(0);
     timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
+
+    clientLog("call_connected", { callCode: callCodeRef.current, mimeType }, "success");
   };
 
   // ── WebRTC peer connection ─────────────────────────────────────────────────
@@ -227,15 +264,12 @@ export default function CallRecordingPage() {
     const pc = new RTCPeerConnection({ iceServers });
     pcRef.current = pc;
 
-    // Send our ICE candidates to the signaling server
     pc.onicecandidate = e => { if (e.candidate) onIce(e.candidate); };
 
-    // Remote track received — play it and start/update recording mix
     pc.ontrack = e => {
       const remote = e.streams[0];
       if (!remote) return;
 
-      // Always keep the audio element up to date (handles reconnect with new stream)
       if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = remote;
         remoteAudioRef.current.play().catch(() => {});
@@ -244,18 +278,14 @@ export default function CallRecordingPage() {
       if (!localStreamRef.current) return;
 
       if (!recStartedRef.current) {
-        // First time both streams are available — start recording
         startMixedRecording(localStreamRef.current, remote);
       } else if (audioCtxRef.current && audioDestRef.current) {
-        // Reconnected with a new remote stream — splice it into the existing mix
-        // so the recording is continuous without restarting MediaRecorder
         try {
           audioCtxRef.current.createMediaStreamSource(remote).connect(audioDestRef.current);
         } catch { /* ignore if context is closing */ }
       }
     };
 
-    // Resilient connection state handling
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState;
 
@@ -263,29 +293,39 @@ export default function CallRecordingPage() {
         clearReconnectTO();
         clearConnectTO();
         stopPoll();
-        // Recording starts from ontrack; stay in "connecting" until that fires
       }
 
-      // Both "disconnected" (transient) and "failed" (ICE exhausted) get the same
-      // treatment: show reconnecting, resume ICE polling, wait up to 10 minutes.
-      // Ghana carrier networks (MTN/Vodafone/AirtelTigo) can take minutes to
-      // reassign NAT paths — never end the call automatically on a blip.
       if (s === "disconnected" || s === "failed") {
         clearReconnectTO();
         setPhase("reconnecting");
 
-        // Resume ICE candidate relay polling so WebRTC can find a new path
+        clientLog("call_reconnecting", { callCode: callCodeRef.current, connectionState: s }, "warning");
+
         if (callCodeRef.current && !pollRef.current) {
           startIcePoll(callCodeRef.current, isInitiatorRef.current);
         }
 
-        // After 10 minutes of no recovery, hang up and save whatever was recorded
         reconnectTORef.current = setTimeout(() => {
           if (pcRef.current?.connectionState !== "connected") {
+            clientLog("call_timeout", { callCode: callCodeRef.current, reason: "reconnect_timeout_10min" }, "error");
             setError("Connection lost. Saving your recording…");
-            handleHangUp();
+            handleHangUp("reconnect_timeout");
           }
         }, 600_000);
+      }
+    };
+
+    pc.onicecandidateerror = (e: Event) => {
+      const ev = e as RTCPeerConnectionIceErrorEvent;
+      // Log only serious ICE errors (not normal candidate failures like 701)
+      if (ev.errorCode >= 400) {
+        clientLog("call_error", {
+          callCode: callCodeRef.current,
+          error: "ICE candidate error",
+          errorCode: ev.errorCode,
+          errorText: ev.errorText,
+          url: ev.url,
+        }, "warning");
       }
     };
 
@@ -293,10 +333,8 @@ export default function CallRecordingPage() {
   };
 
   // ── Signaling polls ───────────────────────────────────────────────────────
-
-  /** Poll for new ICE candidates — used during connection and on reconnect */
   const startIcePoll = (code: string, asInitiator: boolean) => {
-    if (pollRef.current) return; // already running
+    if (pollRef.current) return;
     let busy = false;
     pollRef.current = setInterval(async () => {
       if (busy || !pollRef.current) return;
@@ -321,7 +359,6 @@ export default function CallRecordingPage() {
     }, 1500);
   };
 
-  /** Poll while the caller waits for the receiver to pick up */
   const startCallingPoll = (code: string) => {
     let busy = false;
     pollRef.current = setInterval(async () => {
@@ -390,9 +427,10 @@ export default function CallRecordingPage() {
       setPhase("calling");
       startCallingPoll(data.callCode);
 
-      // 5-minute ring timeout — if they never pick up, give up
+      // 5-minute ring timeout
       connectTORef.current = setTimeout(() => {
         if (pcRef.current?.connectionState !== "connected") {
+          clientLog("call_timeout", { callCode: callCodeRef.current, reason: "no_answer_5min" }, "warning");
           setError("No answer. The person may be unavailable.");
           setPhase("ended");
           cleanup();
@@ -400,7 +438,9 @@ export default function CallRecordingPage() {
       }, 300_000);
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start call");
+      const msg = err instanceof Error ? err.message : "Failed to start call";
+      clientLog("call_error", { phase: "start", error: msg }, "error");
+      setError(msg);
       setPhase("idle");
       cleanup();
     }
@@ -445,7 +485,6 @@ export default function CallRecordingPage() {
 
       await pc.setRemoteDescription(new RTCSessionDescription(session.offer));
 
-      // Apply any ICE candidates the initiator already sent
       const initIce: RTCIceCandidateInit[] = session.initiatorIce || [];
       for (const c of initIce) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
       seenInitIce.current = initIce.length;
@@ -462,9 +501,12 @@ export default function CallRecordingPage() {
       setPhase("connecting");
       startIcePoll(code, false);
 
-      // 60s to establish peer-to-peer — TURN relay can be slow on first hop
+      clientLog("call_connecting", { callCode: code, role: "receiver" }, "info");
+
+      // 60s to establish peer-to-peer
       connectTORef.current = setTimeout(() => {
         if (pcRef.current?.connectionState !== "connected") {
+          clientLog("call_timeout", { callCode: code, reason: "connect_timeout_60s" }, "error");
           setError("Could not connect to the caller. Check your network and try again.");
           setPhase("ended");
           cleanup();
@@ -472,48 +514,45 @@ export default function CallRecordingPage() {
       }, 60_000);
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to join call");
+      const msg = err instanceof Error ? err.message : "Failed to join call";
+      clientLog("call_error", { callCode: code, phase: "join", error: msg }, "error");
+      setError(msg);
       setPhase("idle");
       cleanup();
     }
   };
 
   // ── Hang up ───────────────────────────────────────────────────────────────
-  const handleHangUp = () => {
+  const handleHangUp = (reason = "user_hangup") => {
     stopPoll();
     stopTimer();
     clearReconnectTO();
     clearConnectTO();
 
-    // Mark call completed on server (fire-and-forget)
     if (callCodeRef.current) {
       fetch(`/api/calls/${callCodeRef.current}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "status", status: "completed" }),
+        body: JSON.stringify({ type: "status", status: "completed", reason }),
       }).catch(() => {});
     }
 
-    // Close WebRTC and mic
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
     if (wakeLockRef.current) { wakeLockRef.current.release().catch(() => {}); wakeLockRef.current = null; }
 
-    // Close AudioContext (no more mixing needed)
     if (audioCtxRef.current) {
       audioCtxRef.current.close().catch(() => {});
       audioCtxRef.current = null;
     }
     audioDestRef.current = null;
 
-    // Stop MediaRecorder then immediately submit
     const recorder = recorderRef.current;
     recorderRef.current = null;
     recStartedRef.current = false;
 
     if (recorder && recorder.state !== "inactive") {
-      // onstop fires after the final chunk is flushed — then submit
       recorder.onstop = () => submitRecording();
       try { recorder.stop(); } catch { submitRecording(); }
     } else if (chunksRef.current.length > 0) {
@@ -536,7 +575,6 @@ export default function CallRecordingPage() {
     }
 
     try {
-      // Determine extension from the first chunk's MIME type
       const mimeType = chunks[0].type || "audio/webm";
       const ext = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
       const blob = new Blob(chunks, { type: mimeType });
@@ -559,14 +597,15 @@ export default function CallRecordingPage() {
       });
       const data = await res.json();
 
-      // "already submitted" is not a hard error — still show done screen
       if (!res.ok && data.message !== "You have already submitted to this project") {
         throw new Error(data.message);
       }
       setPhase("done");
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed. Your recording was not saved.");
+      const msg = err instanceof Error ? err.message : "Upload failed. Your recording was not saved.";
+      clientLog("call_error", { phase: "submit", error: msg }, "error");
+      setError(msg);
       setPhase("ended");
     }
   };
@@ -782,7 +821,7 @@ export default function CallRecordingPage() {
               <Button
                 variant="outline"
                 className="border-slate-600 text-slate-400 hover:bg-slate-800 text-sm"
-                onClick={handleHangUp}
+                onClick={() => handleHangUp("user_hangup_during_reconnect")}
               >
                 <PhoneOff size={16} className="mr-2" />End Call &amp; Save Recording
               </Button>
@@ -857,7 +896,7 @@ export default function CallRecordingPage() {
 
               <div className="flex flex-col items-center gap-1.5">
                 <button
-                  onClick={handleHangUp}
+                  onClick={() => handleHangUp()}
                   className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center transition-colors shadow-lg"
                 >
                   <PhoneOff size={26} className="text-white" />
@@ -920,5 +959,22 @@ export default function CallRecordingPage() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+// ── Public export — wraps inner component in Suspense ─────────────────────────
+// Required by Next.js 15 App Router: components that call useSearchParams()
+// must be inside a Suspense boundary to avoid the parent page suspending.
+export default function CallRecordingPage() {
+  return (
+    <Suspense fallback={
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 size={32} className="animate-spin text-blue-600" />
+        </div>
+      </DashboardLayout>
+    }>
+      <CallPageInner />
+    </Suspense>
   );
 }

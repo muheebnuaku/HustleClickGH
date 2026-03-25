@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { nanoid } from "nanoid";
+import { logActivity, getIp } from "@/lib/activity-log";
 
 // POST: Initiator creates a call session (dialer mode - calls someone by their code)
 export async function POST(request: Request) {
@@ -73,7 +74,22 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json({ 
+    logActivity({
+      type: "call_start",
+      userId: session.user.id,
+      userName: session.user.name ?? null,
+      severity: "info",
+      metadata: {
+        callCode,
+        targetUserCode: targetUserCode.toUpperCase(),
+        targetUserName: targetUser.fullName,
+        projectId: projectId || null,
+        callType: callType === "video" ? "video" : "audio",
+      },
+      ip: getIp(request),
+    });
+
+    return NextResponse.json({
       callCode: callSession.callCode,
       targetUserName: targetUser.fullName,
     });
