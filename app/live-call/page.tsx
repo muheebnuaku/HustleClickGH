@@ -258,12 +258,32 @@ function LiveCallInner() {
   };
 
   // ── Media helpers ─────────────────────────────────────────────────────────
-  const getMedia = (type: CallType, facingMode: "user" | "environment" = "user") =>
-    navigator.mediaDevices.getUserMedia(
-      type === "video"
-        ? { audio: true, video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } } }
-        : { audio: true, video: false }
-    );
+  const getMedia = async (type: CallType, facingMode: "user" | "environment" = "user"): Promise<MediaStream> => {
+    if (type === "video") {
+      // 1. Try full video + audio
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+      } catch { /* camera denied or unavailable — fall through */ }
+
+      // 2. Try audio only (camera blocked)
+      try {
+        callTypeRef.current = "audio";
+        setCallType("audio");
+        return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      } catch { /* mic also denied — fall through */ }
+    } else {
+      // 3. Try audio only
+      try {
+        return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      } catch { /* mic denied — fall through */ }
+    }
+
+    // 4. Last resort: receive-only — no tracks sent, call still connects
+    return new MediaStream();
+  };
 
   const attachLocalVideo = (stream: MediaStream) => {
     if (localVideoRef.current) {
