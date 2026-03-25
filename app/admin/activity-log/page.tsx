@@ -120,12 +120,12 @@ function LogRow({ log }: { log: LogEntry }) {
             {log.ip && (
               <span className="text-xs text-zinc-400 font-mono">{log.ip}</span>
             )}
-            {log.metadata?.callCode && (
+            {!!log.metadata?.callCode && (
               <span className="text-xs text-zinc-500 font-mono">
                 Call: {log.metadata.callCode as string}
               </span>
             )}
-            {log.metadata?.error && (
+            {!!log.metadata?.error && (
               <span className="text-xs text-red-500 truncate max-w-[200px]">
                 {log.metadata.error as string}
               </span>
