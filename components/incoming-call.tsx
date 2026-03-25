@@ -82,16 +82,8 @@ export function IncomingCallListener() {
       });
 
       if (res.ok) {
-        const data = await res.json();
-        const isVideo = incomingCall.callType === "video";
-        if (data.projectId) {
-          const callPath = isVideo ? "video-call" : "call";
-          router.push(
-            `/data-projects/${data.projectId}/${callPath}?join=${incomingCall.callCode}`
-          );
-        } else {
-          router.push(`/data-projects/incoming?callCode=${incomingCall.callCode}`);
-        }
+        const type = incomingCall.callType === "video" ? "video" : "audio";
+        router.push(`/live-call?join=${incomingCall.callCode}&type=${type}`);
       }
     } catch (error) {
       console.error("Error accepting call:", error);

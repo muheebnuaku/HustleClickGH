@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
-  Loader2, Mic, Video, ScanFace, ArrowLeft, Upload,
+  Loader2, ScanFace, ArrowLeft, Upload,
   CheckCircle2, Clock, XCircle, AlertCircle, FileAudio, FileVideo, File
 } from "lucide-react";
 import Link from "next/link";
@@ -382,55 +382,6 @@ export default function DataProjectDetailPage() {
             {/* Upload Form */}
             {project.status === "active" && project.slotsRemaining > 0 ? (
               <>
-                {/* Live call option — voice projects only */}
-                {project.projectType === "voice" && (
-                  <Card className="p-5 border-blue-100 bg-blue-50/40">
-                    <div className="flex items-start gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
-                        <Mic size={20} className="text-blue-600" />
-                      </div>
-                      <div className="flex-1">
-                        <h2 className="font-semibold text-foreground mb-0.5">Live Audio Call Recording</h2>
-                        <p className="text-sm text-zinc-500 mb-3">
-                          Connect with another participant in real time. Both sides record automatically during the call.
-                        </p>
-                        <Link href={`/data-projects/${projectId}/call`}>
-                          <Button className="bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">
-                            <Mic size={16} className="mr-2" />Start or Join a Call
-                          </Button>
-                        </Link>
-                      </div>
-                    </div>
-                  </Card>
-                )}
-
-                {/* Video call option — available for all projects */}
-                <Card className="p-5 border-purple-100 bg-purple-50/40">
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center shrink-0">
-                      <Video size={20} className="text-purple-600" />
-                    </div>
-                    <div className="flex-1">
-                      <h2 className="font-semibold text-foreground mb-0.5">Live Video Call Recording</h2>
-                      <p className="text-sm text-zinc-500 mb-3">
-                        Start a face-to-face video session. Call someone using their unique call code and record the conversation.
-                      </p>
-                      <Link href={`/data-projects/${projectId}/video-call`}>
-                        <Button className="bg-purple-600 hover:bg-purple-700 text-white w-full sm:w-auto">
-                          <Video size={16} className="mr-2" />Start Video Call
-                        </Button>
-                      </Link>
-                    </div>
-                  </div>
-                </Card>
-
-                {project.projectType === "voice" && (
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 border-t border-zinc-200" />
-                    <span className="text-xs text-zinc-400 font-medium">OR upload a pre-recorded file</span>
-                    <div className="flex-1 border-t border-zinc-200" />
-                  </div>
-                )}
               <Card className="p-5">
                 <h2 className="font-semibold mb-4">Upload Your Recording</h2>
 
