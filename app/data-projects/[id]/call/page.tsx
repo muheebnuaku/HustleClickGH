@@ -712,7 +712,6 @@ function CallPageInner() {
         {/* ── ACTIVE ── */}
         {phase === "active" && (
           <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-slate-700">
-            {/* Top bar */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center border-2 border-slate-600">
@@ -729,7 +728,6 @@ function CallPageInner() {
               </div>
             </div>
 
-            {/* Timer */}
             <div className="text-center py-8">
               <p className="text-5xl font-mono font-bold text-white tracking-wider">{fmt(timer)}</p>
             </div>
@@ -742,7 +740,6 @@ function CallPageInner() {
               </div>
             )}
 
-            {/* Controls */}
             <div className="flex items-center justify-center gap-8 px-6 py-6 border-t border-slate-700/60">
               <div className="flex flex-col items-center gap-1.5">
                 <button
