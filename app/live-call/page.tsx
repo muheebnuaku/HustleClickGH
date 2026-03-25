@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import {
   Mic, MicOff, PhoneOff, PhoneCall, Copy, CheckCircle2,
   Loader2, AlertCircle, User, Video, VideoOff, RefreshCw,
+  ScreenShare, StopCircle,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -64,6 +65,7 @@ function LiveCallInner() {
   const [targetCodeInput, setTargetCodeInput] = useState("");
   const [otherName,       setOtherName]       = useState("");
   const [isIOS,           setIsIOS]           = useState(false);
+  const [isRecording,     setIsRecording]     = useState(false);
 
   useEffect(() => {
     setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -73,13 +75,19 @@ function LiveCallInner() {
   // ── WebRTC refs ────────────────────────────────────────────────────────────
   const pcRef           = useRef<RTCPeerConnection | null>(null);
   const localStreamRef  = useRef<MediaStream | null>(null);
-  const remoteStreamRef = useRef<MediaStream | null>(null); // stored so we can wire it after video UI mounts
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef  = useRef<HTMLAudioElement | null>(null);
   const localVideoRef   = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef  = useRef<HTMLVideoElement | null>(null);
   const callCodeRef    = useRef("");
   const isInitiatorRef = useRef(false);
-  const callTypeRef    = useRef<CallType>("audio"); // stable ref for closures
+  const callTypeRef    = useRef<CallType>("audio");
+
+  // ── Recording refs ─────────────────────────────────────────────────────────
+  const screenStreamRef   = useRef<MediaStream | null>(null);
+  const mediaRecorderRef  = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const audioCtxRef       = useRef<AudioContext | null>(null);
 
   // ── Signaling refs ─────────────────────────────────────────────────────────
   const pollRef        = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -125,11 +133,15 @@ function LiveCallInner() {
     seenInitIce.current = 0;
     seenRecvIce.current = 0;
     callCodeRef.current = "";
+    // Stop any active screen recording
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+    screenStreamRef.current?.getTracks().forEach(t => t.stop());
+    screenStreamRef.current = null;
+    audioCtxRef.current?.close();
+    audioCtxRef.current = null;
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     if (pcRef.current) {
-      // Null handlers first so stale async events (disconnected → closed)
-      // fired after pc.close() don't bleed into the next call.
       pcRef.current.onconnectionstatechange = null;
       pcRef.current.oniceconnectionstatechange = null;
       pcRef.current.onicecandidate = null;
@@ -521,6 +533,76 @@ function LiveCallInner() {
     setOtherName(""); setTimer(0); setIsMuted(false); setIsVideoOff(false);
   };
 
+  // ── Screen recording ───────────────────────────────────────────────────────
+  const startRecording = async () => {
+    try {
+      // Capture screen + system audio (other person's voice via speaker)
+      const displayStream = await (navigator.mediaDevices as unknown as {
+        getDisplayMedia(c: object): Promise<MediaStream>;
+      }).getDisplayMedia({ video: true, audio: true });
+
+      screenStreamRef.current = displayStream;
+
+      // Mix mic + display/system audio into one track via AudioContext
+      const audioCtx = new AudioContext();
+      audioCtxRef.current = audioCtx;
+      const dest = audioCtx.createMediaStreamDestination();
+
+      if (localStreamRef.current) {
+        audioCtx.createMediaStreamSource(localStreamRef.current).connect(dest);
+      }
+      const sysAudio = displayStream.getAudioTracks();
+      if (sysAudio.length > 0) {
+        audioCtx.createMediaStreamSource(new MediaStream(sysAudio)).connect(dest);
+      }
+
+      // Combined: screen video + mixed audio
+      const combined = new MediaStream([
+        ...displayStream.getVideoTracks(),
+        ...dest.stream.getAudioTracks(),
+      ]);
+
+      const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]
+        .find(t => MediaRecorder.isTypeSupported(t)) || "";
+
+      recordedChunksRef.current = [];
+      const recorder = new MediaRecorder(combined, mimeType ? { mimeType } : {});
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = e => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType || "video/webm" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `call-recording-${Date.now()}.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+        recordedChunksRef.current = [];
+        screenStreamRef.current?.getTracks().forEach(t => t.stop());
+        screenStreamRef.current = null;
+        audioCtxRef.current?.close();
+        audioCtxRef.current = null;
+        setIsRecording(false);
+      };
+
+      // Auto-stop if user closes the screen-share picker
+      displayStream.getVideoTracks()[0].onended = () => stopRecording();
+
+      recorder.start(1000);
+      setIsRecording(true);
+    } catch {
+      setIsRecording(false);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+  };
+
   // ── Active VIDEO call — full-screen layout (outside DashboardLayout) ───────
   if ((phase === "active" || phase === "reconnecting") && callTypeRef.current === "video") {
     return (
@@ -544,9 +626,17 @@ function LiveCallInner() {
         <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-black/85 to-transparent pointer-events-none z-10" />
 
         {/* Top bar */}
-        <div className="absolute top-0 left-0 right-0 px-5 pt-10 z-20">
-          <p className="text-white font-semibold text-lg">{otherName || "In Call"}</p>
-          <p className="text-white/60 text-sm">{fmt(timer)}</p>
+        <div className="absolute top-0 left-0 right-0 px-5 pt-10 z-20 flex items-start justify-between">
+          <div>
+            <p className="text-white font-semibold text-lg">{otherName || "In Call"}</p>
+            <p className="text-white/60 text-sm">{fmt(timer)}</p>
+          </div>
+          {isRecording && (
+            <div className="flex items-center gap-1.5 bg-red-500/30 border border-red-500/50 rounded-full px-3 py-1 mt-1">
+              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-red-300 text-xs font-semibold tracking-wide">REC</span>
+            </div>
+          )}
         </div>
 
         {/* Local PiP — bottom right */}
@@ -586,6 +676,18 @@ function LiveCallInner() {
           >
             {isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
           </button>
+          {!isIOS && (
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+                isRecording ? "bg-red-500 hover:bg-red-600" : "bg-white/20 text-white hover:bg-white/30"
+              }`}
+            >
+              {isRecording
+                ? <StopCircle size={20} className="text-white" />
+                : <ScreenShare size={20} className="text-white" />}
+            </button>
+          )}
           {phase === "reconnecting" && (
             <button
               onClick={() => handleHangUp("user_hangup_during_reconnect")}
@@ -794,6 +896,12 @@ function LiveCallInner() {
               ) : (
                 <div className="text-center py-8">
                   <p className="text-5xl font-mono font-bold text-white tracking-wider">{fmt(timer)}</p>
+                  {isRecording && (
+                    <div className="inline-flex items-center gap-1.5 mt-3 bg-red-500/20 border border-red-500/40 rounded-full px-3 py-1">
+                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                      <span className="text-red-400 text-xs font-semibold tracking-wide">RECORDING</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -807,7 +915,7 @@ function LiveCallInner() {
               )}
 
               {/* Controls */}
-              <div className="flex items-center justify-center gap-8 px-6 py-6 border-t border-slate-700/60">
+              <div className="flex items-center justify-center gap-6 px-6 py-6 border-t border-slate-700/60">
                 {isActive && (
                   <div className="flex flex-col items-center gap-1.5">
                     <button onClick={toggleMute}
@@ -817,6 +925,23 @@ function LiveCallInner() {
                     <span className="text-slate-400 text-xs">{isMuted ? "Unmute" : "Mute"}</span>
                   </div>
                 )}
+
+                {isActive && !isIOS && (
+                  <div className="flex flex-col items-center gap-1.5">
+                    <button
+                      onClick={isRecording ? stopRecording : startRecording}
+                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
+                        isRecording ? "bg-red-500 hover:bg-red-600 animate-pulse" : "bg-slate-700 hover:bg-slate-600"
+                      }`}
+                    >
+                      {isRecording
+                        ? <StopCircle size={22} className="text-white" />
+                        : <ScreenShare size={22} className="text-white" />}
+                    </button>
+                    <span className="text-slate-400 text-xs">{isRecording ? "Stop Rec" : "Record"}</span>
+                  </div>
+                )}
+
                 <div className="flex flex-col items-center gap-1.5">
                   <button
                     onClick={() => {

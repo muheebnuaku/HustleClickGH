@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import {
   Mic, MicOff, PhoneOff, PhoneCall, Copy, CheckCircle2,
   Loader2, AlertCircle, ArrowLeft, Radio, User,
+  ScreenShare, StopCircle,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -65,6 +66,7 @@ function CallPageInner() {
   const [targetCodeInput, setTargetCodeInput] = useState("");
   const [otherName,       setOtherName]       = useState("");
   const [isIOS,           setIsIOS]           = useState(false);
+  const [isRecording,     setIsRecording]     = useState(false);
 
   useEffect(() => {
     setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -77,6 +79,12 @@ function CallPageInner() {
   const remoteAudioRef   = useRef<HTMLAudioElement | null>(null);
   const callCodeRef      = useRef("");
   const isInitiatorRef   = useRef(false);
+
+  // ── Refs — Recording ──────────────────────────────────────────────────────
+  const screenStreamRef   = useRef<MediaStream | null>(null);
+  const mediaRecorderRef  = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const audioCtxRef       = useRef<AudioContext | null>(null);
 
   // ── Refs — Signaling ──────────────────────────────────────────────────────
   const pollRef          = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -113,6 +121,13 @@ function CallPageInner() {
     seenInitIce.current     = 0;
     seenRecvIce.current     = 0;
     callCodeRef.current     = "";
+
+    // Stop any active screen recording
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+    screenStreamRef.current?.getTracks().forEach(t => t.stop());
+    screenStreamRef.current = null;
+    audioCtxRef.current?.close();
+    audioCtxRef.current = null;
 
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
@@ -527,7 +542,71 @@ function CallPageInner() {
   const fmt = (s: number) =>
     `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Screen recording ───────────────────────────────────────────────────────
+  const startRecording = async () => {
+    try {
+      const displayStream = await (navigator.mediaDevices as unknown as {
+        getDisplayMedia(c: object): Promise<MediaStream>;
+      }).getDisplayMedia({ video: true, audio: true });
+
+      screenStreamRef.current = displayStream;
+
+      const audioCtx = new AudioContext();
+      audioCtxRef.current = audioCtx;
+      const dest = audioCtx.createMediaStreamDestination();
+
+      if (localStreamRef.current) {
+        audioCtx.createMediaStreamSource(localStreamRef.current).connect(dest);
+      }
+      const sysAudio = displayStream.getAudioTracks();
+      if (sysAudio.length > 0) {
+        audioCtx.createMediaStreamSource(new MediaStream(sysAudio)).connect(dest);
+      }
+
+      const combined = new MediaStream([
+        ...displayStream.getVideoTracks(),
+        ...dest.stream.getAudioTracks(),
+      ]);
+
+      const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]
+        .find(t => MediaRecorder.isTypeSupported(t)) || "";
+
+      recordedChunksRef.current = [];
+      const recorder = new MediaRecorder(combined, mimeType ? { mimeType } : {});
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = e => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType || "video/webm" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `call-recording-${Date.now()}.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+        recordedChunksRef.current = [];
+        screenStreamRef.current?.getTracks().forEach(t => t.stop());
+        screenStreamRef.current = null;
+        audioCtxRef.current?.close();
+        audioCtxRef.current = null;
+        setIsRecording(false);
+      };
+
+      displayStream.getVideoTracks()[0].onended = () => stopRecording();
+
+      recorder.start(1000);
+      setIsRecording(true);
+    } catch {
+      setIsRecording(false);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+  };
   return (
     <DashboardLayout>
       {/* Hidden audio element — plays remote stream to speakers */}
@@ -717,6 +796,12 @@ function CallPageInner() {
               ) : (
                 <div className="text-center py-8">
                   <p className="text-5xl font-mono font-bold text-white tracking-wider">{fmt(timer)}</p>
+                  {isRecording && (
+                    <div className="inline-flex items-center gap-1.5 mt-3 bg-red-500/20 border border-red-500/40 rounded-full px-3 py-1">
+                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                      <span className="text-red-400 text-xs font-semibold tracking-wide">RECORDING</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -730,7 +815,7 @@ function CallPageInner() {
               )}
 
               {/* Controls */}
-              <div className="flex items-center justify-center gap-8 px-6 py-6 border-t border-slate-700/60">
+              <div className="flex items-center justify-center gap-6 px-6 py-6 border-t border-slate-700/60">
                 {phase === "active" && (
                   <div className="flex flex-col items-center gap-1.5">
                     <button
@@ -744,6 +829,22 @@ function CallPageInner() {
                         : <Mic size={22} className="text-white" />}
                     </button>
                     <span className="text-slate-400 text-xs">{isMuted ? "Unmute" : "Mute"}</span>
+                  </div>
+                )}
+
+                {phase === "active" && !isIOS && (
+                  <div className="flex flex-col items-center gap-1.5">
+                    <button
+                      onClick={isRecording ? stopRecording : startRecording}
+                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
+                        isRecording ? "bg-red-500 hover:bg-red-600 animate-pulse" : "bg-slate-700 hover:bg-slate-600"
+                      }`}
+                    >
+                      {isRecording
+                        ? <StopCircle size={22} className="text-white" />
+                        : <ScreenShare size={22} className="text-white" />}
+                    </button>
+                    <span className="text-slate-400 text-xs">{isRecording ? "Stop Rec" : "Record"}</span>
                   </div>
                 )}
 
