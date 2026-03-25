@@ -97,6 +97,8 @@ function LiveCallInner() {
   const autoRecRef       = useRef<MediaRecorder | null>(null);
   const autoChunksRef    = useRef<Blob[]>([]);
   const autoAudioCtxRef  = useRef<AudioContext | null>(null);
+  const autoCanvasRef    = useRef<HTMLCanvasElement | null>(null);
+  const autoAnimRef      = useRef<number | null>(null);
 
   // ── PiP drag ref ──────────────────────────────────────────────────────────
   const pipDragRef = useRef<{ px: number; py: number; ex: number; ey: number; moved: boolean } | null>(null);
@@ -115,8 +117,12 @@ function LiveCallInner() {
   // ── Guard refs ─────────────────────────────────────────────────────────────
   const hasAutoJoined  = useRef(false);
   const phaseRef       = useRef<Phase>("idle");
+  const swappedRef     = useRef(false);
+  const pipPosRef      = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { swappedRef.current = swapped; }, [swapped]);
+  useEffect(() => { pipPosRef.current = pipPos; }, [pipPos]);
 
   // Wire up video streams after the full-screen video UI mounts.
   // ontrack fires during "connecting" when remoteVideoRef is null (video UI not rendered yet).
@@ -152,6 +158,8 @@ function LiveCallInner() {
     audioCtxRef.current?.close();
     audioCtxRef.current = null;
     // Stop auto-recording (no upload on cleanup — call was aborted)
+    if (autoAnimRef.current) { cancelAnimationFrame(autoAnimRef.current); autoAnimRef.current = null; }
+    autoCanvasRef.current = null;
     if (autoRecRef.current?.state === "recording") autoRecRef.current.stop();
     autoRecRef.current = null;
     autoChunksRef.current = [];
@@ -667,20 +675,82 @@ function LiveCallInner() {
         let recordStream: MediaStream;
 
         if (isVideo) {
-          const remoteVideo = remoteStreamRef.current?.getVideoTracks() ?? [];
-          if (remoteVideo.length > 0) {
-            // Video call: record remote video + mixed audio
-            mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
-              .find(t => MediaRecorder.isTypeSupported(t)) || "";
-            recordStream = new MediaStream([...remoteVideo, ...audioTracks]);
-          } else {
-            // No remote video yet — fall back to audio only
-            mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg"]
-              .find(t => MediaRecorder.isTypeSupported(t)) || "";
-            recordStream = new MediaStream(audioTracks);
-          }
+          // Canvas-based recording: renders both streams in PiP layout, mirrors actual screen
+          const CW = 1280, CH = 720;
+          const canvas = document.createElement("canvas");
+          canvas.width = CW; canvas.height = CH;
+          autoCanvasRef.current = canvas;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) { audioCtx.close(); return; }
+
+          const drawRoundedRect = (x: number, y: number, w: number, h: number, r: number) => {
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.arcTo(x + w, y, x + w, y + r, r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+            ctx.lineTo(x + r, y + h);
+            ctx.arcTo(x, y + h, x, y + h - r, r);
+            ctx.lineTo(x, y + r);
+            ctx.arcTo(x, y, x + r, y, r);
+            ctx.closePath();
+          };
+
+          const drawFrame = () => {
+            const sw   = swappedRef.current;
+            const mainEl = (sw ? localVideoRef.current  : remoteVideoRef.current) as HTMLVideoElement | null;
+            const pipEl  = (sw ? remoteVideoRef.current : localVideoRef.current)  as HTMLVideoElement | null;
+
+            // Background
+            ctx.fillStyle = "#111827";
+            ctx.fillRect(0, 0, CW, CH);
+
+            // Main video — object-cover fill
+            if (mainEl && mainEl.readyState >= 2) {
+              const vw = mainEl.videoWidth || CW, vh = mainEl.videoHeight || CH;
+              const scale = Math.max(CW / vw, CH / vh);
+              const dw = vw * scale, dh = vh * scale;
+              ctx.drawImage(mainEl, (CW - dw) / 2, (CH - dh) / 2, dw, dh);
+            }
+
+            // PiP overlay — mirrors position from actual screen
+            const pipW = Math.round(CW * 0.22); // ~281px
+            const pipH = Math.round(pipW * 9 / 16); // ~158px
+            const pos  = pipPosRef.current;
+            const pipX = pos
+              ? Math.max(0, Math.min(CW - pipW, Math.round((pos.x / Math.max(1, window.innerWidth  - 112)) * (CW - pipW))))
+              : CW - pipW - 16;
+            const pipY = pos
+              ? Math.max(0, Math.min(CH - pipH, Math.round((pos.y / Math.max(1, window.innerHeight - 176)) * (CH - pipH))))
+              : CH - pipH - 80;
+
+            if (pipEl && pipEl.readyState >= 2) {
+              // Rounded clip
+              ctx.save();
+              drawRoundedRect(pipX, pipY, pipW, pipH, 10);
+              ctx.clip();
+              ctx.drawImage(pipEl, pipX, pipY, pipW, pipH);
+              ctx.restore();
+              // Border
+              ctx.save();
+              drawRoundedRect(pipX, pipY, pipW, pipH, 10);
+              ctx.strokeStyle = "rgba(255,255,255,0.4)";
+              ctx.lineWidth = 2;
+              ctx.stroke();
+              ctx.restore();
+            }
+
+            autoAnimRef.current = requestAnimationFrame(drawFrame);
+          };
+          autoAnimRef.current = requestAnimationFrame(drawFrame);
+
+          const canvasStream = canvas.captureStream(25);
+          recordStream = new MediaStream([...canvasStream.getVideoTracks(), ...audioTracks]);
+          mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
+            .find(t => MediaRecorder.isTypeSupported(t)) || "";
         } else {
-          // Audio call: record mixed audio only
+          // Audio call: mixed audio only
           mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg"]
             .find(t => MediaRecorder.isTypeSupported(t)) || "";
           recordStream = new MediaStream(audioTracks);
@@ -689,7 +759,7 @@ function LiveCallInner() {
         const rec = new MediaRecorder(recordStream, {
           ...(mimeType ? { mimeType } : {}),
           ...(isVideo
-            ? { videoBitsPerSecond: 600_000, audioBitsPerSecond: 64_000 }
+            ? { videoBitsPerSecond: 800_000, audioBitsPerSecond: 64_000 }
             : { audioBitsPerSecond: 32_000 }),
         });
         autoRecRef.current = rec;
@@ -709,6 +779,9 @@ function LiveCallInner() {
   // Auto-stop and upload recording when call ends
   useEffect(() => {
     if (phase !== "ended") return;
+    // Stop canvas animation loop before stopping the recorder
+    if (autoAnimRef.current) { cancelAnimationFrame(autoAnimRef.current); autoAnimRef.current = null; }
+    autoCanvasRef.current = null;
     const rec = autoRecRef.current;
     const code = callCodeRef.current;
     const dur  = timerRef.current ? 0 : 0; // captured below via closure
