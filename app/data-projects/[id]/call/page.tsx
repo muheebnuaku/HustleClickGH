@@ -207,21 +207,17 @@ function CallPageInner() {
 
     pc.onicecandidate = e => { if (e.candidate) onIce(e.candidate); };
 
-    pc.ontrack = e => {
-      const remote = e.streams[0];
-      if (!remote) return;
+    // Build a MediaStream from individual tracks (e.streams[0] can be undefined
+    // on Safari / mobile browsers — e.track is always present per WebRTC spec).
+    const remoteStream = new MediaStream();
 
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = remote;
+    pc.ontrack = e => {
+      if (!remoteStream.getTrackById(e.track.id)) remoteStream.addTrack(e.track);
+
+      if (remoteAudioRef.current && !remoteAudioRef.current.srcObject) {
+        remoteAudioRef.current.srcObject = remoteStream;
         remoteAudioRef.current.play().catch(() => {});
       }
-
-      // Call is active — start timer
-      setPhase("active");
-      setTimer(0);
-      timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
-
-      clientLog("call_connected", { callCode: callCodeRef.current }, "success");
     };
 
     pc.onconnectionstatechange = () => {
@@ -230,7 +226,14 @@ function CallPageInner() {
       if (s === "connected") {
         clearReconnectTO();
         clearConnectTO();
-        // Keep ICE poll running to detect remote hangup
+
+        // Advance to active only once (guard against duplicate events)
+        if (phaseRef.current === "connecting" || phaseRef.current === "reconnecting") {
+          setPhase("active");
+          setTimer(0);
+          if (!timerRef.current) timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
+          clientLog("call_connected", { callCode: callCodeRef.current }, "success");
+        }
       }
 
       if (s === "disconnected" || s === "failed") {
