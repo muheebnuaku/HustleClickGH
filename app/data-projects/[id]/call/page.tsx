@@ -65,12 +65,14 @@ function CallPageInner() {
   const [personalCode,    setPersonalCode]    = useState("");
   const [targetCodeInput, setTargetCodeInput] = useState("");
   const [otherName,       setOtherName]       = useState("");
-  const [isIOS,           setIsIOS]           = useState(false);
-  const [isRecording,     setIsRecording]     = useState(false);
+  const [isIOS,             setIsIOS]             = useState(false);
+  const [isRecording,       setIsRecording]       = useState(false);
+  const [supportsRecording, setSupportsRecording] = useState(false);
 
   useEffect(() => {
     setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+    setSupportsRecording(typeof (navigator.mediaDevices as unknown as Record<string, unknown>)?.getDisplayMedia === "function");
   }, []);
 
   // ── Refs — WebRTC ─────────────────────────────────────────────────────────
@@ -607,6 +609,19 @@ function CallPageInner() {
   const stopRecording = () => {
     if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
   };
+
+  const resetToIdle = () => {
+    setError(""); setPhase("idle"); setTargetCodeInput("");
+    setOtherName(""); setTimer(0); setIsMuted(false);
+  };
+
+  // Auto-return to idle 1.5 s after a call ends so the user can immediately redial
+  useEffect(() => {
+    if (phase !== "ended") return;
+    const t = setTimeout(resetToIdle, 1500);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
   return (
     <DashboardLayout>
       {/* Hidden audio element — plays remote stream to speakers */}
@@ -832,7 +847,7 @@ function CallPageInner() {
                   </div>
                 )}
 
-                {phase === "active" && !isIOS && (
+                {phase === "active" && supportsRecording && (
                   <div className="flex flex-col items-center gap-1.5">
                     <button
                       onClick={isRecording ? stopRecording : startRecording}
@@ -878,22 +893,10 @@ function CallPageInner() {
 
         {/* ── ENDED ── */}
         {phase === "ended" && (
-          <Card className="p-6 text-center space-y-4">
-            <Radio size={40} className="mx-auto text-zinc-400" />
-            <p className="font-medium text-zinc-600">Call ended</p>
-            <Button
-              onClick={() => {
-                setError("");
-                setPhase("idle");
-                setTargetCodeInput("");
-                setOtherName("");
-                setTimer(0);
-                setIsMuted(false);
-              }}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              New Call
-            </Button>
+          <Card className="p-6 text-center space-y-2">
+            <Radio size={36} className="mx-auto text-zinc-400" />
+            <p className="font-medium text-zinc-600 dark:text-zinc-400">Call ended</p>
+            <p className="text-xs text-zinc-400">Returning to dial screen…</p>
           </Card>
         )}
       </div>

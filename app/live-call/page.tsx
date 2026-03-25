@@ -64,12 +64,14 @@ function LiveCallInner() {
   const [personalCode,    setPersonalCode]    = useState("");
   const [targetCodeInput, setTargetCodeInput] = useState("");
   const [otherName,       setOtherName]       = useState("");
-  const [isIOS,           setIsIOS]           = useState(false);
-  const [isRecording,     setIsRecording]     = useState(false);
+  const [isIOS,             setIsIOS]             = useState(false);
+  const [isRecording,       setIsRecording]       = useState(false);
+  const [supportsRecording, setSupportsRecording] = useState(false);
 
   useEffect(() => {
     setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+    setSupportsRecording(typeof (navigator.mediaDevices as unknown as Record<string, unknown>)?.getDisplayMedia === "function");
   }, []);
 
   // ── WebRTC refs ────────────────────────────────────────────────────────────
@@ -533,6 +535,14 @@ function LiveCallInner() {
     setOtherName(""); setTimer(0); setIsMuted(false); setIsVideoOff(false);
   };
 
+  // Auto-return to idle 1.5 s after a call ends so the user can immediately redial
+  useEffect(() => {
+    if (phase !== "ended") return;
+    const t = setTimeout(resetToIdle, 1500);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
   // ── Screen recording ───────────────────────────────────────────────────────
   const startRecording = async () => {
     try {
@@ -676,7 +686,7 @@ function LiveCallInner() {
           >
             {isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
           </button>
-          {!isIOS && (
+          {supportsRecording && (
             <button
               onClick={isRecording ? stopRecording : startRecording}
               className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
@@ -842,12 +852,12 @@ function LiveCallInner() {
 
         {/* ── ENDED ── */}
         {phase === "ended" && (
-          <Card className="p-6 text-center space-y-4">
-            <div className="w-16 h-16 mx-auto rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
-              <PhoneOff className="w-8 h-8 text-zinc-400" />
+          <Card className="p-6 text-center space-y-2">
+            <div className="w-14 h-14 mx-auto rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+              <PhoneOff className="w-7 h-7 text-zinc-400" />
             </div>
             <p className="font-medium text-zinc-600 dark:text-zinc-400">Call ended</p>
-            <Button onClick={resetToIdle} className="bg-blue-600 hover:bg-blue-700 text-white">New Call</Button>
+            <p className="text-xs text-zinc-400">Returning to dial screen…</p>
           </Card>
         )}
 
@@ -926,7 +936,7 @@ function LiveCallInner() {
                   </div>
                 )}
 
-                {isActive && !isIOS && (
+                {isActive && supportsRecording && (
                   <div className="flex flex-col items-center gap-1.5">
                     <button
                       onClick={isRecording ? stopRecording : startRecording}
