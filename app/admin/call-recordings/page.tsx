@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Video, Mic, Download, ChevronLeft, ChevronRight,
-  Loader2, VideoOff, RefreshCw, Search, Play, X,
+  Loader2, VideoOff, RefreshCw, Search, Play, X, Trash2,
 } from "lucide-react";
 
 interface Recording {
@@ -51,6 +51,7 @@ export default function AdminCallRecordingsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [callType,    setCallType]    = useState("");
   const [playing,     setPlaying]     = useState<Recording | null>(null);
+  const [deleting,    setDeleting]    = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -75,6 +76,19 @@ export default function AdminCallRecordingsPage() {
   useEffect(() => { load(); }, [load]);
 
   const applySearch = () => { setSearch(searchInput); setPage(1); };
+
+  const handleDelete = async (rec: Recording) => {
+    if (!confirm(`Delete this recording by ${rec.user.fullName}? This cannot be undone.`)) return;
+    setDeleting(prev => new Set(prev).add(rec.id));
+    try {
+      await fetch(`/api/admin/call-recordings/${rec.id}`, { method: "DELETE" });
+      if (playing?.id === rec.id) setPlaying(null);
+      setRecordings(prev => prev.filter(r => r.id !== rec.id));
+      setTotal(t => t - 1);
+    } finally {
+      setDeleting(prev => { const s = new Set(prev); s.delete(rec.id); return s; });
+    }
+  };
 
   if (status === "loading") return null;
 
@@ -187,15 +201,26 @@ export default function AdminCallRecordingsPage() {
                       <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">{fmt(r.duration)}</td>
                       <td className="px-4 py-3 text-zinc-500 text-xs">{fmtBytes(r.fileSize)}</td>
                       <td className="px-4 py-3">
-                        <a
-                          href={r.fileUrl}
-                          download
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
-                        >
-                          <Download size={13} />Download
-                        </a>
+                        <div className="flex items-center gap-3">
+                          <a
+                            href={r.fileUrl}
+                            download
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                          >
+                            <Download size={13} />Download
+                          </a>
+                          <button
+                            onClick={() => handleDelete(r)}
+                            disabled={deleting.has(r.id)}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700 dark:text-red-400 disabled:opacity-40"
+                            title="Delete recording"
+                          >
+                            {deleting.has(r.id) ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

@@ -765,120 +765,121 @@ function LiveCallInner() {
           };
 
           const drawFrame = () => {
-            const sw   = swappedRef.current;
+            const sw     = swappedRef.current;
             const mainEl = (sw ? localVideoRef.current  : remoteVideoRef.current) as HTMLVideoElement | null;
             const pipEl  = (sw ? remoteVideoRef.current : localVideoRef.current)  as HTMLVideoElement | null;
 
-            // Background
-            ctx.fillStyle = "#111827";
+            // ── Background ────────────────────────────────────────────────
+            ctx.fillStyle = "#000";
             ctx.fillRect(0, 0, CW, CH);
 
-            // Main video — object-contain so landscape video letterboxes cleanly in portrait canvas
+            // ── Main video — object-cover, fills full portrait canvas ─────
             if (mainEl && mainEl.readyState >= 2) {
               const vw = mainEl.videoWidth || CW, vh = mainEl.videoHeight || CH;
-              const scale = Math.min(CW / vw, CH / vh);
+              const scale = Math.max(CW / vw, CH / vh);
               const dw = vw * scale, dh = vh * scale;
               ctx.drawImage(mainEl, (CW - dw) / 2, (CH - dh) / 2, dw, dh);
             }
 
-            // PiP overlay — small landscape pip in corner (landscape camera in portrait canvas)
-            const pipW = Math.round(CW * 0.38); // ~273px
-            const pipH = Math.round(pipW * 9 / 16); // ~153px
+            // ── PiP — portrait-shaped (9:16) in top-right corner ─────────
+            const pipW = 160, pipH = 284; // 9:16 portrait phone shape
             const pos  = pipPosRef.current;
             const pipX = pos
               ? Math.max(0, Math.min(CW - pipW, Math.round((pos.x / Math.max(1, window.innerWidth  - 112)) * (CW - pipW))))
               : CW - pipW - 16;
             const pipY = pos
               ? Math.max(0, Math.min(CH - pipH, Math.round((pos.y / Math.max(1, window.innerHeight - 176)) * (CH - pipH))))
-              : CH - pipH - 80;
+              : 80;
 
             if (pipEl && pipEl.readyState >= 2) {
-              // Rounded clip
               ctx.save();
-              drawRoundedRect(pipX, pipY, pipW, pipH, 10);
+              drawRoundedRect(pipX, pipY, pipW, pipH, 16);
               ctx.clip();
-              ctx.drawImage(pipEl, pipX, pipY, pipW, pipH);
+              // object-cover so face fills the PiP box regardless of source ratio
+              const pvw = pipEl.videoWidth || pipW, pvh = pipEl.videoHeight || pipH;
+              const ps  = Math.max(pipW / pvw, pipH / pvh);
+              const pdw = pvw * ps, pdh = pvh * ps;
+              ctx.drawImage(pipEl, pipX + (pipW - pdw) / 2, pipY + (pipH - pdh) / 2, pdw, pdh);
               ctx.restore();
-              // Border
               ctx.save();
-              drawRoundedRect(pipX, pipY, pipW, pipH, 10);
-              ctx.strokeStyle = "rgba(255,255,255,0.4)";
-              ctx.lineWidth = 2;
+              drawRoundedRect(pipX, pipY, pipW, pipH, 16);
+              ctx.strokeStyle = "rgba(255,255,255,0.5)";
+              ctx.lineWidth = 2.5;
               ctx.stroke();
               ctx.restore();
             }
 
-            // ── Overlay: top bar + bottom controls ────────────────────────
+            // ── Overlay ───────────────────────────────────────────────────
             ctx.save();
 
-            // Top gradient
-            const topGrad = ctx.createLinearGradient(0, 0, 0, 140);
-            topGrad.addColorStop(0, "rgba(0,0,0,0.72)");
+            // Top gradient scrim
+            const topGrad = ctx.createLinearGradient(0, 0, 0, 260);
+            topGrad.addColorStop(0, "rgba(0,0,0,0.80)");
             topGrad.addColorStop(1, "rgba(0,0,0,0)");
             ctx.fillStyle = topGrad;
-            ctx.fillRect(0, 0, CW, 140);
+            ctx.fillRect(0, 0, CW, 260);
 
-            // Name (top-left)
-            ctx.fillStyle = "rgba(255,255,255,0.95)";
-            ctx.font = "bold 28px sans-serif";
-            ctx.textAlign = "left";
-            ctx.textBaseline = "alphabetic";
-            ctx.fillText(otherNameRef.current || "In Call", 28, 56);
-
-            // Timer
-            const tv = timerValRef.current;
-            const ts = `${String(Math.floor(tv / 60)).padStart(2, "0")}:${String(tv % 60).padStart(2, "0")}`;
-            ctx.font = "20px sans-serif";
-            ctx.fillStyle = "rgba(255,255,255,0.52)";
-            ctx.fillText(ts, 28, 86);
-
-            // REC pill (top-right)
-            const rpX = CW - 112, rpY = 24;
-            drawRoundedRect(rpX, rpY, 84, 30, 15);
+            // REC pill — top-left
+            const rpX = 20, rpY = 24;
+            drawRoundedRect(rpX, rpY, 88, 34, 17);
             ctx.fillStyle = "rgba(239,68,68,0.35)";
             ctx.fill();
             ctx.fillStyle = "#ef4444";
             ctx.beginPath();
-            ctx.arc(rpX + 18, rpY + 15, 5, 0, Math.PI * 2);
+            ctx.arc(rpX + 18, rpY + 17, 6, 0, Math.PI * 2);
             ctx.fill();
-            ctx.font = "bold 13px sans-serif";
-            ctx.fillStyle = "rgba(252,165,165,0.9)";
+            ctx.font = "bold 14px sans-serif";
+            ctx.fillStyle = "rgba(252,165,165,0.95)";
             ctx.textAlign = "left";
             ctx.textBaseline = "middle";
-            ctx.fillText("REC", rpX + 30, rpY + 15);
+            ctx.fillText("REC", rpX + 31, rpY + 17);
 
-            // Bottom gradient
-            const botGrad = ctx.createLinearGradient(0, CH - 200, 0, CH);
+            // Name — centered
+            const tv = timerValRef.current;
+            const ts = `${String(Math.floor(tv / 60)).padStart(2, "0")}:${String(tv % 60).padStart(2, "0")}`;
+            ctx.fillStyle = "#fff";
+            ctx.font = "bold 42px sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "alphabetic";
+            ctx.fillText(otherNameRef.current || "In Call", CW / 2, 140);
+
+            // Timer — centered below name
+            ctx.font = "24px sans-serif";
+            ctx.fillStyle = "rgba(255,255,255,0.65)";
+            ctx.fillText(ts, CW / 2, 180);
+
+            // Bottom gradient scrim
+            const botGrad = ctx.createLinearGradient(0, CH - 300, 0, CH);
             botGrad.addColorStop(0, "rgba(0,0,0,0)");
-            botGrad.addColorStop(1, "rgba(0,0,0,0.9)");
+            botGrad.addColorStop(1, "rgba(0,0,0,0.95)");
             ctx.fillStyle = botGrad;
-            ctx.fillRect(0, CH - 200, CW, 200);
+            ctx.fillRect(0, CH - 300, CW, 300);
 
-            // Control buttons (mirrors actual UI: flip, mute, end, camera, record)
+            // Buttons — 5 round buttons, centered, larger than before
             const muted  = isMutedRef.current;
             const vidOff = isVideoOffRef.current;
-            const bY     = CH - 70;
-            const sp     = 80;
-            const bX0    = CW / 2 - sp * 2;
+            const bY  = CH - 110;
+            const sp  = 90;
+            const bX0 = CW / 2 - sp * 2;
 
-            const drawBtn = (cx: number, r: number, bgColor: string, iconTxt: string, labelTxt: string, iconColor: string) => {
-              ctx.fillStyle = bgColor;
+            const drawBtn = (cx: number, r: number, bg: string, icon: string, lbl: string, fg: string) => {
+              ctx.fillStyle = bg;
               ctx.beginPath(); ctx.arc(cx, bY, r, 0, Math.PI * 2); ctx.fill();
-              ctx.fillStyle = iconColor;
-              ctx.font = `bold ${r > 28 ? 13 : 12}px sans-serif`;
+              ctx.fillStyle = fg;
+              ctx.font = `bold ${Math.round(r * 0.55)}px sans-serif`;
               ctx.textAlign = "center"; ctx.textBaseline = "middle";
-              ctx.fillText(iconTxt, cx, bY);
-              ctx.font = "11px sans-serif";
-              ctx.fillStyle = "rgba(255,255,255,0.48)";
+              ctx.fillText(icon, cx, bY);
+              ctx.font = "20px sans-serif";
+              ctx.fillStyle = "rgba(255,255,255,0.6)";
               ctx.textBaseline = "top";
-              ctx.fillText(labelTxt, cx, bY + r + 5);
+              ctx.fillText(lbl, cx, bY + r + 10);
             };
 
-            drawBtn(bX0,          24, "rgba(255,255,255,0.2)",                                         "FLIP",  "Flip",    "#fff");
-            drawBtn(bX0 + sp,     24, muted  ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.2)",      muted  ? "MUTE" : "MIC",  muted  ? "Unmute"  : "Mute",   muted  ? "#dc2626" : "#fff");
-            drawBtn(bX0 + sp * 2, 32, "#dc2626",                                                       "END",   "End",     "#fff");
-            drawBtn(bX0 + sp * 3, 24, vidOff ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.2)",      vidOff ? "OFF"  : "CAM",  vidOff ? "Cam Off" : "Camera", vidOff ? "#dc2626" : "#fff");
-            drawBtn(bX0 + sp * 4, 24, "rgba(255,255,255,0.2)",                                         "SCR",   "Record",  "#fff");
+            drawBtn(bX0,          30, "rgba(255,255,255,0.18)", "↺",  "Flip",                                muted  ? "#dc2626" : "#fff");
+            drawBtn(bX0 + sp,     30, muted  ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.18)", muted  ? "✕" : "♪", muted ? "Unmute" : "Mute",  muted  ? "#dc2626" : "#fff");
+            drawBtn(bX0 + sp * 2, 40, "#dc2626",                                                   "✕",  "End",                                 "#fff");
+            drawBtn(bX0 + sp * 3, 30, vidOff ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.18)", vidOff ? "✕" : "▣", vidOff ? "Cam Off" : "Camera", vidOff ? "#dc2626" : "#fff");
+            drawBtn(bX0 + sp * 4, 30, "rgba(255,255,255,0.18)",                                    "●",  "Rec",                                 "#ef4444");
 
             ctx.restore();
 
