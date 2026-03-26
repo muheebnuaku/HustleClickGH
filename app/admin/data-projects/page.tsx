@@ -369,15 +369,7 @@ export default function AdminDataProjectsPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Submits Per User</label>
-                  <select
-                    value={form.maxSubmissionsPerUser}
-                    onChange={(e) => setForm({ ...form, maxSubmissionsPerUser: e.target.value })}
-                    className="w-full border rounded-md px-3 py-2 text-sm bg-background"
-                  >
-                    <option value="1">Once (1×)</option>
-                    <option value="2">Twice (2×)</option>
-                    <option value="3">Three times (3×)</option>
-                  </select>
+                  <Input type="number" min="1" max="100" value={form.maxSubmissionsPerUser} onChange={(e) => setForm({ ...form, maxSubmissionsPerUser: e.target.value })} placeholder="1" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Min Duration (s)</label>
