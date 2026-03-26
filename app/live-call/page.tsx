@@ -1295,7 +1295,7 @@ function LiveCallInner() {
                 </div>
 
                 <Button
-                  onClick={handleStartCall}
+                  onClick={() => handleStartCall()}
                   className={`w-full py-6 text-white ${callType === "video" ? "bg-purple-600 hover:bg-purple-700" : "bg-green-600 hover:bg-green-700"}`}
                   disabled={targetCodeInput.length < 5}
                 >
