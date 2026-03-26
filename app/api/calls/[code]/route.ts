@@ -28,7 +28,7 @@ export async function GET(
 
     const initiator = await prisma.user.findUnique({
       where: { id: callSession.initiatorId },
-      select: { fullName: true },
+      select: { fullName: true, userId: true },
     });
 
     return NextResponse.json({
@@ -36,6 +36,7 @@ export async function GET(
       projectId: callSession.projectId,
       initiatorId: callSession.initiatorId,
       initiatorName: initiator?.fullName || "Unknown",
+      initiatorUserId: initiator?.userId || "",
       receiverId: callSession.receiverId,
       offer: callSession.offer ? JSON.parse(callSession.offer) : null,
       answer: callSession.answer ? JSON.parse(callSession.answer) : null,

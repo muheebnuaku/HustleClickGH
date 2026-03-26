@@ -69,6 +69,7 @@ function LiveCallInner() {
   const [supportsRecording, setSupportsRecording] = useState(false);
   const [swapped,           setSwapped]           = useState(false);
   const [pipPos,            setPipPos]            = useState<{ x: number; y: number } | null>(null);
+  const [lastCallTarget,    setLastCallTarget]    = useState<{ name: string; code: string } | null>(null);
 
   useEffect(() => {
     setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -89,6 +90,8 @@ function LiveCallInner() {
   const callCodeRef    = useRef("");
   const isInitiatorRef = useRef(false);
   const callTypeRef    = useRef<CallType>("audio");
+  const otherCodeRef   = useRef<string>("");                          // other person's user code for call-back
+  const wakeLockRef    = useRef<{ release: () => Promise<void> } | null>(null); // screen wake lock
 
   // ── Recording refs ─────────────────────────────────────────────────────────
   const screenStreamRef   = useRef<MediaStream | null>(null);
@@ -154,7 +157,21 @@ function LiveCallInner() {
   }, [phase, swapped]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  // Dual-path remote audio:
+  // Screen Wake Lock — keeps the display on during active calls so Android/iOS
+  // does not suspend network connections (which kills WebRTC at ~2 min).
+  const requestWakeLock = async () => {
+    try {
+      const nav = navigator as unknown as { wakeLock?: { request: (type: string) => Promise<{ release: () => Promise<void> }> } };
+      if (nav.wakeLock) {
+        wakeLockRef.current?.release().catch(() => {});
+        wakeLockRef.current = await nav.wakeLock.request("screen");
+      }
+    } catch { /* unsupported or denied — call continues without it */ }
+  };
+  const releaseWakeLock = () => {
+    wakeLockRef.current?.release().catch(() => {});
+    wakeLockRef.current = null;
+  };
   //   Path A — <audio> element: on iOS this routes to the loudspeaker (loud).
   //             Works because we pre-play it with an empty MediaStream during
   //             the user gesture, so swapping srcObject later is allowed.
@@ -208,6 +225,7 @@ function LiveCallInner() {
     remoteAudioSrcRef.current = null;
     remoteAudioCtxRef.current?.close();
     remoteAudioCtxRef.current = null;
+    releaseWakeLock();
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     if (pcRef.current) {
@@ -240,6 +258,18 @@ function LiveCallInner() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [phase]);
+
+  // ── Wake lock re-acquire on visibility change ──────────────────────────────
+  // When the user switches apps briefly and comes back, the OS may have released
+  // the wake lock. Re-request it so the screen stays on for the rest of the call.
+  useEffect(() => {
+    if (phase !== "active" && phase !== "reconnecting") return;
+    const handler = () => {
+      if (document.visibilityState === "visible") requestWakeLock();
+    };
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Keyboard refresh block ─────────────────────────────────────────────────
   useEffect(() => {
@@ -368,9 +398,10 @@ function LiveCallInner() {
       if (inCall.includes(phaseRef.current)) {
         const isReconnect = phaseRef.current === "reconnecting";
         setPhase("active");
-        if (!isReconnect) setTimer(0); // keep running timer on reconnect
+        if (!isReconnect) setTimer(0);
         if (!timerRef.current) timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
         clientLog("call_connected", { callCode: callCodeRef.current, callType: callTypeRef.current }, "success");
+        requestWakeLock(); // keep screen + network alive
       }
     };
 
@@ -461,10 +492,12 @@ function LiveCallInner() {
   };
 
   // ── Start call (caller) ───────────────────────────────────────────────────
-  const handleStartCall = async () => {
-    const targetCode = targetCodeInput.trim().toUpperCase();
+  const handleStartCall = async (codeOverride?: string) => {
+    const targetCode = (codeOverride || targetCodeInput).trim().toUpperCase();
     if (targetCode.length < 5) { setError("Enter a valid 5-character call code"); return; }
     setError("");
+    setLastCallTarget(null);
+    otherCodeRef.current = targetCode;
     // Create + unlock AudioContext during this user gesture so remote audio plays
     // on iOS/Android without hitting autoplay restrictions in async callbacks.
     if (!remoteAudioCtxRef.current) {
@@ -563,6 +596,8 @@ function LiveCallInner() {
       if (session.status === "completed") throw new Error("This call has ended.");
       if (session.status === "declined") throw new Error("This call was declined.");
       if (session.initiatorName) setOtherName(session.initiatorName);
+      if (session.initiatorUserId) otherCodeRef.current = session.initiatorUserId;
+      setLastCallTarget(null);
 
       const iceServers = await fetchIceServers();
       const pc = createPC(iceServers, async candidate => {
@@ -610,6 +645,12 @@ function LiveCallInner() {
   // ── Hang up ───────────────────────────────────────────────────────────────
   const handleHangUp = (reason = "user_hangup") => {
     stopPoll(); stopTimer(); clearReconnectTO(); clearConnectTO();
+    releaseWakeLock();
+    // If the call dropped unexpectedly, remember who to call back
+    const wasDropped = reason === "remote_hangup" || reason === "reconnect_timeout";
+    if (wasDropped && otherCodeRef.current) {
+      setLastCallTarget({ name: otherNameRef.current || "them", code: otherCodeRef.current });
+    }
     // Reset signaling state so the next call starts clean
     alreadyAnswered.current = false;
     seenInitIce.current     = 0;
@@ -1154,6 +1195,30 @@ function LiveCallInner() {
         {/* ── IDLE ── */}
         {phase === "idle" && (
           <div className="space-y-4">
+            {/* Call-back banner — shown after unexpected call drop */}
+            {lastCallTarget && (
+              <Card className="p-4 bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Call with {lastCallTarget.name} dropped</p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400">Tap to call them back</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => handleStartCall(lastCallTarget.code)}
+                      className="bg-amber-600 hover:bg-amber-700 text-white text-xs"
+                    >
+                      <PhoneCall size={13} className="mr-1" />Call back
+                    </Button>
+                    <button
+                      onClick={() => setLastCallTarget(null)}
+                      className="text-amber-500 hover:text-amber-700 text-xs"
+                    >dismiss</button>
+                  </div>
+                </div>
+              </Card>
+            )}
             {personalCode && (
               <Card className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-blue-200 dark:border-blue-800">
                 <div className="text-center">
