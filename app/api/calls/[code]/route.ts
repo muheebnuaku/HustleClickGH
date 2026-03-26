@@ -150,6 +150,19 @@ export async function PATCH(
         where: { callCode: code },
         data: { receiverIce: JSON.stringify(existing) },
       });
+    } else if (type === "restart-offer") {
+      // ICE restart: initiator sends fresh offer, clears ICE arrays so both
+      // sides start candidate exchange from scratch.
+      await prisma.callSession.update({
+        where: { callCode: code },
+        data: {
+          offer:       JSON.stringify(body.offer),
+          answer:      null,
+          initiatorIce: "[]",
+          receiverIce:  "[]",
+          status:      "reconnecting",
+        },
+      });
     } else if (type === "status") {
       await prisma.callSession.update({
         where: { callCode: code },

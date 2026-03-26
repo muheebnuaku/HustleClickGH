@@ -360,6 +360,78 @@ function LiveCallInner() {
     }
   };
 
+  // ── ICE restart / reconnect ───────────────────────────────────────────────
+  // Called when WebRTC connection goes to "failed" or "disconnected".
+  // Initiator: creates a new offer with iceRestart:true, pushes to server, then
+  // polls for receiver's new answer. Receiver: polls server until it sees the new
+  // offer (status==="reconnecting"), creates answer, sends it, restarts ICE poll.
+  const handleReconnect = async (code: string, asInitiator: boolean) => {
+    const pc = pcRef.current;
+    if (!pc || !code) return;
+    try {
+      if (asInitiator) {
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
+        await fetch(`/api/calls/${code}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "restart-offer", offer }),
+        });
+        // Reset ICE tracking so poll picks up fresh candidates
+        seenInitIce.current = 0;
+        seenRecvIce.current = 0;
+        stopPoll();
+        // Poll for receiver's new answer
+        let attempts = 0;
+        const pollForAnswer = async () => {
+          if (phaseRef.current !== "reconnecting" || attempts > 25 || !pcRef.current) return;
+          attempts++;
+          try {
+            const res = await fetch(`/api/calls/${code}`);
+            const data = await res.json();
+            if (data.answer && pcRef.current) {
+              await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+              startIcePoll(code, true);
+              return;
+            }
+          } catch { /* keep trying */ }
+          setTimeout(pollForAnswer, 2000);
+        };
+        setTimeout(pollForAnswer, 1000);
+      } else {
+        // Receiver: watch for initiator's fresh restart-offer
+        let attempts = 0;
+        const pollForOffer = async () => {
+          if (phaseRef.current !== "reconnecting" || attempts > 25 || !pcRef.current) return;
+          attempts++;
+          try {
+            const res = await fetch(`/api/calls/${code}`);
+            const data = await res.json();
+            if (data.status === "reconnecting" && data.offer && !data.answer) {
+              const p = pcRef.current;
+              if (!p) return;
+              await p.setRemoteDescription(new RTCSessionDescription(data.offer));
+              const answer = await p.createAnswer();
+              await p.setLocalDescription(answer);
+              await fetch(`/api/calls/${code}`, {
+                method: "PATCH", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type: "answer", answer }),
+              });
+              seenInitIce.current = 0;
+              seenRecvIce.current = 0;
+              stopPoll();
+              startIcePoll(code, false);
+              return;
+            }
+          } catch { /* keep trying */ }
+          setTimeout(pollForOffer, 2000);
+        };
+        pollForOffer();
+      }
+    } catch (err) {
+      console.error("ICE restart failed:", err);
+    }
+  };
+
   // ── Create peer connection ─────────────────────────────────────────────────
   const createPC = (iceServers: RTCIceServer[], onIce: (c: RTCIceCandidate) => void): RTCPeerConnection => {
     const pc = new RTCPeerConnection({ iceServers });
@@ -412,7 +484,21 @@ function LiveCallInner() {
         clearReconnectTO();
         setPhase("reconnecting");
         clientLog("call_reconnecting", { callCode: callCodeRef.current, connectionState: s }, "warning");
-        if (callCodeRef.current && !pollRef.current) startIcePoll(callCodeRef.current, isInitiatorRef.current);
+
+        if (s === "failed" && callCodeRef.current) {
+          // Hard failure — immediately attempt ICE restart + renegotiation
+          handleReconnect(callCodeRef.current, isInitiatorRef.current);
+        } else if (s === "disconnected" && callCodeRef.current) {
+          // Soft disconnect — give WebRTC 6 s to self-heal, then intervene
+          setTimeout(() => {
+            const cs = pcRef.current?.connectionState;
+            if ((cs === "disconnected" || cs === "failed") && callCodeRef.current) {
+              handleReconnect(callCodeRef.current, isInitiatorRef.current);
+            }
+          }, 6000);
+        }
+
+        // Final bail-out timeout: end call after 10 minutes if never reconnected
         reconnectTORef.current = setTimeout(() => {
           if (pcRef.current?.connectionState !== "connected") {
             clientLog("call_timeout", { callCode: callCodeRef.current, reason: "reconnect_timeout_10min" }, "error");
@@ -541,6 +627,7 @@ function LiveCallInner() {
 
       callCodeRef.current = data.callCode;
       setOtherName(data.targetUserName || "");
+      otherCodeRef.current = targetCode; // save for potential redial
       setPhase("calling");
       startCallingPoll(data.callCode);
 
@@ -1073,10 +1160,9 @@ function LiveCallInner() {
         />
 
         {phase === "reconnecting" && (
-          <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-3 z-30">
-            <Loader2 size={48} className="text-amber-400 animate-spin" />
-            <p className="text-white text-lg font-semibold">Reconnecting…</p>
-            <p className="text-zinc-400 text-sm">Do not close this page</p>
+          <div className="absolute top-0 left-0 right-0 flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-600/90 backdrop-blur-sm z-30 pointer-events-none" style={{ paddingTop: "max(env(safe-area-inset-top, 0px), 0.625rem)" }}>
+            <Loader2 size={14} className="text-white animate-spin shrink-0" />
+            <p className="text-white text-sm font-semibold">Reconnecting… do not close this page</p>
           </div>
         )}
 
@@ -1160,14 +1246,6 @@ function LiveCallInner() {
               {isRecording
                 ? <StopCircle size={20} className="text-white" />
                 : <ScreenShare size={20} className="text-white" />}
-            </button>
-          )}
-          {phase === "reconnecting" && (
-            <button
-              onClick={() => handleHangUp("user_hangup_during_reconnect")}
-              className="absolute bottom-0 left-1/2 -translate-x-1/2 text-zinc-400 text-xs pb-2"
-            >
-              End Call
             </button>
           )}
         </div>
@@ -1388,8 +1466,12 @@ function LiveCallInner() {
               {/* Body */}
               {isReconnecting ? (
                 <div className="text-center py-6 px-5">
-                  <p className="text-amber-300 text-sm">Network interruption detected</p>
-                  <p className="text-slate-500 text-xs mt-1">Reconnecting automatically — do not close this page</p>
+                  <p className="text-5xl font-mono font-bold text-white tracking-wider mb-3">{fmt(timer)}</p>
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 size={14} className="text-amber-400 animate-spin" />
+                    <p className="text-amber-300 text-sm">Reconnecting automatically…</p>
+                  </div>
+                  <p className="text-slate-500 text-xs mt-1">Do not close this page</p>
                 </div>
               ) : (
                 <div className="text-center py-8">
@@ -1414,7 +1496,7 @@ function LiveCallInner() {
 
               {/* Controls */}
               <div className="flex items-center justify-center gap-6 px-6 py-6 border-t border-slate-700/60">
-                {isActive && (
+                {(isActive || isReconnecting) && (
                   <div className="flex flex-col items-center gap-1.5">
                     <button onClick={toggleMute}
                       className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${isMuted ? "bg-red-600 hover:bg-red-700" : "bg-slate-700 hover:bg-slate-600"}`}>
