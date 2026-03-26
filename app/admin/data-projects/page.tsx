@@ -30,6 +30,7 @@ interface DataProject {
   projectType: string;
   reward: number;
   maxSubmissions: number;
+  maxSubmissionsPerUser: number;
   currentSubmissions: number;
   status: string;
   pendingCount: number;
@@ -59,6 +60,7 @@ const emptyForm = {
   samplePrompts: "",
   reward: "",
   maxSubmissions: "",
+  maxSubmissionsPerUser: "1",
   languages: "",
   minDurationSecs: "3",
   maxDurationSecs: "60",
@@ -110,6 +112,7 @@ export default function AdminDataProjectsPage() {
       samplePrompts: p.samplePrompts?.join("\n") || "",
       reward: String(p.reward),
       maxSubmissions: String(p.maxSubmissions),
+      maxSubmissionsPerUser: String(p.maxSubmissionsPerUser ?? 1),
       languages: p.languages?.join(", ") || "",
       minDurationSecs: String(p.minDurationSecs ?? 3),
       maxDurationSecs: String(p.maxDurationSecs ?? 60),
@@ -363,6 +366,18 @@ export default function AdminDataProjectsPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1">Max Submissions *</label>
                   <Input type="number" min="1" value={form.maxSubmissions} onChange={(e) => setForm({ ...form, maxSubmissions: e.target.value })} placeholder="500" required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Submits Per User</label>
+                  <select
+                    value={form.maxSubmissionsPerUser}
+                    onChange={(e) => setForm({ ...form, maxSubmissionsPerUser: e.target.value })}
+                    className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                  >
+                    <option value="1">Once (1×)</option>
+                    <option value="2">Twice (2×)</option>
+                    <option value="3">Three times (3×)</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Min Duration (s)</label>

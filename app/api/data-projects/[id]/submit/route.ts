@@ -50,6 +50,19 @@ export async function POST(
       );
     }
 
+    // Per-user submission limit
+    const userSubmissionCount = await prisma.dataSubmission.count({
+      where: { projectId, userId },
+    });
+    const maxPerUser = project.maxSubmissionsPerUser ?? 1;
+    if (userSubmissionCount >= maxPerUser) {
+      const times = maxPerUser === 1 ? "once" : maxPerUser === 2 ? "twice" : `${maxPerUser} times`;
+      return NextResponse.json(
+        { message: `You can only submit ${times} to this project` },
+        { status: 400 }
+      );
+    }
+
     // Gender quota validation
     if (project.malesNeeded !== null || project.femalesNeeded !== null) {
       if (!gender || !["male", "female"].includes(gender)) {

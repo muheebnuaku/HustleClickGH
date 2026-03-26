@@ -131,8 +131,9 @@ model DataProject {
   samplePrompts      String?          // JSON array of prompts/phrases to record
   sampleVideoUrl     String?          // Optional sample video URL (video projects)
   reward             Float            // GH₵ per approved submission
-  maxSubmissions     Int
-  currentSubmissions Int              @default(0)
+  maxSubmissions        Int
+  maxSubmissionsPerUser Int              @default(1)  // how many times each user may submit (1-3)
+  currentSubmissions    Int              @default(0)
   status             String           @default("active") // active | paused | completed
   languages          String?          // JSON array e.g. ["English","Twi","Ga"]
   minDurationSecs    Int              @default(3)

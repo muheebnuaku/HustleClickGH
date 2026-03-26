@@ -132,6 +132,13 @@ function LiveCallInner() {
   const pipPosRef      = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+  // Clear ?join= URL params when call ends so a page refresh doesn't re-trigger
+  // auto-join and re-prompt for camera/mic permissions.
+  useEffect(() => {
+    if ((phase === "ended" || phase === "declined") && window.location.search) {
+      window.history.replaceState({}, "", "/live-call");
+    }
+  }, [phase]);
 
   // When a call ends, strip ?join= URL params so a page refresh won't
   // re-trigger auto-join and re-request camera/mic permissions.
