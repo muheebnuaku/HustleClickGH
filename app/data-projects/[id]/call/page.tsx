@@ -71,6 +71,8 @@ function CallPageInner() {
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
   const [uploadPct,    setUploadPct]    = useState(0);
   const [endedReason,  setEndedReason]  = useState("");
+  const [reconnectSecsLeft, setReconnectSecsLeft] = useState(0);
+  const [connQuality,       setConnQuality]       = useState<"good" | "poor" | "bad">("good");
 
   useEffect(() => {
     setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -85,6 +87,9 @@ function CallPageInner() {
   const callCodeRef      = useRef("");
   const isInitiatorRef   = useRef(false);
   const savedTargetCodeRef = useRef(""); // persists across cleanup for reconnect callback
+  // ICE restart state — lets both sides coordinate a fresh ICE exchange
+  const iceRestartPendingRef  = useRef(false); // initiator: restart offer sent, waiting for answer
+  const lastProcessedOfferRef = useRef("");    // receiver: fingerprint of last processed offer
 
   // ── Refs — Recording ──────────────────────────────────────────────────────
   const screenStreamRef   = useRef<MediaStream | null>(null);
@@ -103,6 +108,8 @@ function CallPageInner() {
   const timerRef         = useRef<ReturnType<typeof setInterval> | null>(null);
   const connectTORef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectTORef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const statsIntervalRef      = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Refs — Guards ─────────────────────────────────────────────────────────
   const hasAutoJoined    = useRef(false);
@@ -111,11 +118,40 @@ function CallPageInner() {
   // Keep phaseRef in sync with phase state
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
+  // ── Connection quality monitor (active calls only) ─────────────────────────
+  // Polls WebRTC stats every 4 s to detect audio degradation before it drops.
+  useEffect(() => {
+    if (phase !== "active") { clearStats(); setConnQuality("good"); return; }
+    let prevLost = 0, prevPkts = 0;
+    statsIntervalRef.current = setInterval(async () => {
+      const pc = pcRef.current;
+      if (!pc) return;
+      try {
+        const stats = await pc.getStats();
+        stats.forEach((report) => {
+          if (report.type !== "inbound-rtp" || report.kind !== "audio") return;
+          const lost  = (report.packetsLost  ?? 0) - prevLost;
+          const pkts  = (report.packetsReceived ?? 0) - prevPkts;
+          prevLost += lost; prevPkts += pkts;
+          const lossRate = pkts > 0 ? lost / (pkts + lost) : 0;
+          const jitter   = report.jitter ?? 0;
+          if (lossRate > 0.15 || jitter > 0.12)      setConnQuality("bad");
+          else if (lossRate > 0.05 || jitter > 0.05) setConnQuality("poor");
+          else                                        setConnQuality("good");
+        });
+      } catch { /* ignore */ }
+    }, 4000);
+    return clearStats;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   const stopPoll          = () => { if (pollRef.current)       { clearInterval(pollRef.current);  pollRef.current      = null; } };
   const stopTimer         = () => { if (timerRef.current)      { clearInterval(timerRef.current); timerRef.current     = null; } };
   const clearConnectTO    = () => { if (connectTORef.current)  { clearTimeout(connectTORef.current);   connectTORef.current  = null; } };
   const clearReconnectTO  = () => { if (reconnectTORef.current){ clearTimeout(reconnectTORef.current); reconnectTORef.current = null; } };
+  const clearCountdown    = () => { if (reconnectCountdownRef.current) { clearInterval(reconnectCountdownRef.current); reconnectCountdownRef.current = null; } };
+  const clearStats        = () => { if (statsIntervalRef.current)      { clearInterval(statsIntervalRef.current);      statsIntervalRef.current      = null; } };
 
   // Full cleanup — safe to call from anywhere
   const cleanup = useCallback(() => {
@@ -123,6 +159,8 @@ function CallPageInner() {
     stopTimer();
     clearConnectTO();
     clearReconnectTO();
+    clearCountdown();
+    clearStats();
 
     alreadyAnswered.current = false;
     seenInitIce.current     = 0;
@@ -264,13 +302,14 @@ function CallPageInner() {
       if (s === "connected") {
         clearReconnectTO();
         clearConnectTO();
+        clearCountdown();
+        // Clear ICE restart state so next disconnect can trigger a fresh restart
+        iceRestartPendingRef.current  = false;
+        lastProcessedOfferRef.current = "";
+        setReconnectSecsLeft(0);
 
-        // Advance to active from any in-call phase (connection can fire before
-        // setPhase("connecting") propagates to phaseRef on fast networks)
         const inCall: Phase[] = ["calling", "joining", "connecting", "reconnecting"];
         if (inCall.includes(phaseRef.current)) {
-          // Preserve the target code before any cleanup so the reconnect
-          // "call back" button can pre-fill it even after a disconnect.
           if (targetCodeInput) savedTargetCodeRef.current = targetCodeInput;
           setPhase("active");
           setTimer(0);
@@ -282,6 +321,8 @@ function CallPageInner() {
       if (s === "disconnected" || s === "failed") {
         clearReconnectTO();
         setPhase("reconnecting");
+        setConnQuality("good"); // reset quality badge
+        clearStats();
 
         clientLog("call_reconnecting", { callCode: callCodeRef.current, connectionState: s }, "warning");
 
@@ -289,13 +330,45 @@ function CallPageInner() {
           startIcePoll(callCodeRef.current, isInitiatorRef.current);
         }
 
+        // ── ICE restart (initiator only) ──────────────────────────────────────
+        // Proactively send a fresh offer so the receiver can re-answer and both
+        // sides gather new ICE candidates (required for reconnect on mobile/NAT).
+        if (isInitiatorRef.current && pcRef.current && callCodeRef.current) {
+          const pc2   = pcRef.current;
+          const code2 = callCodeRef.current;
+          iceRestartPendingRef.current = false;
+          seenRecvIce.current = 0; // server will clear candidates on restart
+          pc2.createOffer({ iceRestart: true })
+            .then(offer => pc2.setLocalDescription(offer).then(() => offer))
+            .then(offer => {
+              iceRestartPendingRef.current = true;
+              return fetch(`/api/calls/${code2}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type: "restart-offer", offer }),
+              });
+            })
+            .catch(() => {});
+        }
+
+        // ── 2-minute countdown then give up ───────────────────────────────────
+        const RECONNECT_SECS = 120;
+        setReconnectSecsLeft(RECONNECT_SECS);
+        clearCountdown();
+        reconnectCountdownRef.current = setInterval(() => {
+          setReconnectSecsLeft(s => {
+            if (s <= 1) { clearCountdown(); return 0; }
+            return s - 1;
+          });
+        }, 1000);
+
         reconnectTORef.current = setTimeout(() => {
           if (pcRef.current?.connectionState !== "connected") {
-            clientLog("call_timeout", { callCode: callCodeRef.current, reason: "reconnect_timeout_10min" }, "error");
+            clientLog("call_timeout", { callCode: callCodeRef.current, reason: "reconnect_timeout_2min" }, "error");
             setError("Connection lost. The call has ended.");
             handleHangUp("reconnect_timeout");
           }
-        }, 600_000);
+        }, RECONNECT_SECS * 1000);
       }
     };
 
@@ -340,6 +413,35 @@ function CallPageInner() {
 
         const pc = pcRef.current;
         if (!pc || !pc.remoteDescription) return;
+
+        // ── ICE restart handshake ─────────────────────────────────────────────
+        if (!asInitiator && data.status === "reconnecting" && data.offer) {
+          // Receiver: initiator sent a fresh ICE-restart offer. Re-answer it.
+          // Use first 80 chars of SDP as fingerprint to avoid re-processing.
+          const offerFingerprint = (data.offer.sdp ?? "").slice(0, 80);
+          if (offerFingerprint && offerFingerprint !== lastProcessedOfferRef.current) {
+            lastProcessedOfferRef.current = offerFingerprint;
+            seenInitIce.current = 0; // server cleared old candidates
+            try {
+              await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              await fetch(`/api/calls/${code}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type: "answer", answer }),
+              });
+            } catch { /* ignore — will retry next poll tick */ }
+            return; // skip candidate processing this tick
+          }
+        }
+
+        if (asInitiator && iceRestartPendingRef.current && data.answer && data.status !== "reconnecting") {
+          // Initiator: receiver answered our ICE restart offer — apply the new answer.
+          iceRestartPendingRef.current = false;
+          seenRecvIce.current = 0; // fresh candidates incoming
+          await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(() => {});
+        }
 
         if (asInitiator) {
           const fresh: RTCIceCandidateInit[] = data.receiverIce.slice(seenRecvIce.current);
@@ -677,9 +779,11 @@ function CallPageInner() {
   };
 
   const resetToIdle = () => {
+    clearCountdown(); clearStats();
     setError(""); setPhase("idle"); setTargetCodeInput("");
     setOtherName(""); setTimer(0); setIsMuted(false);
     setUploadStatus("idle"); setUploadPct(0); setEndedReason("");
+    setReconnectSecsLeft(0); setConnQuality("good");
   };
 
   // Auto-return to idle 1.5 s after a clean call end.
@@ -865,9 +969,20 @@ function CallPageInner() {
                   </div>
                 </div>
                 {phase === "active" ? (
-                  <div className="flex items-center gap-1.5 bg-green-600/20 border border-green-500/40 rounded-full px-3 py-1">
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                    <span className="text-green-400 text-xs font-semibold tracking-wide">LIVE</span>
+                  <div className="flex items-center gap-2">
+                    {connQuality !== "good" && (
+                      <div className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold border ${
+                        connQuality === "bad"
+                          ? "bg-red-500/20 border-red-500/40 text-red-300"
+                          : "bg-amber-500/20 border-amber-500/40 text-amber-300"
+                      }`}>
+                        {connQuality === "bad" ? "⚡ Weak" : "⚡ Poor"}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1.5 bg-green-600/20 border border-green-500/40 rounded-full px-3 py-1">
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-green-400 text-xs font-semibold tracking-wide">LIVE</span>
+                    </div>
                   </div>
                 ) : (
                   <Loader2 size={20} className={`animate-spin ${spinnerColor}`} />
@@ -876,9 +991,21 @@ function CallPageInner() {
 
               {/* Timer / status body */}
               {phase === "reconnecting" ? (
-                <div className="text-center py-6 px-5">
-                  <p className="text-amber-300 text-sm">Network interruption detected</p>
-                  <p className="text-slate-500 text-xs mt-1">Reconnecting automatically — do not close this page</p>
+                <div className="text-center py-6 px-5 space-y-2">
+                  <p className="text-amber-300 text-sm font-medium">Network interruption detected</p>
+                  <p className="text-slate-400 text-xs">
+                    {isInitiatorRef.current ? "Sending reconnect request…" : "Waiting for reconnect…"}
+                  </p>
+                  {reconnectSecsLeft > 0 && (
+                    <p className="text-slate-500 text-xs">
+                      Giving up in{" "}
+                      <span className="font-mono text-amber-400 font-semibold">
+                        {Math.floor(reconnectSecsLeft / 60).toString().padStart(2, "0")}
+                        :{(reconnectSecsLeft % 60).toString().padStart(2, "0")}
+                      </span>
+                    </p>
+                  )}
+                  <p className="text-slate-600 text-xs mt-1">Do not close this page</p>
                 </div>
               ) : (
                 <div className="text-center py-8">
