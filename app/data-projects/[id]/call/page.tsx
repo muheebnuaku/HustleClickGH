@@ -70,6 +70,7 @@ function CallPageInner() {
   const [supportsRecording, setSupportsRecording] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
   const [uploadPct,    setUploadPct]    = useState(0);
+  const [endedReason,  setEndedReason]  = useState("");
 
   useEffect(() => {
     setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -83,6 +84,7 @@ function CallPageInner() {
   const remoteAudioRef   = useRef<HTMLAudioElement | null>(null);
   const callCodeRef      = useRef("");
   const isInitiatorRef   = useRef(false);
+  const savedTargetCodeRef = useRef(""); // persists across cleanup for reconnect callback
 
   // ── Refs — Recording ──────────────────────────────────────────────────────
   const screenStreamRef   = useRef<MediaStream | null>(null);
@@ -267,6 +269,9 @@ function CallPageInner() {
         // setPhase("connecting") propagates to phaseRef on fast networks)
         const inCall: Phase[] = ["calling", "joining", "connecting", "reconnecting"];
         if (inCall.includes(phaseRef.current)) {
+          // Preserve the target code before any cleanup so the reconnect
+          // "call back" button can pre-fill it even after a disconnect.
+          if (targetCodeInput) savedTargetCodeRef.current = targetCodeInput;
           setPhase("active");
           setTimer(0);
           if (!timerRef.current) timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
@@ -325,8 +330,11 @@ function CallPageInner() {
         // Detect when the OTHER side ends the call server-side.
         if (data.status === "completed" || data.status === "missed") {
           stopPoll();
-          clientLog("call_end", { callCode: code, reason: "remote_hangup", detectedBy: "ice_poll" }, "info");
-          handleHangUp("remote_hangup");
+          const reason = phaseRef.current === "reconnecting"
+            ? "remote_hangup_during_reconnect"
+            : "remote_hangup";
+          clientLog("call_end", { callCode: code, reason, detectedBy: "ice_poll" }, "info");
+          handleHangUp(reason);
           return;
         }
 
@@ -517,6 +525,14 @@ function CallPageInner() {
     clearReconnectTO();
     clearConnectTO();
 
+    // If we were in the middle of reconnecting, enrich the reason so the
+    // "ended" screen can offer a call-back option.
+    const effectiveReason =
+      phaseRef.current === "reconnecting" && reason === "remote_hangup"
+        ? "remote_hangup_during_reconnect"
+        : reason;
+    setEndedReason(effectiveReason);
+
     if (callCodeRef.current) {
       fetch(`/api/calls/${callCodeRef.current}`, {
         method: "PATCH",
@@ -663,16 +679,21 @@ function CallPageInner() {
   const resetToIdle = () => {
     setError(""); setPhase("idle"); setTargetCodeInput("");
     setOtherName(""); setTimer(0); setIsMuted(false);
-    setUploadStatus("idle"); setUploadPct(0);
+    setUploadStatus("idle"); setUploadPct(0); setEndedReason("");
   };
 
-  // Auto-return to idle 1.5 s after a call ends so the user can immediately redial
+  // Auto-return to idle 1.5 s after a clean call end.
+  // Reconnect-related endings stay on screen until the user acts.
   useEffect(() => {
     if (phase !== "ended") return;
+    const isReconnectEnd =
+      endedReason === "reconnect_timeout" ||
+      endedReason === "remote_hangup_during_reconnect";
+    if (isReconnectEnd) return; // user must tap Call Back or Dismiss
     const t = setTimeout(resetToIdle, 1500);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase]);
+  }, [phase, endedReason]);
   return (
     <DashboardLayout>
       {/* Hidden audio element — plays remote stream to speakers */}
@@ -971,13 +992,81 @@ function CallPageInner() {
         })()}
 
         {/* ── ENDED ── */}
-        {phase === "ended" && (
-          <Card className="p-6 text-center space-y-2">
-            <Radio size={36} className="mx-auto text-zinc-400" />
-            <p className="font-medium text-zinc-600 dark:text-zinc-400">Call ended</p>
-            <p className="text-xs text-zinc-400">Returning to dial screen…</p>
-          </Card>
-        )}
+        {phase === "ended" && (() => {
+          const isReconnectEnd =
+            endedReason === "reconnect_timeout" ||
+            endedReason === "remote_hangup_during_reconnect";
+
+          // Clean hang-up — brief "Call ended" then auto-back to idle
+          if (!isReconnectEnd) {
+            return (
+              <Card className="p-6 text-center space-y-2">
+                <Radio size={36} className="mx-auto text-zinc-400" />
+                <p className="font-medium text-zinc-600 dark:text-zinc-400">Call ended</p>
+                <p className="text-xs text-zinc-400">Returning to dial screen…</p>
+              </Card>
+            );
+          }
+
+          // Reconnect-related end — offer call-back for the caller, instructions for receiver
+          const canCallBack = isInitiatorRef.current && !!savedTargetCodeRef.current;
+
+          return (
+            <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-amber-600/30">
+              {/* Status */}
+              <div className="text-center px-6 pt-8 pb-6">
+                <div className="w-16 h-16 mx-auto rounded-full bg-amber-500/20 ring-2 ring-amber-400/40 flex items-center justify-center mb-4">
+                  <PhoneOff className="w-8 h-8 text-amber-400" />
+                </div>
+                <p className="text-white font-semibold text-lg">Connection Lost</p>
+                <p className="text-slate-400 text-sm mt-1">
+                  {endedReason === "remote_hangup_during_reconnect"
+                    ? `${otherName || "Your partner"} ended the call during reconnection`
+                    : `Could not reconnect with ${otherName || "your partner"}`}
+                </p>
+              </div>
+
+              {/* Controls */}
+              <div className="px-6 pb-7 pt-4 border-t border-white/5 flex items-end justify-center gap-8">
+                {/* Call back (caller only) or "ask them" message */}
+                {canCallBack ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const code = savedTargetCodeRef.current;
+                        setError(""); setOtherName(""); setTimer(0); setIsMuted(false);
+                        setUploadStatus("idle"); setUploadPct(0); setEndedReason("");
+                        setTargetCodeInput(code);
+                        setPhase("idle");
+                      }}
+                      className="w-16 h-16 rounded-full bg-green-600 hover:bg-green-500 flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-xl shadow-green-600/40 ring-1 ring-green-400/30"
+                    >
+                      <PhoneCall size={24} className="text-white" />
+                    </button>
+                    <span className="text-[11px] font-medium tracking-wide text-slate-400">
+                      Call back
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-amber-400 text-sm text-center pb-2">
+                    Ask {otherName || "them"} to call you back
+                  </p>
+                )}
+
+                {/* Dismiss */}
+                <div className="flex flex-col items-center gap-2">
+                  <button
+                    onClick={resetToIdle}
+                    className="w-14 h-14 rounded-full bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20 flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg"
+                  >
+                    <ArrowLeft size={20} className="text-white/90" />
+                  </button>
+                  <span className="text-[11px] font-medium tracking-wide text-slate-400">Dismiss</span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </DashboardLayout>
   );
