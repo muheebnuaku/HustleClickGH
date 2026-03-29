@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import {
   Mic, MicOff, PhoneOff, PhoneCall, Copy, CheckCircle2,
   Loader2, AlertCircle, ArrowLeft, Radio, User,
-  ScreenShare, StopCircle,
+  ScreenShare, StopCircle, WifiOff,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -1216,6 +1216,61 @@ function CallPageInner() {
           );
         })()}
       </div>
+
+      {/* ── RECONNECTING MODAL — full-screen overlay ───────────────────────── */}
+      {phase === "reconnecting" && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-amber-500/30 w-full max-w-sm">
+
+            {/* Icon + title */}
+            <div className="text-center px-6 pt-8 pb-4 space-y-3">
+              <div className="relative mx-auto w-16 h-16">
+                <div className="absolute inset-0 rounded-full bg-amber-500/20 animate-ping" />
+                <div className="relative w-16 h-16 rounded-full bg-amber-500/20 ring-2 ring-amber-400/40 flex items-center justify-center">
+                  <WifiOff className="w-7 h-7 text-amber-400" />
+                </div>
+              </div>
+              <div>
+                <p className="text-white font-semibold text-lg">Connection Interrupted</p>
+                <p className="text-slate-400 text-sm mt-1">
+                  {isInitiatorRef.current
+                    ? `Reconnecting to ${otherName || "your partner"}…`
+                    : `Waiting for ${otherName || "your partner"} to reconnect…`}
+                </p>
+              </div>
+            </div>
+
+            {/* Spinner + countdown */}
+            <div className="text-center px-6 pb-5 space-y-3">
+              <div className="flex items-center justify-center gap-2 text-slate-400 text-xs">
+                <Loader2 size={14} className="animate-spin text-amber-400" />
+                <span>Reconnecting automatically — do not close this page</span>
+              </div>
+              {reconnectSecsLeft > 0 && (
+                <div className="inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/25 rounded-full px-4 py-1.5">
+                  <span className="text-slate-300 text-xs">Giving up in</span>
+                  <span className="font-mono text-amber-300 font-bold text-sm">
+                    {Math.floor(reconnectSecsLeft / 60).toString().padStart(2, "0")}
+                    :{(reconnectSecsLeft % 60).toString().padStart(2, "0")}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Give-up button */}
+            <div className="px-6 pb-7 border-t border-white/5 pt-4 flex flex-col items-center gap-1.5">
+              <button
+                onClick={() => handleHangUp("user_hangup_during_reconnect")}
+                className="w-14 h-14 rounded-full bg-red-500/20 ring-1 ring-red-400/40 hover:bg-red-500/30 hover:ring-red-400/60 flex items-center justify-center text-red-400 transition-all duration-200 hover:scale-105 active:scale-90 shadow-lg"
+              >
+                <PhoneOff size={22} />
+              </button>
+              <span className="text-[11px] font-medium tracking-wide text-slate-500">Give up</span>
+            </div>
+          </div>
+        </div>
+      )}
+
     </DashboardLayout>
   );
 }
