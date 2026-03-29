@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { AdminLayout } from "@/components/admin-layout";
 import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download } from "lucide-react";
 import Link from "next/link";
@@ -238,35 +237,42 @@ export default function AdminProjectSubmissionsPage() {
 
                   {/* Actions (only for pending) */}
                   {sub.status === "pending" && (
-                    <div className="flex flex-col gap-3 min-w-[200px]">
-                      <Button
-                        onClick={() => handleApprove(sub.id)}
-                        disabled={actionLoading === sub.id}
-                        className="bg-green-600 hover:bg-green-700 text-white w-full"
-                      >
-                        {actionLoading === sub.id ? (
-                          <Loader2 size={16} className="animate-spin mr-2" />
-                        ) : (
-                          <CheckCircle2 size={16} className="mr-2" />
-                        )}
-                        Approve · Pay {formatCurrency(project?.reward || 0)}
-                      </Button>
-                      <div>
-                        <textarea
-                          className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-red-400"
-                          rows={2}
-                          placeholder="Rejection reason (optional)"
-                          value={rejectNotes[sub.id] || ""}
-                          onChange={(e) => setRejectNotes({ ...rejectNotes, [sub.id]: e.target.value })}
-                        />
-                        <Button
+                    <div className="rounded-2xl bg-gradient-to-b from-slate-800 to-slate-900 p-4 flex flex-col gap-3 min-w-[210px]">
+                      {/* Approve */}
+                      <div className="flex flex-col items-center gap-1.5">
+                        <button
+                          onClick={() => handleApprove(sub.id)}
+                          disabled={actionLoading === sub.id}
+                          className="w-14 h-14 rounded-full bg-green-500/20 ring-1 ring-green-400/40 hover:bg-green-500/30 hover:ring-green-400/60 flex items-center justify-center text-green-400 transition-all duration-200 hover:scale-105 active:scale-90 shadow-lg disabled:opacity-40"
+                        >
+                          {actionLoading === sub.id
+                            ? <Loader2 size={22} className="animate-spin" />
+                            : <CheckCircle2 size={22} />}
+                        </button>
+                        <span className="text-[11px] font-medium tracking-wide text-slate-300">
+                          Approve · {formatCurrency(project?.reward || 0)}
+                        </span>
+                      </div>
+
+                      {/* Rejection note */}
+                      <textarea
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-300 placeholder-slate-500 resize-none focus:outline-none focus:ring-1 focus:ring-red-400/50"
+                        rows={2}
+                        placeholder="Rejection reason (optional)"
+                        value={rejectNotes[sub.id] || ""}
+                        onChange={(e) => setRejectNotes({ ...rejectNotes, [sub.id]: e.target.value })}
+                      />
+
+                      {/* Reject */}
+                      <div className="flex flex-col items-center gap-1.5">
+                        <button
                           onClick={() => handleReject(sub.id)}
                           disabled={actionLoading === sub.id}
-                          variant="outline"
-                          className="w-full mt-1 border-red-200 text-red-600 hover:bg-red-50"
+                          className="w-14 h-14 rounded-full bg-red-500/20 ring-1 ring-red-400/40 hover:bg-red-500/30 hover:ring-red-400/60 flex items-center justify-center text-red-400 transition-all duration-200 hover:scale-105 active:scale-90 shadow-lg disabled:opacity-40"
                         >
-                          <XCircle size={16} className="mr-2" />Reject
-                        </Button>
+                          <XCircle size={22} />
+                        </button>
+                        <span className="text-[11px] font-medium tracking-wide text-slate-400">Reject</span>
                       </div>
                     </div>
                   )}

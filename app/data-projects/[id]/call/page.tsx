@@ -142,7 +142,6 @@ function CallPageInner() {
       } catch { /* ignore */ }
     }, 4000);
     return clearStats;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -187,7 +186,7 @@ function CallPageInner() {
       pcRef.current.close();
       pcRef.current = null;
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => () => cleanup(), [cleanup]);
 
@@ -855,7 +854,7 @@ function CallPageInner() {
                   <li>Tap <strong>Start Recording</strong>, then come back here and make your call</li>
                 </ol>
                 <p className="text-xs text-amber-600 dark:text-amber-500 mt-2">
-                  Your voice and the other person's voice (from speaker) will both be captured.
+                  Your voice and the other person&apos;s voice (from speaker) will both be captured.
                 </p>
               </Card>
             )}
@@ -970,15 +969,25 @@ function CallPageInner() {
                 </div>
                 {phase === "active" ? (
                   <div className="flex items-center gap-2">
-                    {connQuality !== "good" && (
-                      <div className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold border ${
-                        connQuality === "bad"
-                          ? "bg-red-500/20 border-red-500/40 text-red-300"
-                          : "bg-amber-500/20 border-amber-500/40 text-amber-300"
-                      }`}>
-                        {connQuality === "bad" ? "⚡ Weak" : "⚡ Poor"}
-                      </div>
-                    )}
+                    {/* Signal bars — always visible, colour reflects connection quality */}
+                    <div className="flex items-end gap-[3px] h-4">
+                      {[45, 72, 100].map((pct, i) => {
+                        const lit =
+                          connQuality === "good" ||
+                          (connQuality === "poor" && i < 2) ||
+                          (connQuality === "bad"  && i < 1);
+                        const barColor =
+                          connQuality === "good" ? "bg-green-400" :
+                          connQuality === "poor" ? "bg-amber-400" : "bg-red-400";
+                        return (
+                          <div
+                            key={i}
+                            style={{ height: `${pct}%` }}
+                            className={`w-[3px] rounded-sm transition-colors duration-700 ${lit ? barColor : "bg-slate-600"}`}
+                          />
+                        );
+                      })}
+                    </div>
                     <div className="flex items-center gap-1.5 bg-green-600/20 border border-green-500/40 rounded-full px-3 py-1">
                       <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                       <span className="text-green-400 text-xs font-semibold tracking-wide">LIVE</span>
@@ -991,21 +1000,26 @@ function CallPageInner() {
 
               {/* Timer / status body */}
               {phase === "reconnecting" ? (
-                <div className="text-center py-6 px-5 space-y-2">
-                  <p className="text-amber-300 text-sm font-medium">Network interruption detected</p>
-                  <p className="text-slate-400 text-xs">
-                    {isInitiatorRef.current ? "Sending reconnect request…" : "Waiting for reconnect…"}
+                <div className="text-center py-7 px-5 space-y-2.5">
+                  <div className="w-10 h-10 mx-auto rounded-full bg-amber-500/20 ring-2 ring-amber-400/30 flex items-center justify-center">
+                    <Loader2 size={20} className="text-amber-400 animate-spin" />
+                  </div>
+                  <p className="text-amber-300 text-sm font-semibold">Reconnecting…</p>
+                  <p className="text-slate-300 text-xs">
+                    {isInitiatorRef.current
+                      ? "Sending reconnect request to partner"
+                      : "Waiting for partner to reconnect"}
                   </p>
                   {reconnectSecsLeft > 0 && (
-                    <p className="text-slate-500 text-xs">
-                      Giving up in{" "}
-                      <span className="font-mono text-amber-400 font-semibold">
+                    <div className="inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/25 rounded-full px-3 py-1">
+                      <span className="text-slate-300 text-xs">Give up in</span>
+                      <span className="font-mono text-amber-300 font-bold text-sm">
                         {Math.floor(reconnectSecsLeft / 60).toString().padStart(2, "0")}
                         :{(reconnectSecsLeft % 60).toString().padStart(2, "0")}
                       </span>
-                    </p>
+                    </div>
                   )}
-                  <p className="text-slate-600 text-xs mt-1">Do not close this page</p>
+                  <p className="text-slate-500 text-[11px]">Do not close this page</p>
                 </div>
               ) : (
                 <div className="text-center py-8">
@@ -1040,76 +1054,62 @@ function CallPageInner() {
 
               {/* Controls */}
               <div className="px-6 pb-7 pt-5 border-t border-white/5">
-                <div className="flex items-end justify-center gap-5">
+                <div className="flex items-center justify-center gap-5">
 
                   {/* Mute */}
                   {phase === "active" && (
-                    <div className="flex flex-col items-center gap-2">
-                      <button
-                        onClick={toggleMute}
-                        className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg ${
-                          isMuted
-                            ? "bg-red-500/30 ring-2 ring-red-400/60 shadow-red-500/20"
-                            : "bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20"
-                        }`}
-                      >
-                        {isMuted
-                          ? <MicOff size={21} className="text-red-300" />
-                          : <Mic size={21} className="text-white/90" />}
-                      </button>
-                      <span className={`text-[11px] font-medium tracking-wide ${isMuted ? "text-red-400" : "text-slate-400"}`}>
-                        {isMuted ? "Unmute" : "Mute"}
-                      </span>
-                    </div>
+                    <button
+                      onClick={toggleMute}
+                      className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg ${
+                        isMuted
+                          ? "bg-red-500/30 ring-2 ring-red-400/60 shadow-red-500/20"
+                          : "bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20"
+                      }`}
+                    >
+                      {isMuted
+                        ? <MicOff size={21} className="text-red-300" />
+                        : <Mic size={21} className="text-white/90" />}
+                    </button>
                   )}
 
-                  {/* End call — centre, larger */}
-                  <div className="flex flex-col items-center gap-2">
-                    <button
-                      onClick={() => {
-                        if (phase === "calling" && callCodeRef.current) {
-                          fetch(`/api/calls/${callCodeRef.current}`, {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ type: "cancel" }),
-                          }).catch(() => {});
-                          cleanup();
-                          setPhase("ended");
-                        } else {
-                          handleHangUp(phase === "reconnecting" ? "user_hangup_during_reconnect" : "user_hangup");
-                        }
-                      }}
-                      className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-xl shadow-red-600/40 ring-1 ring-red-400/30"
-                    >
-                      <PhoneOff size={24} className="text-white" />
-                    </button>
-                    <span className="text-[11px] font-medium tracking-wide text-slate-400">
-                      {phase === "calling" ? "Cancel" : "End"}
-                    </span>
-                  </div>
+                  {/* End call */}
+                  <button
+                    onClick={() => {
+                      if (phase === "calling" && callCodeRef.current) {
+                        fetch(`/api/calls/${callCodeRef.current}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ type: "cancel" }),
+                        }).catch(() => {});
+                        cleanup();
+                        setPhase("ended");
+                      } else {
+                        handleHangUp(phase === "reconnecting" ? "user_hangup_during_reconnect" : "user_hangup");
+                      }
+                    }}
+                    className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-xl shadow-red-600/40 ring-1 ring-red-400/30"
+                  >
+                    <PhoneOff size={24} className="text-white" />
+                  </button>
 
                   {/* Record */}
                   {phase === "active" && supportsRecording && (
-                    <div className="flex flex-col items-center gap-2">
-                      <button
-                        onClick={isRecording ? stopRecording : startRecording}
-                        className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg ${
-                          isRecording
-                            ? "bg-red-500/30 ring-2 ring-red-400/60 shadow-red-500/20"
-                            : "bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20"
-                        }`}
-                      >
-                        {isRecording && (
-                          <span className="absolute inset-0 rounded-full animate-ping bg-red-500/20" />
-                        )}
-                        {isRecording
-                          ? <StopCircle size={21} className="text-red-300 relative z-10" />
-                          : <ScreenShare size={21} className="text-white/90" />}
-                      </button>
-                      <span className={`text-[11px] font-medium tracking-wide ${isRecording ? "text-red-400" : "text-slate-400"}`}>
-                        {isRecording ? "Stop" : "Record"}
-                      </span>
-                    </div>
+                    <button
+                      onClick={isRecording ? stopRecording : startRecording}
+                      title={isRecording ? "Stop recording" : "Record call (choose Entire Screen to capture PiP)"}
+                      className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg ${
+                        isRecording
+                          ? "bg-red-500/30 ring-2 ring-red-400/60 shadow-red-500/20"
+                          : "bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20"
+                      }`}
+                    >
+                      {isRecording && (
+                        <span className="absolute inset-0 rounded-full animate-ping bg-red-500/20" />
+                      )}
+                      {isRecording
+                        ? <StopCircle size={21} className="text-red-300 relative z-10" />
+                        : <ScreenShare size={21} className="text-white/90" />}
+                    </button>
                   )}
 
                 </div>
