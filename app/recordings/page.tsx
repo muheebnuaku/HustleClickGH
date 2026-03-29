@@ -34,6 +34,22 @@ function fmtDate(d: string) {
   });
 }
 
+async function downloadRecording(fileUrl: string, fileName: string) {
+  try {
+    const res  = await fetch(fileUrl);
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch {
+    // Fallback: open in new tab
+    window.open(fileUrl, "_blank");
+  }
+}
+
 export default function RecordingsPage() {
   const [recordings, setRecordings] = useState<CallRecording[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -41,6 +57,7 @@ export default function RecordingsPage() {
   const [pages, setPages]           = useState(1);
   const [total, setTotal]           = useState(0);
   const [playing, setPlaying]       = useState<CallRecording | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -121,15 +138,20 @@ export default function RecordingsPage() {
                             >
                               <Play size={14} />Play
                             </button>
-                            <a
-                              href={r.fileUrl}
-                              download
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 transition-colors"
+                            <button
+                              disabled={downloading === r.id}
+                              onClick={async () => {
+                                setDownloading(r.id);
+                                await downloadRecording(r.fileUrl, `recording-${r.callCode}.webm`);
+                                setDownloading(null);
+                              }}
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 transition-colors disabled:opacity-50"
                             >
-                              <Download size={14} />Download
-                            </a>
+                              {downloading === r.id
+                                ? <Loader2 size={14} className="animate-spin" />
+                                : <Download size={14} />}
+                              {downloading === r.id ? "Saving…" : "Download"}
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -167,15 +189,20 @@ export default function RecordingsPage() {
                     >
                       <Play size={14} />Play
                     </button>
-                    <a
-                      href={r.fileUrl}
-                      download
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 rounded-lg py-2"
+                    <button
+                      disabled={downloading === r.id}
+                      onClick={async () => {
+                        setDownloading(r.id);
+                        await downloadRecording(r.fileUrl, `recording-${r.callCode}.webm`);
+                        setDownloading(null);
+                      }}
+                      className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 rounded-lg py-2 disabled:opacity-50"
                     >
-                      <Download size={14} />Download
-                    </a>
+                      {downloading === r.id
+                        ? <Loader2 size={14} className="animate-spin" />
+                        : <Download size={14} />}
+                      {downloading === r.id ? "Saving…" : "Download"}
+                    </button>
                   </div>
                 </Card>
               ))}
@@ -254,15 +281,20 @@ export default function RecordingsPage() {
                   style={{ outline: "none" }}
                 />
               )}
-              <a
-                href={playing.fileUrl}
-                download
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-3 inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 font-medium"
+              <button
+                disabled={downloading === playing.id}
+                onClick={async () => {
+                  setDownloading(playing.id);
+                  await downloadRecording(playing.fileUrl, `recording-${playing.callCode}.webm`);
+                  setDownloading(null);
+                }}
+                className="mt-3 inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 font-medium disabled:opacity-50"
               >
-                <Download size={15} />Download file
-              </a>
+                {downloading === playing.id
+                  ? <Loader2 size={15} className="animate-spin" />
+                  : <Download size={15} />}
+                {downloading === playing.id ? "Saving…" : "Download file"}
+              </button>
             </div>
           </div>
         </div>
