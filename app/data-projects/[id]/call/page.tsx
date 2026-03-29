@@ -890,71 +890,80 @@ function CallPageInner() {
                 </div>
               )}
 
-              {/* Muted badge */}
-              {isMuted && phase === "active" && (
-                <div className="text-center mb-4">
-                  <span className="bg-red-500/20 border border-red-500/40 text-red-400 text-xs px-3 py-1 rounded-full">
-                    Microphone muted
-                  </span>
-                </div>
-              )}
-
               {/* Controls */}
-              <div className="flex items-center justify-center gap-6 px-6 py-6 border-t border-slate-700/60">
-                {phase === "active" && (
-                  <div className="flex flex-col items-center gap-1.5">
-                    <button
-                      onClick={toggleMute}
-                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
-                        isMuted ? "bg-red-600 hover:bg-red-700" : "bg-slate-700 hover:bg-slate-600"
-                      }`}
-                    >
-                      {isMuted
-                        ? <MicOff size={22} className="text-white" />
-                        : <Mic size={22} className="text-white" />}
-                    </button>
-                    <span className="text-slate-400 text-xs">{isMuted ? "Unmute" : "Mute"}</span>
-                  </div>
-                )}
+              <div className="px-6 pb-7 pt-5 border-t border-white/5">
+                <div className="flex items-end justify-center gap-5">
 
-                {phase === "active" && supportsRecording && (
-                  <div className="flex flex-col items-center gap-1.5">
-                    <button
-                      onClick={isRecording ? stopRecording : startRecording}
-                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
-                        isRecording ? "bg-red-500 hover:bg-red-600 animate-pulse" : "bg-slate-700 hover:bg-slate-600"
-                      }`}
-                    >
-                      {isRecording
-                        ? <StopCircle size={22} className="text-white" />
-                        : <ScreenShare size={22} className="text-white" />}
-                    </button>
-                    <span className="text-slate-400 text-xs">{isRecording ? "Stop Rec" : "Record"}</span>
-                  </div>
-                )}
+                  {/* Mute */}
+                  {phase === "active" && (
+                    <div className="flex flex-col items-center gap-2">
+                      <button
+                        onClick={toggleMute}
+                        className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg ${
+                          isMuted
+                            ? "bg-red-500/30 ring-2 ring-red-400/60 shadow-red-500/20"
+                            : "bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20"
+                        }`}
+                      >
+                        {isMuted
+                          ? <MicOff size={21} className="text-red-300" />
+                          : <Mic size={21} className="text-white/90" />}
+                      </button>
+                      <span className={`text-[11px] font-medium tracking-wide ${isMuted ? "text-red-400" : "text-slate-400"}`}>
+                        {isMuted ? "Unmute" : "Mute"}
+                      </span>
+                    </div>
+                  )}
 
-                <div className="flex flex-col items-center gap-1.5">
-                  <button
-                    onClick={() => {
-                      if (phase === "calling" && callCodeRef.current) {
-                        fetch(`/api/calls/${callCodeRef.current}`, {
-                          method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ type: "cancel" }),
-                        }).catch(() => {});
-                        cleanup();
-                        setPhase("ended");
-                      } else {
-                        handleHangUp(phase === "reconnecting" ? "user_hangup_during_reconnect" : "user_hangup");
-                      }
-                    }}
-                    className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center transition-colors shadow-lg"
-                  >
-                    <PhoneOff size={26} className="text-white" />
-                  </button>
-                  <span className="text-slate-400 text-xs">
-                    {phase === "calling" ? "Cancel" : "Hang Up"}
-                  </span>
+                  {/* End call — centre, larger */}
+                  <div className="flex flex-col items-center gap-2">
+                    <button
+                      onClick={() => {
+                        if (phase === "calling" && callCodeRef.current) {
+                          fetch(`/api/calls/${callCodeRef.current}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ type: "cancel" }),
+                          }).catch(() => {});
+                          cleanup();
+                          setPhase("ended");
+                        } else {
+                          handleHangUp(phase === "reconnecting" ? "user_hangup_during_reconnect" : "user_hangup");
+                        }
+                      }}
+                      className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-xl shadow-red-600/40 ring-1 ring-red-400/30"
+                    >
+                      <PhoneOff size={24} className="text-white" />
+                    </button>
+                    <span className="text-[11px] font-medium tracking-wide text-slate-400">
+                      {phase === "calling" ? "Cancel" : "End"}
+                    </span>
+                  </div>
+
+                  {/* Record */}
+                  {phase === "active" && supportsRecording && (
+                    <div className="flex flex-col items-center gap-2">
+                      <button
+                        onClick={isRecording ? stopRecording : startRecording}
+                        className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg ${
+                          isRecording
+                            ? "bg-red-500/30 ring-2 ring-red-400/60 shadow-red-500/20"
+                            : "bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20"
+                        }`}
+                      >
+                        {isRecording && (
+                          <span className="absolute inset-0 rounded-full animate-ping bg-red-500/20" />
+                        )}
+                        {isRecording
+                          ? <StopCircle size={21} className="text-red-300 relative z-10" />
+                          : <ScreenShare size={21} className="text-white/90" />}
+                      </button>
+                      <span className={`text-[11px] font-medium tracking-wide ${isRecording ? "text-red-400" : "text-slate-400"}`}>
+                        {isRecording ? "Stop" : "Record"}
+                      </span>
+                    </div>
+                  )}
+
                 </div>
               </div>
             </div>
