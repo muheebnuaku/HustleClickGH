@@ -131,27 +131,36 @@ export default function RecordingsPage() {
                         <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">{fmt(r.duration)}</td>
                         <td className="px-4 py-3 text-zinc-500">{fmtBytes(r.fileSize)}</td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <button
-                              onClick={() => setPlaying(r)}
-                              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-                            >
-                              <Play size={14} />Play
-                            </button>
-                            <button
-                              disabled={downloading === r.id}
-                              onClick={async () => {
-                                setDownloading(r.id);
-                                await downloadRecording(r.fileUrl, `recording-${r.callCode}.webm`);
-                                setDownloading(null);
-                              }}
-                              className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 transition-colors disabled:opacity-50"
-                            >
-                              {downloading === r.id
-                                ? <Loader2 size={14} className="animate-spin" />
-                                : <Download size={14} />}
-                              {downloading === r.id ? "Saving…" : "Download"}
-                            </button>
+                          <div className="flex items-center gap-4">
+                            {/* Play */}
+                            <div className="flex flex-col items-center gap-1">
+                              <button
+                                onClick={() => setPlaying(r)}
+                                className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/20 ring-1 ring-blue-200 dark:ring-blue-800 flex items-center justify-center text-blue-600 dark:text-blue-400 transition-all duration-200 hover:scale-105 active:scale-90 shadow-sm"
+                              >
+                                <Play size={16} />
+                              </button>
+                              <span className="text-[10px] font-medium text-zinc-400">Play</span>
+                            </div>
+                            {/* Download */}
+                            <div className="flex flex-col items-center gap-1">
+                              <button
+                                disabled={downloading === r.id}
+                                onClick={async () => {
+                                  setDownloading(r.id);
+                                  await downloadRecording(r.fileUrl, `recording-${r.callCode}.webm`);
+                                  setDownloading(null);
+                                }}
+                                className="w-10 h-10 rounded-full bg-zinc-100 dark:bg-zinc-800 ring-1 ring-zinc-200 dark:ring-zinc-700 flex items-center justify-center text-zinc-600 dark:text-zinc-400 transition-all duration-200 hover:scale-105 active:scale-90 shadow-sm disabled:opacity-40"
+                              >
+                                {downloading === r.id
+                                  ? <Loader2 size={16} className="animate-spin" />
+                                  : <Download size={16} />}
+                              </button>
+                              <span className="text-[10px] font-medium text-zinc-400">
+                                {downloading === r.id ? "Saving…" : "Save"}
+                              </span>
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -182,27 +191,36 @@ export default function RecordingsPage() {
                       <p className="text-xs text-zinc-400 mt-0.5">{fmtDate(r.createdAt)} · {fmtBytes(r.fileSize)}</p>
                     </div>
                   </div>
-                  <div className="flex gap-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                    <button
-                      onClick={() => setPlaying(r)}
-                      className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-lg py-2"
-                    >
-                      <Play size={14} />Play
-                    </button>
-                    <button
-                      disabled={downloading === r.id}
-                      onClick={async () => {
-                        setDownloading(r.id);
-                        await downloadRecording(r.fileUrl, `recording-${r.callCode}.webm`);
-                        setDownloading(null);
-                      }}
-                      className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 rounded-lg py-2 disabled:opacity-50"
-                    >
-                      {downloading === r.id
-                        ? <Loader2 size={14} className="animate-spin" />
-                        : <Download size={14} />}
-                      {downloading === r.id ? "Saving…" : "Download"}
-                    </button>
+                  <div className="mt-3 rounded-xl bg-gradient-to-b from-slate-800 to-slate-900 px-4 py-4 flex items-center justify-center gap-10">
+                    {/* Play */}
+                    <div className="flex flex-col items-center gap-1.5">
+                      <button
+                        onClick={() => setPlaying(r)}
+                        className="w-12 h-12 rounded-full bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20 flex items-center justify-center text-white/90 transition-all duration-200 hover:scale-105 active:scale-90 shadow-lg"
+                      >
+                        <Play size={20} />
+                      </button>
+                      <span className="text-[11px] font-medium tracking-wide text-slate-400">Play</span>
+                    </div>
+                    {/* Download */}
+                    <div className="flex flex-col items-center gap-1.5">
+                      <button
+                        disabled={downloading === r.id}
+                        onClick={async () => {
+                          setDownloading(r.id);
+                          await downloadRecording(r.fileUrl, `recording-${r.callCode}.webm`);
+                          setDownloading(null);
+                        }}
+                        className="w-12 h-12 rounded-full bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20 flex items-center justify-center text-white/90 transition-all duration-200 hover:scale-105 active:scale-90 shadow-lg disabled:opacity-40"
+                      >
+                        {downloading === r.id
+                          ? <Loader2 size={20} className="animate-spin" />
+                          : <Download size={20} />}
+                      </button>
+                      <span className="text-[11px] font-medium tracking-wide text-slate-400">
+                        {downloading === r.id ? "Saving…" : "Save"}
+                      </span>
+                    </div>
                   </div>
                 </Card>
               ))}
@@ -281,20 +299,26 @@ export default function RecordingsPage() {
                   style={{ outline: "none" }}
                 />
               )}
-              <button
-                disabled={downloading === playing.id}
-                onClick={async () => {
-                  setDownloading(playing.id);
-                  await downloadRecording(playing.fileUrl, `recording-${playing.callCode}.webm`);
-                  setDownloading(null);
-                }}
-                className="mt-3 inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 font-medium disabled:opacity-50"
-              >
-                {downloading === playing.id
-                  ? <Loader2 size={15} className="animate-spin" />
-                  : <Download size={15} />}
-                {downloading === playing.id ? "Saving…" : "Download file"}
-              </button>
+              <div className="flex justify-center mt-4">
+                <div className="flex flex-col items-center gap-1.5">
+                  <button
+                    disabled={downloading === playing.id}
+                    onClick={async () => {
+                      setDownloading(playing.id);
+                      await downloadRecording(playing.fileUrl, `recording-${playing.callCode}.webm`);
+                      setDownloading(null);
+                    }}
+                    className="w-14 h-14 rounded-full bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-600 flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-90 shadow-lg disabled:opacity-40"
+                  >
+                    {downloading === playing.id
+                      ? <Loader2 size={22} className="animate-spin" />
+                      : <Download size={22} />}
+                  </button>
+                  <span className="text-[11px] font-medium tracking-wide text-zinc-400">
+                    {downloading === playing.id ? "Saving…" : "Save to device"}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
