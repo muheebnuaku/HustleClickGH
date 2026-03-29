@@ -18,6 +18,21 @@ async function generateUserId(): Promise<string> {
   return `USER${digits}`;
 }
 
+// Same alphabet as register route — no confusing characters
+async function generatePersonalCallCode(): Promise<string> {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  for (let attempt = 0; attempt < 20; attempt++) {
+    let code = "";
+    for (let i = 0; i < 5; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+    const existing = await prisma.user.findUnique({ where: { personalCallCode: code } });
+    if (!existing) return code;
+  }
+  // Extremely unlikely fallback — 6 chars
+  let code = "";
+  for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+  return code;
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
@@ -95,8 +110,9 @@ export const authOptions: NextAuthOptions = {
           });
 
           if (!existingUser) {
-            // Create new user for OAuth
+            // Create new user for OAuth — always generate a personal call code
             const userId = await generateUserId();
+            const personalCallCode = await generatePersonalCallCode();
             const created = await prisma.user.create({
               data: {
                 userId,
@@ -109,6 +125,7 @@ export const authOptions: NextAuthOptions = {
                 referralCode: userId,
                 balance: 0,
                 totalEarned: 0,
+                personalCallCode,
               },
             });
             await logActivity({
@@ -119,6 +136,14 @@ export const authOptions: NextAuthOptions = {
               metadata: { provider: account.provider, email: user.email, userId: created.userId },
             });
           } else {
+            // Existing user — backfill call code if somehow missing
+            if (!existingUser.personalCallCode) {
+              const personalCallCode = await generatePersonalCallCode();
+              await prisma.user.update({
+                where: { id: existingUser.id },
+                data: { personalCallCode },
+              });
+            }
             await logActivity({
               type: "login",
               userId: existingUser.id,
