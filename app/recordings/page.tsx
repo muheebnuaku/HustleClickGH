@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Video, Mic, Download, ChevronLeft, ChevronRight, Loader2, VideoOff } from "lucide-react";
+import { Video, Mic, Download, Play, X, ChevronLeft, ChevronRight, Loader2, VideoOff } from "lucide-react";
 
 interface CallRecording {
   id: string;
@@ -40,6 +40,7 @@ export default function RecordingsPage() {
   const [page, setPage]             = useState(1);
   const [pages, setPages]           = useState(1);
   const [total, setTotal]           = useState(0);
+  const [playing, setPlaying]       = useState<CallRecording | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -92,7 +93,7 @@ export default function RecordingsPage() {
                       <th className="text-left px-4 py-3 font-medium text-zinc-500">With</th>
                       <th className="text-left px-4 py-3 font-medium text-zinc-500">Duration</th>
                       <th className="text-left px-4 py-3 font-medium text-zinc-500">Size</th>
-                      <th className="text-left px-4 py-3 font-medium text-zinc-500">Download</th>
+                      <th className="text-left px-4 py-3 font-medium text-zinc-500">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -113,16 +114,23 @@ export default function RecordingsPage() {
                         <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">{fmt(r.duration)}</td>
                         <td className="px-4 py-3 text-zinc-500">{fmtBytes(r.fileSize)}</td>
                         <td className="px-4 py-3">
-                          <a
-                            href={r.fileUrl}
-                            download
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-                          >
-                            <Download size={14} />
-                            Download
-                          </a>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => setPlaying(r)}
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                            >
+                              <Play size={14} />Play
+                            </button>
+                            <a
+                              href={r.fileUrl}
+                              download
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 transition-colors"
+                            >
+                              <Download size={14} />Download
+                            </a>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -135,7 +143,7 @@ export default function RecordingsPage() {
             <div className="sm:hidden space-y-3">
               {recordings.map(r => (
                 <Card key={r.id} className="p-4">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -151,14 +159,22 @@ export default function RecordingsPage() {
                       <p className="font-medium text-zinc-800 dark:text-zinc-200 truncate">{r.otherName || "Unknown"}</p>
                       <p className="text-xs text-zinc-400 mt-0.5">{fmtDate(r.createdAt)} · {fmtBytes(r.fileSize)}</p>
                     </div>
+                  </div>
+                  <div className="flex gap-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
+                    <button
+                      onClick={() => setPlaying(r)}
+                      className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-lg py-2"
+                    >
+                      <Play size={14} />Play
+                    </button>
                     <a
                       href={r.fileUrl}
                       download
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center text-blue-600 dark:text-blue-400"
+                      className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 rounded-lg py-2"
                     >
-                      <Download size={18} />
+                      <Download size={14} />Download
                     </a>
                   </div>
                 </Card>
@@ -188,6 +204,69 @@ export default function RecordingsPage() {
           </>
         )}
       </div>
+
+      {/* ── Play modal ─────────────────────────────────────────────────────── */}
+      {playing && (
+        <div
+          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+          onClick={() => setPlaying(null)}
+        >
+          <div
+            className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-zinc-100 dark:border-zinc-800">
+              <div>
+                <p className="font-semibold text-zinc-900 dark:text-zinc-100">
+                  Call with {playing.otherName || "Unknown"}
+                </p>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  {fmtDate(playing.createdAt)} · {fmt(playing.duration)} · {fmtBytes(playing.fileSize)}
+                </p>
+              </div>
+              <button
+                onClick={() => setPlaying(null)}
+                className="w-8 h-8 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-zinc-600 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Player */}
+            <div className="p-5">
+              {playing.callType === "video" ? (
+                <div className="flex justify-center">
+                  <video
+                    src={playing.fileUrl}
+                    controls
+                    autoPlay
+                    className="rounded-xl bg-black"
+                    style={{ outline: "none", width: "260px", aspectRatio: "9/16" }}
+                  />
+                </div>
+              ) : (
+                <audio
+                  src={playing.fileUrl}
+                  controls
+                  autoPlay
+                  className="w-full"
+                  style={{ outline: "none" }}
+                />
+              )}
+              <a
+                href={playing.fileUrl}
+                download
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 font-medium"
+              >
+                <Download size={15} />Download file
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
