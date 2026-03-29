@@ -15,7 +15,15 @@ async function generateUniqueCode(): Promise<string | null> {
   return null; // extremely unlikely
 }
 
+export async function GET() {
+  return run();
+}
+
 export async function POST() {
+  return run();
+}
+
+async function run() {
   const session = await getServerSession(authOptions);
   if (!session?.user || (session.user as { role?: string }).role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
