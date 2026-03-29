@@ -68,6 +68,8 @@ function CallPageInner() {
   const [isIOS,             setIsIOS]             = useState(false);
   const [isRecording,       setIsRecording]       = useState(false);
   const [supportsRecording, setSupportsRecording] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
+  const [uploadPct,    setUploadPct]    = useState(0);
 
   useEffect(() => {
     setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -87,6 +89,7 @@ function CallPageInner() {
   const mediaRecorderRef  = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const audioCtxRef       = useRef<AudioContext | null>(null);
+  const recordingStartRef = useRef(0);
 
   // ── Refs — Signaling ──────────────────────────────────────────────────────
   const pollRef          = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -553,6 +556,8 @@ function CallPageInner() {
 
   // ── Screen recording ───────────────────────────────────────────────────────
   const startRecording = async () => {
+    setUploadStatus("idle");
+    setUploadPct(0);
     try {
       const displayStream = await (navigator.mediaDevices as unknown as {
         getDisplayMedia(c: object): Promise<MediaStream>;
@@ -588,24 +593,62 @@ function CallPageInner() {
         if (e.data.size > 0) recordedChunksRef.current.push(e.data);
       };
 
-      recorder.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, { type: mimeType || "video/webm" });
-        const url = URL.createObjectURL(blob);
+      // Capture context-dependent values now (before async onstop fires)
+      const capturedCallCode  = callCodeRef.current;
+      const capturedOtherName = otherName;
+
+      recorder.onstop = async () => {
+        const blob     = new Blob(recordedChunksRef.current, { type: mimeType || "video/webm" });
+        const duration = Math.floor((Date.now() - recordingStartRef.current) / 1000);
+
+        // Always download locally first — instant, no server dependency
+        const objUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = url;
+        a.href = objUrl;
         a.download = `call-recording-${Date.now()}.webm`;
         a.click();
-        URL.revokeObjectURL(url);
+        URL.revokeObjectURL(objUrl);
+
+        // Cleanup recording resources
         recordedChunksRef.current = [];
         screenStreamRef.current?.getTracks().forEach(t => t.stop());
         screenStreamRef.current = null;
         audioCtxRef.current?.close();
         audioCtxRef.current = null;
         setIsRecording(false);
+
+        // Upload to server and save to DB (background — user already has local copy)
+        setUploadStatus("uploading");
+        setUploadPct(0);
+        try {
+          const { uploadFile } = await import("@/lib/upload-file");
+          const fileName = `call-${capturedCallCode || Date.now()}.webm`;
+          const result   = await uploadFile(blob, "recordings", fileName, setUploadPct);
+
+          await fetch("/api/call-recordings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              callCode:  capturedCallCode,
+              fileUrl:   result.url,
+              duration,
+              fileSize:  blob.size,
+              otherName: capturedOtherName,
+              callType:  "audio",
+            }),
+          });
+
+          setUploadStatus("done");
+          setTimeout(() => setUploadStatus("idle"), 4000);
+        } catch {
+          setUploadStatus("error");
+          setTimeout(() => setUploadStatus("idle"), 6000);
+        }
       };
 
       displayStream.getVideoTracks()[0].onended = () => stopRecording();
 
+      recordingStartRef.current = Date.now();
       recorder.start(1000);
       setIsRecording(true);
     } catch {
@@ -620,6 +663,7 @@ function CallPageInner() {
   const resetToIdle = () => {
     setError(""); setPhase("idle"); setTargetCodeInput("");
     setOtherName(""); setTimer(0); setIsMuted(false);
+    setUploadStatus("idle"); setUploadPct(0);
   };
 
   // Auto-return to idle 1.5 s after a call ends so the user can immediately redial
@@ -822,6 +866,25 @@ function CallPageInner() {
                     <div className="inline-flex items-center gap-1.5 mt-3 bg-red-500/20 border border-red-500/40 rounded-full px-3 py-1">
                       <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                       <span className="text-red-400 text-xs font-semibold tracking-wide">RECORDING</span>
+                    </div>
+                  )}
+                  {uploadStatus === "uploading" && (
+                    <div className="inline-flex items-center gap-1.5 mt-2 bg-blue-500/20 border border-blue-500/40 rounded-full px-3 py-1">
+                      <Loader2 size={11} className="animate-spin text-blue-400" />
+                      <span className="text-blue-400 text-xs font-semibold tracking-wide">
+                        SAVING{uploadPct > 0 ? ` ${uploadPct}%` : "…"}
+                      </span>
+                    </div>
+                  )}
+                  {uploadStatus === "done" && (
+                    <div className="inline-flex items-center gap-1.5 mt-2 bg-green-500/20 border border-green-500/40 rounded-full px-3 py-1">
+                      <CheckCircle2 size={11} className="text-green-400" />
+                      <span className="text-green-400 text-xs font-semibold tracking-wide">RECORDING SAVED</span>
+                    </div>
+                  )}
+                  {uploadStatus === "error" && (
+                    <div className="inline-flex items-center gap-1.5 mt-2 bg-amber-500/20 border border-amber-500/40 rounded-full px-3 py-1">
+                      <span className="text-amber-400 text-xs font-semibold tracking-wide">DOWNLOADED ONLY</span>
                     </div>
                   )}
                 </div>
