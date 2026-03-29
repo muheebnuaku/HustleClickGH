@@ -330,24 +330,24 @@ function CallPageInner() {
         }
 
         // ── ICE restart (initiator only) ──────────────────────────────────────
-        // Proactively send a fresh offer so the receiver can re-answer and both
-        // sides gather new ICE candidates (required for reconnect on mobile/NAT).
-        if (isInitiatorRef.current && pcRef.current && callCodeRef.current) {
+        // Guard: skip if already in-flight (disconnected + failed both fire this).
+        // Set the flag immediately so the second event sees it and skips.
+        // On failure, clear the flag so the poll-loop can retry automatically.
+        if (isInitiatorRef.current && pcRef.current && callCodeRef.current && !iceRestartPendingRef.current) {
           const pc2   = pcRef.current;
           const code2 = callCodeRef.current;
-          iceRestartPendingRef.current = false;
-          seenRecvIce.current = 0; // server will clear candidates on restart
+          iceRestartPendingRef.current = true; // mark in-flight immediately
+          seenRecvIce.current = 0;
           pc2.createOffer({ iceRestart: true })
             .then(offer => pc2.setLocalDescription(offer).then(() => offer))
-            .then(offer => {
-              iceRestartPendingRef.current = true;
-              return fetch(`/api/calls/${code2}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ type: "restart-offer", offer }),
-              });
-            })
-            .catch(() => {});
+            .then(offer => fetch(`/api/calls/${code2}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "restart-offer", offer }),
+            }))
+            .catch(() => {
+              iceRestartPendingRef.current = false; // allow retry from poll
+            });
         }
 
         // ── 2-minute countdown then give up ───────────────────────────────────
@@ -413,13 +413,32 @@ function CallPageInner() {
         const pc = pcRef.current;
         if (!pc || !pc.remoteDescription) return;
 
-        // ── ICE restart handshake ─────────────────────────────────────────────
+        // ── ICE restart retry (initiator only) ──────────────────────────────
+        // If the initial attempt (in onconnectionstatechange) failed because the
+        // network was momentarily down, retry on each poll tick until it succeeds.
+        if (
+          asInitiator &&
+          phaseRef.current === "reconnecting" &&
+          !iceRestartPendingRef.current &&
+          data.status !== "reconnecting"     // not yet on server = our offer didn't land
+        ) {
+          const pc2 = pc, code2 = code;
+          iceRestartPendingRef.current = true;
+          seenRecvIce.current = 0;
+          pc2.createOffer({ iceRestart: true })
+            .then(offer => pc2.setLocalDescription(offer).then(() => offer))
+            .then(offer => fetch(`/api/calls/${code2}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "restart-offer", offer }),
+            }))
+            .catch(() => { iceRestartPendingRef.current = false; });
+        }
         if (!asInitiator && data.status === "reconnecting" && data.offer) {
           // Receiver: initiator sent a fresh ICE-restart offer. Re-answer it.
           // Use first 80 chars of SDP as fingerprint to avoid re-processing.
           const offerFingerprint = (data.offer.sdp ?? "").slice(0, 80);
           if (offerFingerprint && offerFingerprint !== lastProcessedOfferRef.current) {
-            lastProcessedOfferRef.current = offerFingerprint;
             seenInitIce.current = 0; // server cleared old candidates
             try {
               await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
@@ -430,7 +449,9 @@ function CallPageInner() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ type: "answer", answer }),
               });
-            } catch { /* ignore — will retry next poll tick */ }
+              // Only mark processed after full successful exchange (retry if this throws)
+              lastProcessedOfferRef.current = offerFingerprint;
+            } catch { /* retry next poll tick */ }
             return; // skip candidate processing this tick
           }
         }
@@ -482,8 +503,8 @@ function CallPageInner() {
   };
 
   // ── Start call (caller side) ──────────────────────────────────────────────
-  const handleStartCall = async () => {
-    const targetCode = targetCodeInput.trim().toUpperCase();
+  const handleStartCall = async (codeOverride?: string) => {
+    const targetCode = (codeOverride || targetCodeInput).trim().toUpperCase();
     if (targetCode.length < 5) { setError("Enter a valid 5-character call code"); return; }
     setError("");
 
@@ -888,7 +909,7 @@ function CallPageInner() {
                   />
                 </div>
                 <Button
-                  onClick={handleStartCall}
+                  onClick={() => handleStartCall()}
                   className="w-full bg-green-600 hover:bg-green-700 text-white py-6"
                   disabled={targetCodeInput.length < 5}
                 >
@@ -1164,7 +1185,7 @@ function CallPageInner() {
                         setError(""); setOtherName(""); setTimer(0); setIsMuted(false);
                         setUploadStatus("idle"); setUploadPct(0); setEndedReason("");
                         setTargetCodeInput(code);
-                        setPhase("idle");
+                        handleStartCall(code); // auto-dial immediately
                       }}
                       className="w-16 h-16 rounded-full bg-green-600 hover:bg-green-500 flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-xl shadow-green-600/40 ring-1 ring-green-400/30"
                     >

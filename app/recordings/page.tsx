@@ -253,41 +253,48 @@ export default function RecordingsPage() {
       {/* ── Play modal ─────────────────────────────────────────────────────── */}
       {playing && (
         <div
-          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
           onClick={() => setPlaying(null)}
         >
           <div
-            className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+            className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-slate-700 w-full max-w-md"
             onClick={e => e.stopPropagation()}
           >
-            {/* Modal header */}
-            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-zinc-100 dark:border-zinc-800">
-              <div>
-                <p className="font-semibold text-zinc-900 dark:text-zinc-100">
-                  Call with {playing.otherName || "Unknown"}
-                </p>
-                <p className="text-xs text-zinc-400 mt-0.5">
-                  {fmtDate(playing.createdAt)} · {fmt(playing.duration)} · {fmtBytes(playing.fileSize)}
-                </p>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center">
+                  {playing.callType === "video"
+                    ? <Video className="w-5 h-5 text-slate-300" />
+                    : <Mic className="w-5 h-5 text-slate-300" />}
+                </div>
+                <div>
+                  <p className="font-semibold text-white leading-tight">
+                    Call with {playing.otherName || "Unknown"}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {fmtDate(playing.createdAt)} · {fmt(playing.duration)} · {fmtBytes(playing.fileSize)}
+                  </p>
+                </div>
               </div>
               <button
                 onClick={() => setPlaying(null)}
-                className="w-8 h-8 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-zinc-600 transition-colors"
+                className="w-9 h-9 rounded-full bg-white/10 ring-1 ring-white/10 hover:bg-white/15 flex items-center justify-center text-slate-400 hover:text-white transition-all duration-200"
               >
                 <X size={18} />
               </button>
             </div>
 
             {/* Player */}
-            <div className="p-5">
+            <div className="px-5 py-5 space-y-5">
               {playing.callType === "video" ? (
                 <div className="flex justify-center">
                   <video
                     src={playing.fileUrl}
                     controls
                     autoPlay
-                    className="rounded-xl bg-black"
-                    style={{ outline: "none", width: "260px", aspectRatio: "9/16" }}
+                    className="rounded-xl bg-black w-full"
+                    style={{ outline: "none", maxHeight: "340px" }}
                   />
                 </div>
               ) : (
@@ -296,10 +303,12 @@ export default function RecordingsPage() {
                   controls
                   autoPlay
                   className="w-full"
-                  style={{ outline: "none" }}
+                  style={{ outline: "none", filter: "invert(1) hue-rotate(180deg)" }}
                 />
               )}
-              <div className="flex justify-center mt-4">
+
+              {/* Controls row */}
+              <div className="border-t border-white/5 pt-4 flex items-center justify-center gap-6">
                 <div className="flex flex-col items-center gap-1.5">
                   <button
                     disabled={downloading === playing.id}
@@ -308,13 +317,13 @@ export default function RecordingsPage() {
                       await downloadRecording(playing.fileUrl, `recording-${playing.callCode}.webm`);
                       setDownloading(null);
                     }}
-                    className="w-14 h-14 rounded-full bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-600 flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-90 shadow-lg disabled:opacity-40"
+                    className="w-14 h-14 rounded-full bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20 flex items-center justify-center text-white/90 transition-all duration-200 hover:scale-105 active:scale-90 shadow-lg disabled:opacity-40"
                   >
                     {downloading === playing.id
                       ? <Loader2 size={22} className="animate-spin" />
                       : <Download size={22} />}
                   </button>
-                  <span className="text-[11px] font-medium tracking-wide text-zinc-400">
+                  <span className="text-[11px] font-medium tracking-wide text-slate-400">
                     {downloading === playing.id ? "Saving…" : "Save to device"}
                   </span>
                 </div>
