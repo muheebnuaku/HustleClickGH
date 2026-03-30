@@ -288,10 +288,12 @@ function CallPageInner() {
 
     clientLog("call_reconnecting", { callCode: callCodeRef.current, connectionState: pc.connectionState }, "warning");
 
+    // Start fast polling immediately (500ms during reconnect vs 1500ms normal)
     if (callCodeRef.current && !pollRef.current) {
-      startIcePoll(callCodeRef.current, isInitiatorRef.current);
+      startIcePoll(callCodeRef.current, isInitiatorRef.current, true);
     }
 
+    // Initiator immediately sends restart offer (no delay)
     if (isInitiatorRef.current && pcRef.current && callCodeRef.current && !iceRestartPendingRef.current) {
       const pc2   = pcRef.current;
       const code2 = callCodeRef.current;
@@ -309,7 +311,7 @@ function CallPageInner() {
         });
     }
 
-    const RECONNECT_SECS = 120;
+    const RECONNECT_SECS = 90;
     setReconnectSecsLeft(RECONNECT_SECS);
     clearCountdown();
     reconnectCountdownRef.current = setInterval(() => {
@@ -321,7 +323,7 @@ function CallPageInner() {
 
     reconnectTORef.current = setTimeout(() => {
       if (pcRef.current?.connectionState !== "connected") {
-        clientLog("call_timeout", { callCode: callCodeRef.current, reason: "reconnect_timeout_2min" }, "error");
+        clientLog("call_timeout", { callCode: callCodeRef.current, reason: "reconnect_timeout_90s" }, "error");
         setError("Connection lost. The call has ended.");
         handleHangUp("reconnect_timeout");
       }
@@ -334,7 +336,7 @@ function CallPageInner() {
   ): RTCPeerConnection => {
     const pc = new RTCPeerConnection({
       iceServers,
-      iceCandidatePoolSize: 8,
+      iceCandidatePoolSize: 16,   // Increased from 8 for faster candidate gathering
       bundlePolicy: "max-bundle",
       rtcpMuxPolicy: "require",
     });
@@ -381,13 +383,13 @@ function CallPageInner() {
       }
 
       if (s === "disconnected") {
-        // Avoid reconnect thrash: allow brief network blips to self-heal first.
+        // Quick reconnect on disconnection (1s grace for network blips)
         clearDisconnectGrace();
         disconnectGraceRef.current = setTimeout(() => {
           if (pcRef.current?.connectionState === "disconnected" || pcRef.current?.connectionState === "failed") {
             beginReconnectFlow(pc);
           }
-        }, 6000);
+        }, 1000);
       }
     };
 
@@ -408,9 +410,12 @@ function CallPageInner() {
   };
 
   // ── Signaling polls ───────────────────────────────────────────────────────
-  const startIcePoll = (code: string, asInitiator: boolean) => {
+  const startIcePoll = (code: string, asInitiator: boolean, isReconnecting = false) => {
     if (pollRef.current) return;
     let busy = false;
+    // Fast poll during reconnect (500ms), normal poll otherwise (1500ms)
+    const pollInterval = isReconnecting ? 500 : 1500;
+
     pollRef.current = setInterval(async () => {
       if (busy || !pollRef.current) return;
       busy = true;
@@ -432,6 +437,7 @@ function CallPageInner() {
         const pc = pcRef.current;
         if (!pc || !pc.remoteDescription) return;
 
+        // Initiator: if still reconnecting and got offer, process it immediately
         if (
           asInitiator &&
           phaseRef.current === "reconnecting" &&
@@ -450,6 +456,8 @@ function CallPageInner() {
             }))
             .catch(() => { iceRestartPendingRef.current = false; });
         }
+
+        // Receiver: process restart offer immediately
         if (!asInitiator && data.status === "reconnecting" && data.offer) {
           const offerFingerprint = (data.offer.sdp ?? "").slice(0, 80);
           if (offerFingerprint && offerFingerprint !== lastProcessedOfferRef.current) {
@@ -469,27 +477,35 @@ function CallPageInner() {
           }
         }
 
+        // Initiator: process answer from receiver
         if (asInitiator && iceRestartPendingRef.current && data.answer && data.status !== "reconnecting") {
           iceRestartPendingRef.current = false;
           seenRecvIce.current = 0;
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(() => {});
         }
 
+        // Batch add ICE candidates (more efficient than one-by-one)
         if (asInitiator) {
           const fresh: RTCIceCandidateInit[] = data.receiverIce.slice(seenRecvIce.current);
-          for (const c of fresh) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
-          seenRecvIce.current += fresh.length;
+          if (fresh.length > 0) {
+            await Promise.all(fresh.map(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {})));
+            seenRecvIce.current += fresh.length;
+          }
         } else {
           const fresh: RTCIceCandidateInit[] = data.initiatorIce.slice(seenInitIce.current);
-          for (const c of fresh) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
-          seenInitIce.current += fresh.length;
+          if (fresh.length > 0) {
+            await Promise.all(fresh.map(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {})));
+            seenInitIce.current += fresh.length;
+          }
         }
       } catch { /* ignore transient network errors */ } finally { busy = false; }
-    }, 1500);
+    }, pollInterval);
   };
 
   const startCallingPoll = (code: string) => {
     let busy = false;
+    // Initial poll faster (800ms vs 2000ms) for quicker call acceptance detection
+    const pollInterval = 800;
     pollRef.current = setInterval(async () => {
       if (busy || !pollRef.current) return;
       busy = true;
@@ -508,10 +524,10 @@ function CallPageInner() {
           if (!pc) return;
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
           setPhase("connecting");
-          startIcePoll(code, true);
+          startIcePoll(code, true, false);
         }
       } catch { /* ignore */ } finally { busy = false; }
-    }, 2000);
+    }, pollInterval);
   };
 
   // ── Start call (caller side) ──────────────────────────────────────────────
@@ -541,7 +557,7 @@ function CallPageInner() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ type: "ice-initiator", candidates: batch }),
           }).catch(() => {});
-        }, 100);
+        }, 50);  // Faster flushing for quick candidate delivery
       });
 
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
@@ -634,7 +650,7 @@ function CallPageInner() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ type: "ice-receiver", candidates: batch }),
           }).catch(() => {});
-        }, 100);
+        }, 50);  // Faster flushing for quick candidate delivery
       });
 
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
@@ -655,7 +671,7 @@ function CallPageInner() {
       });
 
       setPhase("connecting");
-      startIcePoll(code, false);
+      startIcePoll(code, false, false);
 
       clientLog("call_connecting", { callCode: code, role: "receiver" }, "info");
 
