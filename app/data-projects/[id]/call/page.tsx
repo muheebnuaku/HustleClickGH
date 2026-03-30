@@ -145,10 +145,12 @@ function CallPageInner() {
           else if (lossRate > 0.05 || jitter > 0.05) setConnQuality("poor");
           else                                        setConnQuality("good");
         });
+        // Adapt video quality based on connection
+        await optimizeVideoQuality(pc);
       } catch { /* ignore */ }
     }, 4000);
     return clearStats;
-  }, [phase]);
+  }, [phase, connQuality]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const stopPoll          = () => { if (pollRef.current)       { clearInterval(pollRef.current);  pollRef.current      = null; } };
@@ -158,6 +160,24 @@ function CallPageInner() {
   const clearCountdown    = () => { if (reconnectCountdownRef.current) { clearInterval(reconnectCountdownRef.current); reconnectCountdownRef.current = null; } };
   const clearStats        = () => { if (statsIntervalRef.current)      { clearInterval(statsIntervalRef.current);      statsIntervalRef.current      = null; } };
   const clearDisconnectGrace = () => { if (disconnectGraceRef.current)  { clearTimeout(disconnectGraceRef.current);    disconnectGraceRef.current    = null; } };
+
+  // Optimize video bitrate based on connection quality
+  const optimizeVideoQuality = async (pc: RTCPeerConnection | null) => {
+    if (!pc) return;
+    const senders = pc.getSenders();
+    for (const sender of senders) {
+      if (sender.track?.kind !== "video") continue;
+      try {
+        const params = sender.getParameters();
+        if (!params.encodings) params.encodings = [{}];
+        // High quality: 2.5Mbps max for 720p30, scale down with poor connection
+        params.encodings[0].maxBitrate = connQuality === "good" ? 2_500_000 : connQuality === "poor" ? 1_500_000 : 800_000;
+        params.encodings[0].minBitrate = 400_000;
+        await sender.setParameters(params);
+      } catch { /* ignore */ }
+    }
+  };
+
 
   // Full cleanup — safe to call from anywhere
   const cleanup = useCallback(() => {
@@ -336,7 +356,7 @@ function CallPageInner() {
   ): RTCPeerConnection => {
     const pc = new RTCPeerConnection({
       iceServers,
-      iceCandidatePoolSize: 16,   // Increased from 8 for faster candidate gathering
+      iceCandidatePoolSize: 16,
       bundlePolicy: "max-bundle",
       rtcpMuxPolicy: "require",
     });
@@ -373,6 +393,7 @@ function CallPageInner() {
           setPhase("active");
           setTimer(0);
           if (!timerRef.current) timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
+          optimizeVideoQuality(pc);
           clientLog("call_connected", { callCode: callCodeRef.current }, "success");
         }
       }
@@ -538,7 +559,10 @@ function CallPageInner() {
 
     try {
       setPhase("requesting-mic");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+      });
       localStreamRef.current = stream;
 
       setPhase("creating-offer");
@@ -612,7 +636,10 @@ function CallPageInner() {
 
     try {
       setPhase("requesting-mic");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+      });
       localStreamRef.current = stream;
 
       setPhase("joining");
@@ -978,6 +1005,24 @@ function CallPageInner() {
       {/* Hidden audio element — plays remote stream to speakers */}
       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
 
+      {/* Local video preview (mirror) — shown during active call */}
+      {phase === "active" && (
+        <div className="fixed top-4 right-4 z-40 w-32 h-32 rounded-lg overflow-hidden shadow-lg border-2 border-white/30 bg-black">
+          <video
+            ref={ref => {
+              if (ref && localStreamRef.current && !ref.srcObject) {
+                ref.srcObject = localStreamRef.current;
+                ref.play().catch(() => {});
+              }
+            }}
+            muted
+            playsInline
+            autoPlay
+            className="w-full h-full object-cover scale-x-[-1]"
+          />
+        </div>
+      )}
+
       <div className="max-w-lg space-y-5">
         <Link
           href={`/data-projects/${projectId}`}
@@ -1110,6 +1155,23 @@ function CallPageInner() {
 
           return (
             <div ref={callCardRef} className={`rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border ${borderColor}`}>
+              {/* Remote video display */}
+              {phase === "active" && (
+                <div className="w-full aspect-video bg-black flex items-center justify-center overflow-hidden">
+                  <video
+                    ref={ref => {
+                      if (ref && remoteAudioRef.current?.srcObject && !ref.srcObject) {
+                        ref.srcObject = remoteAudioRef.current.srcObject;
+                        ref.play().catch(() => {});
+                      }
+                    }}
+                    autoPlay
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
+
               {/* Header */}
               <div className="flex items-center justify-between px-5 pt-5 pb-3">
                 <div className="flex items-center gap-3">
