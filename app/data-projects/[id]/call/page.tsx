@@ -116,6 +116,7 @@ function CallPageInner() {
   const reconnectTORef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const statsIntervalRef      = useRef<ReturnType<typeof setInterval> | null>(null);
+  const disconnectGraceRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Refs — Guards ─────────────────────────────────────────────────────────
   const hasAutoJoined    = useRef(false);
@@ -156,6 +157,7 @@ function CallPageInner() {
   const clearReconnectTO  = () => { if (reconnectTORef.current){ clearTimeout(reconnectTORef.current); reconnectTORef.current = null; } };
   const clearCountdown    = () => { if (reconnectCountdownRef.current) { clearInterval(reconnectCountdownRef.current); reconnectCountdownRef.current = null; } };
   const clearStats        = () => { if (statsIntervalRef.current)      { clearInterval(statsIntervalRef.current);      statsIntervalRef.current      = null; } };
+  const clearDisconnectGrace = () => { if (disconnectGraceRef.current)  { clearTimeout(disconnectGraceRef.current);    disconnectGraceRef.current    = null; } };
 
   // Full cleanup — safe to call from anywhere
   const cleanup = useCallback(() => {
@@ -165,6 +167,7 @@ function CallPageInner() {
     clearReconnectTO();
     clearCountdown();
     clearStats();
+    clearDisconnectGrace();
 
     alreadyAnswered.current = false;
     seenInitIce.current     = 0;
@@ -277,11 +280,64 @@ function CallPageInner() {
   };
 
   // ── WebRTC peer connection ─────────────────────────────────────────────────
+  const beginReconnectFlow = (pc: RTCPeerConnection) => {
+    clearReconnectTO();
+    setPhase("reconnecting");
+    setConnQuality("good");
+    clearStats();
+
+    clientLog("call_reconnecting", { callCode: callCodeRef.current, connectionState: pc.connectionState }, "warning");
+
+    if (callCodeRef.current && !pollRef.current) {
+      startIcePoll(callCodeRef.current, isInitiatorRef.current);
+    }
+
+    if (isInitiatorRef.current && pcRef.current && callCodeRef.current && !iceRestartPendingRef.current) {
+      const pc2   = pcRef.current;
+      const code2 = callCodeRef.current;
+      iceRestartPendingRef.current = true;
+      seenRecvIce.current = 0;
+      pc2.createOffer({ iceRestart: true })
+        .then(offer => pc2.setLocalDescription(offer).then(() => offer))
+        .then(offer => fetch(`/api/calls/${code2}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "restart-offer", offer }),
+        }))
+        .catch(() => {
+          iceRestartPendingRef.current = false;
+        });
+    }
+
+    const RECONNECT_SECS = 120;
+    setReconnectSecsLeft(RECONNECT_SECS);
+    clearCountdown();
+    reconnectCountdownRef.current = setInterval(() => {
+      setReconnectSecsLeft(s => {
+        if (s <= 1) { clearCountdown(); return 0; }
+        return s - 1;
+      });
+    }, 1000);
+
+    reconnectTORef.current = setTimeout(() => {
+      if (pcRef.current?.connectionState !== "connected") {
+        clientLog("call_timeout", { callCode: callCodeRef.current, reason: "reconnect_timeout_2min" }, "error");
+        setError("Connection lost. The call has ended.");
+        handleHangUp("reconnect_timeout");
+      }
+    }, RECONNECT_SECS * 1000);
+  };
+
   const createPC = (
     iceServers: RTCIceServer[],
     onIce: (c: RTCIceCandidate) => void,
   ): RTCPeerConnection => {
-    const pc = new RTCPeerConnection({ iceServers });
+    const pc = new RTCPeerConnection({
+      iceServers,
+      iceCandidatePoolSize: 8,
+      bundlePolicy: "max-bundle",
+      rtcpMuxPolicy: "require",
+    });
     pcRef.current = pc;
 
     pc.onicecandidate = e => { if (e.candidate) onIce(e.candidate); };
@@ -301,6 +357,7 @@ function CallPageInner() {
       const s = pc.connectionState;
 
       if (s === "connected") {
+        clearDisconnectGrace();
         clearReconnectTO();
         clearConnectTO();
         clearCountdown();
@@ -318,52 +375,19 @@ function CallPageInner() {
         }
       }
 
-      if (s === "disconnected" || s === "failed") {
-        clearReconnectTO();
-        setPhase("reconnecting");
-        setConnQuality("good");
-        clearStats();
+      if (s === "failed") {
+        clearDisconnectGrace();
+        beginReconnectFlow(pc);
+      }
 
-        clientLog("call_reconnecting", { callCode: callCodeRef.current, connectionState: s }, "warning");
-
-        if (callCodeRef.current && !pollRef.current) {
-          startIcePoll(callCodeRef.current, isInitiatorRef.current);
-        }
-
-        if (isInitiatorRef.current && pcRef.current && callCodeRef.current && !iceRestartPendingRef.current) {
-          const pc2   = pcRef.current;
-          const code2 = callCodeRef.current;
-          iceRestartPendingRef.current = true;
-          seenRecvIce.current = 0;
-          pc2.createOffer({ iceRestart: true })
-            .then(offer => pc2.setLocalDescription(offer).then(() => offer))
-            .then(offer => fetch(`/api/calls/${code2}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ type: "restart-offer", offer }),
-            }))
-            .catch(() => {
-              iceRestartPendingRef.current = false;
-            });
-        }
-
-        const RECONNECT_SECS = 120;
-        setReconnectSecsLeft(RECONNECT_SECS);
-        clearCountdown();
-        reconnectCountdownRef.current = setInterval(() => {
-          setReconnectSecsLeft(s => {
-            if (s <= 1) { clearCountdown(); return 0; }
-            return s - 1;
-          });
-        }, 1000);
-
-        reconnectTORef.current = setTimeout(() => {
-          if (pcRef.current?.connectionState !== "connected") {
-            clientLog("call_timeout", { callCode: callCodeRef.current, reason: "reconnect_timeout_2min" }, "error");
-            setError("Connection lost. The call has ended.");
-            handleHangUp("reconnect_timeout");
+      if (s === "disconnected") {
+        // Avoid reconnect thrash: allow brief network blips to self-heal first.
+        clearDisconnectGrace();
+        disconnectGraceRef.current = setTimeout(() => {
+          if (pcRef.current?.connectionState === "disconnected" || pcRef.current?.connectionState === "failed") {
+            beginReconnectFlow(pc);
           }
-        }, RECONNECT_SECS * 1000);
+        }, 6000);
       }
     };
 
@@ -510,8 +534,8 @@ function CallPageInner() {
         iceBufRef.current.push(candidate);
         if (iceFlushRef.current) clearTimeout(iceFlushRef.current);
         iceFlushRef.current = setTimeout(() => {
+          if (!callCodeRef.current || !iceBufRef.current.length) return;
           const batch = iceBufRef.current.splice(0);
-          if (!batch.length || !callCodeRef.current) return;
           fetch(`/api/calls/${callCodeRef.current}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -534,6 +558,14 @@ function CallPageInner() {
       if (!res.ok) throw new Error(data.message);
 
       callCodeRef.current = data.callCode;
+      if (iceBufRef.current.length) {
+        const batch = iceBufRef.current.splice(0);
+        fetch(`/api/calls/${data.callCode}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "ice-initiator", candidates: batch }),
+        }).catch(() => {});
+      }
       setOtherName(data.targetUserName || "");
       setPhase("calling");
       startCallingPoll(data.callCode);
