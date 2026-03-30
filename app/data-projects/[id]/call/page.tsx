@@ -125,6 +125,22 @@ function CallPageInner() {
   // Keep phaseRef in sync with phase state
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
+  // Optimize video bitrate based on connection quality
+  const optimizeVideoQuality = useCallback(async (pc: RTCPeerConnection | null) => {
+    if (!pc) return;
+    const senders = pc.getSenders();
+    for (const sender of senders) {
+      if (sender.track?.kind !== "video") continue;
+      try {
+        const params = sender.getParameters();
+        if (!params.encodings) params.encodings = [{}];
+        // High quality: 2.5Mbps max for 720p30, scale down with poor connection
+        params.encodings[0].maxBitrate = connQuality === "good" ? 2_500_000 : connQuality === "poor" ? 1_500_000 : 800_000;
+        await sender.setParameters(params);
+      } catch { /* ignore */ }
+    }
+  }, [connQuality]);
+
   // ── Connection quality monitor (active calls only) ─────────────────────────
   useEffect(() => {
     if (phase !== "active") { clearStats(); setConnQuality("good"); return; }
@@ -150,7 +166,7 @@ function CallPageInner() {
       } catch { /* ignore */ }
     }, 4000);
     return clearStats;
-  }, [phase, connQuality]);
+  }, [phase, connQuality, optimizeVideoQuality]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const stopPoll          = () => { if (pollRef.current)       { clearInterval(pollRef.current);  pollRef.current      = null; } };
@@ -160,24 +176,6 @@ function CallPageInner() {
   const clearCountdown    = () => { if (reconnectCountdownRef.current) { clearInterval(reconnectCountdownRef.current); reconnectCountdownRef.current = null; } };
   const clearStats        = () => { if (statsIntervalRef.current)      { clearInterval(statsIntervalRef.current);      statsIntervalRef.current      = null; } };
   const clearDisconnectGrace = () => { if (disconnectGraceRef.current)  { clearTimeout(disconnectGraceRef.current);    disconnectGraceRef.current    = null; } };
-
-  // Optimize video bitrate based on connection quality
-  const optimizeVideoQuality = async (pc: RTCPeerConnection | null) => {
-    if (!pc) return;
-    const senders = pc.getSenders();
-    for (const sender of senders) {
-      if (sender.track?.kind !== "video") continue;
-      try {
-        const params = sender.getParameters();
-        if (!params.encodings) params.encodings = [{}];
-        // High quality: 2.5Mbps max for 720p30, scale down with poor connection
-        params.encodings[0].maxBitrate = connQuality === "good" ? 2_500_000 : connQuality === "poor" ? 1_500_000 : 800_000;
-        params.encodings[0].minBitrate = 400_000;
-        await sender.setParameters(params);
-      } catch { /* ignore */ }
-    }
-  };
-
 
   // Full cleanup — safe to call from anywhere
   const cleanup = useCallback(() => {
@@ -224,7 +222,6 @@ function CallPageInner() {
 
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
-      e.returnValue = "You have an active call. Are you sure you want to leave?";
 
       const callCode = callCodeRef.current;
       try {
