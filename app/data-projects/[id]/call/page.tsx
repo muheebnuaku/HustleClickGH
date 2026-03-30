@@ -603,11 +603,19 @@ function CallPageInner() {
       isInitiatorRef.current = false;
       callCodeRef.current    = code;
 
+      // Fetch current user's ID
+      const profileRes = await fetch("/api/profile");
+      const profileData = profileRes.ok ? await profileRes.json() : {};
+      const currentUserId = profileData.user?.id;
+
       const res = await fetch(`/api/calls/${code}`);
       if (!res.ok) throw new Error("Call not found. Check the code and try again.");
       const session = await res.json();
       if (!session.offer)                        throw new Error("Call setup not ready — try again in a moment.");
-      if (session.status === "active")           throw new Error("This call is already in progress.");
+
+      // Allow reconnection if user is already part of this call
+      const isAlreadyPartOfCall = (session.receiverId === currentUserId || session.initiatorId === currentUserId);
+      if (session.status === "active" && !isAlreadyPartOfCall)           throw new Error("This call is already in progress.");
       if (session.status === "completed")        throw new Error("This call has ended.");
       if (session.status === "declined")         throw new Error("This call was declined.");
 
