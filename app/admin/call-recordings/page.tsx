@@ -77,6 +77,20 @@ export default function AdminCallRecordingsPage() {
 
   const applySearch = () => { setSearch(searchInput); setPage(1); };
 
+  const handleDownload = async (fileUrl: string, callType: string, callCode: string) => {
+    try {
+      const res = await fetch(fileUrl);
+      const blob = await res.blob();
+      const ext = callType === "video" ? "webm" : (blob.type.includes("ogg") ? "ogg" : "webm");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `recording-${callCode}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert("Download failed. Please try again."); }
+  };
+
   const handleDelete = async (rec: Recording) => {
     if (!confirm(`Delete this recording by ${rec.user.fullName}? This cannot be undone.`)) return;
     setDeleting(prev => new Set(prev).add(rec.id));
@@ -202,15 +216,12 @@ export default function AdminCallRecordingsPage() {
                       <td className="px-4 py-3 text-zinc-500 text-xs">{fmtBytes(r.fileSize)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <a
-                            href={r.fileUrl}
-                            download
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            onClick={() => handleDownload(r.fileUrl, r.callType, r.callCode)}
                             className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
                           >
                             <Download size={13} />Download
-                          </a>
+                          </button>
                           <button
                             onClick={() => handleDelete(r)}
                             disabled={deleting.has(r.id)}
@@ -294,15 +305,12 @@ export default function AdminCallRecordingsPage() {
                   style={{ outline: "none" }}
                 />
               )}
-              <a
-                href={playing.fileUrl}
-                download
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                onClick={() => handleDownload(playing.fileUrl, playing.callType, playing.callCode)}
                 className="mt-3 inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 font-medium"
               >
                 <Download size={15} />Download file
-              </a>
+              </button>
             </div>
           </div>
         </div>
