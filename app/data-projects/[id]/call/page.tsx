@@ -27,11 +27,13 @@ type Phase =
   | "ended"
   | "declined";
 
-// Fallback ICE servers when TURN credentials are unavailable.
+// Fallback ICE servers (STUN + openrelay TURN) when /api/turn-credentials fails.
 const FALLBACK_ICE: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
+  { urls: "turn:openrelay.metered.video:80",                username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.video:443",               username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.video:443?transport=tcp",  username: "openrelayproject", credential: "openrelayproject" },
 ];
 
 /** Fire-and-forget client-side activity log */
