@@ -117,11 +117,13 @@ export async function GET() {
       return NextResponse.json({ incomingCall: null });
     }
 
-    // Find any incoming call for this user
+    // Find any incoming call for this user (ignore calls older than 2 minutes)
+    const twoMinAgo = new Date(Date.now() - 120_000);
     const incomingCall = await prisma.callSession.findFirst({
       where: {
         targetUserCode: user.personalCallCode,
         status: "calling",
+        createdAt: { gt: twoMinAgo },
       },
       orderBy: { createdAt: "desc" },
     });

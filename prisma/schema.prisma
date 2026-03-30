@@ -211,6 +211,9 @@ model CallSession {
   callType        String    @default("audio")   // "audio" | "video"
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  @@index([targetUserCode, status])
+  @@index([initiatorId, status])
 }
 
 model CallRecording {

@@ -97,6 +97,8 @@ function CallPageInner() {
   const recordedChunksRef = useRef<Blob[]>([]);
   const audioCtxRef       = useRef<AudioContext | null>(null);
   const recordingStartRef = useRef(0);
+  const iceBufRef       = useRef([]);
+  const iceFlushRef     = useRef(null);
   const animFrameRef      = useRef<number | null>(null);
   const callCardRef       = useRef<HTMLDivElement | null>(null);
 
@@ -502,13 +504,18 @@ function CallPageInner() {
 
       const iceServers = await fetchIceServers();
 
-      const pc = createPC(iceServers, async candidate => {
-        if (!callCodeRef.current) return;
-        await fetch(`/api/calls/${callCodeRef.current}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "ice-initiator", candidate }),
-        }).catch(() => {});
+      const pc = createPC(iceServers, (candidate) => {
+        iceBufRef.current.push(candidate);
+        if (iceFlushRef.current) clearTimeout(iceFlushRef.current);
+        iceFlushRef.current = setTimeout(() => {
+          const batch = iceBufRef.current.splice(0);
+          if (!batch.length || !callCodeRef.current) return;
+          fetch(`/api/calls/${callCodeRef.current}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "ice-initiator", candidates: batch }),
+          }).catch(() => {});
+        }, 100);
       });
 
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
@@ -574,12 +581,18 @@ function CallPageInner() {
 
       const iceServers = await fetchIceServers();
 
-      const pc = createPC(iceServers, async candidate => {
-        await fetch(`/api/calls/${code}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "ice-receiver", candidate }),
-        }).catch(() => {});
+      const pc = createPC(iceServers, (candidate) => {
+        iceBufRef.current.push(candidate);
+        if (iceFlushRef.current) clearTimeout(iceFlushRef.current);
+        iceFlushRef.current = setTimeout(() => {
+          const batch = iceBufRef.current.splice(0);
+          if (!batch.length) return;
+          fetch(`/api/calls/${code}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "ice-receiver", candidates: batch }),
+          }).catch(() => {});
+        }, 100);
       });
 
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
