@@ -98,6 +98,7 @@ function CallPageInner() {
   const audioCtxRef       = useRef<AudioContext | null>(null);
   const recordingStartRef = useRef(0);
   const animFrameRef      = useRef<number | null>(null);
+  const callCardRef       = useRef<HTMLDivElement | null>(null);
 
   // ── Refs — Signaling ──────────────────────────────────────────────────────
   const pollRef          = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -763,186 +764,79 @@ function CallPageInner() {
     if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
   };
 
-  // ── Canvas video recording — portrait phone frame (390×844) ───────────────
+  // ── Screen-crop video recording — crops display capture to call card ────────
   const startVideoRecording = async () => {
     setVidUploadStatus("idle");
     setVidUploadPct(0);
     try {
-      // ── Audio (mic + remote, with analyser for waveform) ──────────────────
+      const cardEl = callCardRef.current;
+      if (!cardEl) return;
+
+      // Capture the current browser tab — user will see a share-screen dialog
+      const displayStream = await (navigator.mediaDevices as unknown as {
+        getDisplayMedia(c: object): Promise<MediaStream>;
+      }).getDisplayMedia({ video: { frameRate: 30 }, audio: false });
+      screenStreamRef.current = displayStream;
+
+      // Hidden video receives the display stream
+      const dispVideo = document.createElement("video");
+      dispVideo.srcObject = displayStream;
+      dispVideo.muted = true;
+      dispVideo.play();
+      await new Promise<void>(res => { dispVideo.onloadedmetadata = () => res(); });
+
+      // Audio: mix mic + remote
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 64;
       const dest = audioCtx.createMediaStreamDestination();
-
-      if (localStreamRef.current) {
-        const src = audioCtx.createMediaStreamSource(localStreamRef.current);
-        src.connect(analyser);
-        src.connect(dest);
-      }
+      if (localStreamRef.current)
+        audioCtx.createMediaStreamSource(localStreamRef.current).connect(dest);
       const remoteStream = remoteAudioRef.current?.srcObject as MediaStream | null;
-      if (remoteStream) {
-        const src = audioCtx.createMediaStreamSource(remoteStream);
-        src.connect(analyser);
-        src.connect(dest);
-      }
+      if (remoteStream)
+        audioCtx.createMediaStreamSource(remoteStream).connect(dest);
 
-      const freqData = new Uint8Array(analyser.frequencyBinCount);
-
-      // ── Canvas (portrait phone frame) ─────────────────────────────────────
-      const W = 390, H = 844;
+      // Canvas sized exactly to the call card element
+      const rect = cardEl.getBoundingClientRect();
+      const W = Math.round(rect.width);
+      const H = Math.round(rect.height);
       const canvas = document.createElement("canvas");
       canvas.width = W;
       canvas.height = H;
       const ctx = canvas.getContext("2d")!;
 
-      const capturedOtherName = otherName;
-      const capturedInitials  = capturedOtherName
-        ? capturedOtherName.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()
-        : "?";
-
-      const rr = (x: number, y: number, w: number, h: number, r: number) => {
-        ctx.beginPath();
-        ctx.moveTo(x + r, y);
-        ctx.lineTo(x + w - r, y);
-        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-        ctx.lineTo(x + w, y + h - r);
-        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-        ctx.lineTo(x + r, y + h);
-        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-        ctx.lineTo(x, y + r);
-        ctx.quadraticCurveTo(x, y, x + r, y);
-        ctx.closePath();
-      };
-
       const drawFrame = () => {
-        analyser.getByteFrequencyData(freqData);
-        const elapsed   = Date.now() - recordingStartRef.current;
-        const totalSecs = Math.floor(elapsed / 1000);
-        const timerStr  = `${String(Math.floor(totalSecs / 60)).padStart(2, "0")}:${String(totalSecs % 60).padStart(2, "0")}`;
-
-        // Background
-        const grad = ctx.createLinearGradient(0, 0, 0, H);
-        grad.addColorStop(0,   "#0f172a");
-        grad.addColorStop(0.5, "#1e293b");
-        grad.addColorStop(1,   "#0f172a");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, W, H);
-
-        // Brand
-        ctx.fillStyle    = "#475569";
-        ctx.font         = "13px sans-serif";
-        ctx.textAlign    = "center";
-        ctx.textBaseline = "alphabetic";
-        ctx.fillText("HustleClickGH", W / 2, 54);
-
-        // Avatar
-        ctx.beginPath();
-        ctx.arc(W / 2, 260, 58, 0, Math.PI * 2);
-        ctx.fillStyle = "#334155";
-        ctx.fill();
-        ctx.strokeStyle = "#475569";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle    = "#cbd5e1";
-        ctx.font         = "bold 30px sans-serif";
-        ctx.textAlign    = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(capturedInitials, W / 2, 260);
-        ctx.textBaseline = "alphabetic";
-
-        // Name
-        ctx.fillStyle = "#f1f5f9";
-        ctx.font      = "bold 22px sans-serif";
-        ctx.fillText(capturedOtherName || "Unknown", W / 2, 360);
-
-        // Status
-        ctx.fillStyle = "#94a3b8";
-        ctx.font      = "15px sans-serif";
-        ctx.fillText("Live Call", W / 2, 388);
-
-        // Timer
-        ctx.fillStyle = "#ffffff";
-        ctx.font      = "bold 52px monospace";
-        ctx.fillText(timerStr, W / 2, 458);
-
-        // LIVE pill
-        const liveW = 72, liveX = W / 2 - liveW / 2, liveY = 472;
-        rr(liveX, liveY, liveW, 26, 13);
-        ctx.fillStyle = "rgba(34,197,94,0.2)"; ctx.fill();
-        ctx.strokeStyle = "rgba(34,197,94,0.4)"; ctx.lineWidth = 1; ctx.stroke();
-        ctx.beginPath(); ctx.arc(liveX + 14, liveY + 13, 4, 0, Math.PI * 2);
-        ctx.fillStyle = "#4ade80"; ctx.fill();
-        ctx.fillStyle = "#4ade80"; ctx.font = "bold 11px sans-serif";
-        ctx.textAlign = "left";
-        ctx.fillText("LIVE", liveX + 24, liveY + 17);
-        ctx.textAlign = "center";
-
-        // REC pill (pulsing dot)
-        const recW = 64, recX = W / 2 - recW / 2, recY = 506;
-        rr(recX, recY, recW, 26, 13);
-        ctx.fillStyle = "rgba(239,68,68,0.2)"; ctx.fill();
-        ctx.strokeStyle = "rgba(239,68,68,0.4)"; ctx.lineWidth = 1; ctx.stroke();
-        const pulse = Math.sin(elapsed / 500) > 0;
-        ctx.beginPath(); ctx.arc(recX + 14, recY + 13, 4, 0, Math.PI * 2);
-        ctx.fillStyle = pulse ? "#ef4444" : "rgba(239,68,68,0.35)"; ctx.fill();
-        ctx.fillStyle = "#fca5a5"; ctx.font = "bold 11px sans-serif";
-        ctx.textAlign = "left";
-        ctx.fillText("REC", recX + 24, recY + 17);
-        ctx.textAlign = "center";
-
-        // Audio waveform bars
-        const barCount = 24, barMaxH = 72, barW = 6, barGap = 5;
-        const totalBarW = barCount * (barW + barGap) - barGap;
-        const startX = (W - totalBarW) / 2;
-        const waveY  = 680;
-        for (let i = 0; i < barCount; i++) {
-          const idx   = Math.floor((i / barCount) * freqData.length);
-          const level = freqData[idx] / 255;
-          const h     = Math.max(4, level * barMaxH);
-          ctx.fillStyle = `rgba(99,179,237,${0.35 + level * 0.65})`;
-          rr(startX + i * (barW + barGap), waveY - h / 2, barW, h, 3);
-          ctx.fill();
-        }
-
+        const r = cardEl.getBoundingClientRect();
+        const scaleX = dispVideo.videoWidth  / window.innerWidth;
+        const scaleY = dispVideo.videoHeight / window.innerHeight;
+        ctx.drawImage(dispVideo, r.left * scaleX, r.top * scaleY, r.width * scaleX, r.height * scaleY, 0, 0, W, H);
         animFrameRef.current = requestAnimationFrame(drawFrame);
       };
-
       drawFrame();
 
-      // ── MediaRecorder on canvas + audio ───────────────────────────────────
       const canvasStream = canvas.captureStream(30);
-      screenStreamRef.current = canvasStream;
       const combined = new MediaStream([
         ...canvasStream.getVideoTracks(),
         ...dest.stream.getAudioTracks(),
       ]);
-
-      const mimeType = [
-        "video/webm;codecs=vp9,opus",
-        "video/webm;codecs=vp8,opus",
-        "video/webm",
-      ].find(t => MediaRecorder.isTypeSupported(t)) || "";
+      const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
+        .find(t => MediaRecorder.isTypeSupported(t)) || "";
 
       recordedChunksRef.current = [];
       const recorder = new MediaRecorder(combined, mimeType ? { mimeType } : {});
-      mediaRecorderRef.current  = recorder;
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = e => { if (e.data.size > 0) recordedChunksRef.current.push(e.data); };
 
-      recorder.ondataavailable = e => {
-        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
-      };
-
-      const capturedCallCode = callCodeRef.current;
+      const capturedCallCode  = callCodeRef.current;
+      const capturedOtherName = otherName;
       recorder.onstop = async () => {
         if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = null; }
-
         const blob     = new Blob(recordedChunksRef.current, { type: mimeType || "video/webm" });
         const duration = Math.floor((Date.now() - recordingStartRef.current) / 1000);
 
         const objUrl = URL.createObjectURL(blob);
-        const a      = document.createElement("a");
-        a.href     = objUrl;
-        a.download = `call-recording-${Date.now()}.webm`;
+        const a = document.createElement("a");
+        a.href = objUrl;
+        a.download = "call-recording-" + Date.now() + ".webm";
         a.click();
         URL.revokeObjectURL(objUrl);
 
@@ -953,13 +847,11 @@ function CallPageInner() {
         audioCtxRef.current = null;
         setIsVideoRecording(false);
 
-        setVidUploadStatus("uploading");
-        setVidUploadPct(0);
+        setVidUploadStatus("uploading"); setVidUploadPct(0);
         try {
           const { uploadFile } = await import("@/lib/upload-file");
-          const fileName = `call-video-${capturedCallCode || Date.now()}.webm`;
+          const fileName = "call-video-" + (capturedCallCode || Date.now()) + ".webm";
           const result   = await uploadFile(blob, "recordings", fileName, setVidUploadPct);
-
           await fetch("/api/call-recordings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -972,7 +864,6 @@ function CallPageInner() {
               callType:  "video",
             }),
           });
-
           setVidUploadStatus("done");
           setTimeout(() => setVidUploadStatus("idle"), 4000);
         } catch {
@@ -981,6 +872,7 @@ function CallPageInner() {
         }
       };
 
+      displayStream.getVideoTracks()[0].onended = () => stopRecording();
       recordingStartRef.current = Date.now();
       recorder.start(1000);
       setIsVideoRecording(true);
@@ -988,7 +880,6 @@ function CallPageInner() {
       setIsVideoRecording(false);
     }
   };
-
   const resetToIdle = () => {
     clearCountdown(); clearStats();
     setError(""); setPhase("idle"); setTargetCodeInput("");
@@ -1147,7 +1038,7 @@ function CallPageInner() {
           const spinnerColor = phase === "reconnecting" ? "text-amber-400"      : "text-slate-400";
 
           return (
-            <div className={`rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border ${borderColor}`}>
+            <div ref={callCardRef} className={`rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border ${borderColor}`}>
               {/* Header */}
               <div className="flex items-center justify-between px-5 pt-5 pb-3">
                 <div className="flex items-center gap-3">
