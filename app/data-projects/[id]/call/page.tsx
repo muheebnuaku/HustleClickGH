@@ -97,8 +97,8 @@ function CallPageInner() {
   const recordedChunksRef = useRef<Blob[]>([]);
   const audioCtxRef       = useRef<AudioContext | null>(null);
   const recordingStartRef = useRef(0);
-  const iceBufRef       = useRef([]);
-  const iceFlushRef     = useRef(null);
+  const iceBufRef       = useRef<RTCIceCandidate[]>([]);
+  const iceFlushRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animFrameRef      = useRef<number | null>(null);
   const callCardRef       = useRef<HTMLDivElement | null>(null);
 
