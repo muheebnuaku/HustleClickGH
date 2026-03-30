@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import {
   Mic, MicOff, PhoneOff, PhoneCall, Copy, CheckCircle2,
   Loader2, AlertCircle, ArrowLeft, Radio, User,
-  ScreenShare, StopCircle, WifiOff,
+  Video, StopCircle, WifiOff,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -65,19 +65,19 @@ function CallPageInner() {
   const [personalCode,    setPersonalCode]    = useState("");
   const [targetCodeInput, setTargetCodeInput] = useState("");
   const [otherName,       setOtherName]       = useState("");
-  const [isIOS,             setIsIOS]             = useState(false);
-  const [isRecording,       setIsRecording]       = useState(false);
-  const [supportsRecording, setSupportsRecording] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
-  const [uploadPct,    setUploadPct]    = useState(0);
+  const [isRecording,        setIsRecording]        = useState(false);
+  const [isVideoRecording,   setIsVideoRecording]   = useState(false);
+  const [supportsRecording,  setSupportsRecording]  = useState(false);
+  const [uploadStatus,    setUploadStatus]    = useState<"idle" | "uploading" | "done" | "error">("idle");
+  const [uploadPct,       setUploadPct]       = useState(0);
+  const [vidUploadStatus, setVidUploadStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
+  const [vidUploadPct,    setVidUploadPct]    = useState(0);
   const [endedReason,  setEndedReason]  = useState("");
   const [reconnectSecsLeft, setReconnectSecsLeft] = useState(0);
   const [connQuality,       setConnQuality]       = useState<"good" | "poor" | "bad">("good");
 
   useEffect(() => {
-    setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
-    setSupportsRecording(typeof (navigator.mediaDevices as unknown as Record<string, unknown>)?.getDisplayMedia === "function");
+    setSupportsRecording(typeof AudioContext !== "undefined" && typeof MediaRecorder !== "undefined");
   }, []);
 
   // ── Refs — WebRTC ─────────────────────────────────────────────────────────
@@ -97,6 +97,7 @@ function CallPageInner() {
   const recordedChunksRef = useRef<Blob[]>([]);
   const audioCtxRef       = useRef<AudioContext | null>(null);
   const recordingStartRef = useRef(0);
+  const animFrameRef      = useRef<number | null>(null);
 
   // ── Refs — Signaling ──────────────────────────────────────────────────────
   const pollRef          = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -119,7 +120,6 @@ function CallPageInner() {
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   // ── Connection quality monitor (active calls only) ─────────────────────────
-  // Polls WebRTC stats every 4 s to detect audio degradation before it drops.
   useEffect(() => {
     if (phase !== "active") { clearStats(); setConnQuality("good"); return; }
     let prevLost = 0, prevPkts = 0;
@@ -166,7 +166,8 @@ function CallPageInner() {
     seenRecvIce.current     = 0;
     callCodeRef.current     = "";
 
-    // Stop any active screen recording
+    // Stop any active recording
+    if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = null; }
     if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
     screenStreamRef.current = null;
@@ -177,8 +178,6 @@ function CallPageInner() {
     localStreamRef.current = null;
 
     if (pcRef.current) {
-      // Null handlers first so stale async events (disconnected → closed)
-      // fired after pc.close() don't bleed into the next call.
       pcRef.current.onconnectionstatechange    = null;
       pcRef.current.oniceconnectionstatechange = null;
       pcRef.current.onicecandidate             = null;
@@ -282,8 +281,6 @@ function CallPageInner() {
 
     pc.onicecandidate = e => { if (e.candidate) onIce(e.candidate); };
 
-    // Build a MediaStream from individual tracks (e.streams[0] can be undefined
-    // on Safari / mobile browsers — e.track is always present per WebRTC spec).
     const remoteStream = new MediaStream();
 
     pc.ontrack = e => {
@@ -302,7 +299,6 @@ function CallPageInner() {
         clearReconnectTO();
         clearConnectTO();
         clearCountdown();
-        // Clear ICE restart state so next disconnect can trigger a fresh restart
         iceRestartPendingRef.current  = false;
         lastProcessedOfferRef.current = "";
         setReconnectSecsLeft(0);
@@ -320,7 +316,7 @@ function CallPageInner() {
       if (s === "disconnected" || s === "failed") {
         clearReconnectTO();
         setPhase("reconnecting");
-        setConnQuality("good"); // reset quality badge
+        setConnQuality("good");
         clearStats();
 
         clientLog("call_reconnecting", { callCode: callCodeRef.current, connectionState: s }, "warning");
@@ -329,14 +325,10 @@ function CallPageInner() {
           startIcePoll(callCodeRef.current, isInitiatorRef.current);
         }
 
-        // ── ICE restart (initiator only) ──────────────────────────────────────
-        // Guard: skip if already in-flight (disconnected + failed both fire this).
-        // Set the flag immediately so the second event sees it and skips.
-        // On failure, clear the flag so the poll-loop can retry automatically.
         if (isInitiatorRef.current && pcRef.current && callCodeRef.current && !iceRestartPendingRef.current) {
           const pc2   = pcRef.current;
           const code2 = callCodeRef.current;
-          iceRestartPendingRef.current = true; // mark in-flight immediately
+          iceRestartPendingRef.current = true;
           seenRecvIce.current = 0;
           pc2.createOffer({ iceRestart: true })
             .then(offer => pc2.setLocalDescription(offer).then(() => offer))
@@ -346,11 +338,10 @@ function CallPageInner() {
               body: JSON.stringify({ type: "restart-offer", offer }),
             }))
             .catch(() => {
-              iceRestartPendingRef.current = false; // allow retry from poll
+              iceRestartPendingRef.current = false;
             });
         }
 
-        // ── 2-minute countdown then give up ───────────────────────────────────
         const RECONNECT_SECS = 120;
         setReconnectSecsLeft(RECONNECT_SECS);
         clearCountdown();
@@ -399,7 +390,6 @@ function CallPageInner() {
         if (!res.ok) return;
         const data = await res.json();
 
-        // Detect when the OTHER side ends the call server-side.
         if (data.status === "completed" || data.status === "missed") {
           stopPoll();
           const reason = phaseRef.current === "reconnecting"
@@ -413,14 +403,11 @@ function CallPageInner() {
         const pc = pcRef.current;
         if (!pc || !pc.remoteDescription) return;
 
-        // ── ICE restart retry (initiator only) ──────────────────────────────
-        // If the initial attempt (in onconnectionstatechange) failed because the
-        // network was momentarily down, retry on each poll tick until it succeeds.
         if (
           asInitiator &&
           phaseRef.current === "reconnecting" &&
           !iceRestartPendingRef.current &&
-          data.status !== "reconnecting"     // not yet on server = our offer didn't land
+          data.status !== "reconnecting"
         ) {
           const pc2 = pc, code2 = code;
           iceRestartPendingRef.current = true;
@@ -435,11 +422,9 @@ function CallPageInner() {
             .catch(() => { iceRestartPendingRef.current = false; });
         }
         if (!asInitiator && data.status === "reconnecting" && data.offer) {
-          // Receiver: initiator sent a fresh ICE-restart offer. Re-answer it.
-          // Use first 80 chars of SDP as fingerprint to avoid re-processing.
           const offerFingerprint = (data.offer.sdp ?? "").slice(0, 80);
           if (offerFingerprint && offerFingerprint !== lastProcessedOfferRef.current) {
-            seenInitIce.current = 0; // server cleared old candidates
+            seenInitIce.current = 0;
             try {
               await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
               const answer = await pc.createAnswer();
@@ -449,17 +434,15 @@ function CallPageInner() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ type: "answer", answer }),
               });
-              // Only mark processed after full successful exchange (retry if this throws)
               lastProcessedOfferRef.current = offerFingerprint;
             } catch { /* retry next poll tick */ }
-            return; // skip candidate processing this tick
+            return;
           }
         }
 
         if (asInitiator && iceRestartPendingRef.current && data.answer && data.status !== "reconnecting") {
-          // Initiator: receiver answered our ICE restart offer — apply the new answer.
           iceRestartPendingRef.current = false;
-          seenRecvIce.current = 0; // fresh candidates incoming
+          seenRecvIce.current = 0;
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(() => {});
         }
 
@@ -545,7 +528,6 @@ function CallPageInner() {
       setPhase("calling");
       startCallingPoll(data.callCode);
 
-      // 5-minute ring timeout
       connectTORef.current = setTimeout(() => {
         if (pcRef.current?.connectionState !== "connected") {
           clientLog("call_timeout", { callCode: callCodeRef.current, reason: "no_answer_5min" }, "warning");
@@ -621,7 +603,6 @@ function CallPageInner() {
 
       clientLog("call_connecting", { callCode: code, role: "receiver" }, "info");
 
-      // 60s to establish peer-to-peer
       connectTORef.current = setTimeout(() => {
         if (pcRef.current?.connectionState !== "connected") {
           clientLog("call_timeout", { callCode: code, reason: "connect_timeout_60s" }, "error");
@@ -647,8 +628,6 @@ function CallPageInner() {
     clearReconnectTO();
     clearConnectTO();
 
-    // If we were in the middle of reconnecting, enrich the reason so the
-    // "ended" screen can offer a call-back option.
     const effectiveReason =
       phaseRef.current === "reconnecting" && reason === "remote_hangup"
         ? "remote_hangup_during_reconnect"
@@ -692,17 +671,11 @@ function CallPageInner() {
   const fmt = (s: number) =>
     `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
-  // ── Screen recording ───────────────────────────────────────────────────────
+  // ── Audio-only recording (mic + remote stream mix) ────────────────────────
   const startRecording = async () => {
     setUploadStatus("idle");
     setUploadPct(0);
     try {
-      const displayStream = await (navigator.mediaDevices as unknown as {
-        getDisplayMedia(c: object): Promise<MediaStream>;
-      }).getDisplayMedia({ video: true, audio: true });
-
-      screenStreamRef.current = displayStream;
-
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
       const dest = audioCtx.createMediaStreamDestination();
@@ -710,57 +683,51 @@ function CallPageInner() {
       if (localStreamRef.current) {
         audioCtx.createMediaStreamSource(localStreamRef.current).connect(dest);
       }
-      const sysAudio = displayStream.getAudioTracks();
-      if (sysAudio.length > 0) {
-        audioCtx.createMediaStreamSource(new MediaStream(sysAudio)).connect(dest);
+      const remoteStream = remoteAudioRef.current?.srcObject as MediaStream | null;
+      if (remoteStream) {
+        audioCtx.createMediaStreamSource(remoteStream).connect(dest);
       }
 
-      const combined = new MediaStream([
-        ...displayStream.getVideoTracks(),
-        ...dest.stream.getAudioTracks(),
-      ]);
-
-      const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]
-        .find(t => MediaRecorder.isTypeSupported(t)) || "";
+      const mimeType = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/ogg",
+      ].find(t => MediaRecorder.isTypeSupported(t)) || "";
 
       recordedChunksRef.current = [];
-      const recorder = new MediaRecorder(combined, mimeType ? { mimeType } : {});
+      const recorder = new MediaRecorder(dest.stream, mimeType ? { mimeType } : {});
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = e => {
         if (e.data.size > 0) recordedChunksRef.current.push(e.data);
       };
 
-      // Capture context-dependent values now (before async onstop fires)
       const capturedCallCode  = callCodeRef.current;
       const capturedOtherName = otherName;
 
       recorder.onstop = async () => {
-        const blob     = new Blob(recordedChunksRef.current, { type: mimeType || "video/webm" });
+        const ext  = mimeType.startsWith("audio/ogg") ? "ogg" : "webm";
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType || "audio/webm" });
         const duration = Math.floor((Date.now() - recordingStartRef.current) / 1000);
 
-        // Always download locally first — instant, no server dependency
         const objUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = objUrl;
-        a.download = `call-recording-${Date.now()}.webm`;
+        a.download = `call-recording-${Date.now()}.${ext}`;
         a.click();
         URL.revokeObjectURL(objUrl);
 
-        // Cleanup recording resources
         recordedChunksRef.current = [];
-        screenStreamRef.current?.getTracks().forEach(t => t.stop());
-        screenStreamRef.current = null;
         audioCtxRef.current?.close();
         audioCtxRef.current = null;
         setIsRecording(false);
 
-        // Upload to server and save to DB (background — user already has local copy)
         setUploadStatus("uploading");
         setUploadPct(0);
         try {
           const { uploadFile } = await import("@/lib/upload-file");
-          const fileName = `call-${capturedCallCode || Date.now()}.webm`;
+          const fileName = `call-${capturedCallCode || Date.now()}.${ext}`;
           const result   = await uploadFile(blob, "recordings", fileName, setUploadPct);
 
           await fetch("/api/call-recordings", {
@@ -784,8 +751,6 @@ function CallPageInner() {
         }
       };
 
-      displayStream.getVideoTracks()[0].onended = () => stopRecording();
-
       recordingStartRef.current = Date.now();
       recorder.start(1000);
       setIsRecording(true);
@@ -798,26 +763,254 @@ function CallPageInner() {
     if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
   };
 
+  // ── Canvas video recording — portrait phone frame (390×844) ───────────────
+  const startVideoRecording = async () => {
+    setVidUploadStatus("idle");
+    setVidUploadPct(0);
+    try {
+      // ── Audio (mic + remote, with analyser for waveform) ──────────────────
+      const audioCtx = new AudioContext();
+      audioCtxRef.current = audioCtx;
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      const dest = audioCtx.createMediaStreamDestination();
+
+      if (localStreamRef.current) {
+        const src = audioCtx.createMediaStreamSource(localStreamRef.current);
+        src.connect(analyser);
+        src.connect(dest);
+      }
+      const remoteStream = remoteAudioRef.current?.srcObject as MediaStream | null;
+      if (remoteStream) {
+        const src = audioCtx.createMediaStreamSource(remoteStream);
+        src.connect(analyser);
+        src.connect(dest);
+      }
+
+      const freqData = new Uint8Array(analyser.frequencyBinCount);
+
+      // ── Canvas (portrait phone frame) ─────────────────────────────────────
+      const W = 390, H = 844;
+      const canvas = document.createElement("canvas");
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext("2d")!;
+
+      const capturedOtherName = otherName;
+      const capturedInitials  = capturedOtherName
+        ? capturedOtherName.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()
+        : "?";
+
+      const rr = (x: number, y: number, w: number, h: number, r: number) => {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+      };
+
+      const drawFrame = () => {
+        analyser.getByteFrequencyData(freqData);
+        const elapsed   = Date.now() - recordingStartRef.current;
+        const totalSecs = Math.floor(elapsed / 1000);
+        const timerStr  = `${String(Math.floor(totalSecs / 60)).padStart(2, "0")}:${String(totalSecs % 60).padStart(2, "0")}`;
+
+        // Background
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
+        grad.addColorStop(0,   "#0f172a");
+        grad.addColorStop(0.5, "#1e293b");
+        grad.addColorStop(1,   "#0f172a");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+
+        // Brand
+        ctx.fillStyle    = "#475569";
+        ctx.font         = "13px sans-serif";
+        ctx.textAlign    = "center";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText("HustleClickGH", W / 2, 54);
+
+        // Avatar
+        ctx.beginPath();
+        ctx.arc(W / 2, 260, 58, 0, Math.PI * 2);
+        ctx.fillStyle = "#334155";
+        ctx.fill();
+        ctx.strokeStyle = "#475569";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle    = "#cbd5e1";
+        ctx.font         = "bold 30px sans-serif";
+        ctx.textAlign    = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(capturedInitials, W / 2, 260);
+        ctx.textBaseline = "alphabetic";
+
+        // Name
+        ctx.fillStyle = "#f1f5f9";
+        ctx.font      = "bold 22px sans-serif";
+        ctx.fillText(capturedOtherName || "Unknown", W / 2, 360);
+
+        // Status
+        ctx.fillStyle = "#94a3b8";
+        ctx.font      = "15px sans-serif";
+        ctx.fillText("Live Call", W / 2, 388);
+
+        // Timer
+        ctx.fillStyle = "#ffffff";
+        ctx.font      = "bold 52px monospace";
+        ctx.fillText(timerStr, W / 2, 458);
+
+        // LIVE pill
+        const liveW = 72, liveX = W / 2 - liveW / 2, liveY = 472;
+        rr(liveX, liveY, liveW, 26, 13);
+        ctx.fillStyle = "rgba(34,197,94,0.2)"; ctx.fill();
+        ctx.strokeStyle = "rgba(34,197,94,0.4)"; ctx.lineWidth = 1; ctx.stroke();
+        ctx.beginPath(); ctx.arc(liveX + 14, liveY + 13, 4, 0, Math.PI * 2);
+        ctx.fillStyle = "#4ade80"; ctx.fill();
+        ctx.fillStyle = "#4ade80"; ctx.font = "bold 11px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText("LIVE", liveX + 24, liveY + 17);
+        ctx.textAlign = "center";
+
+        // REC pill (pulsing dot)
+        const recW = 64, recX = W / 2 - recW / 2, recY = 506;
+        rr(recX, recY, recW, 26, 13);
+        ctx.fillStyle = "rgba(239,68,68,0.2)"; ctx.fill();
+        ctx.strokeStyle = "rgba(239,68,68,0.4)"; ctx.lineWidth = 1; ctx.stroke();
+        const pulse = Math.sin(elapsed / 500) > 0;
+        ctx.beginPath(); ctx.arc(recX + 14, recY + 13, 4, 0, Math.PI * 2);
+        ctx.fillStyle = pulse ? "#ef4444" : "rgba(239,68,68,0.35)"; ctx.fill();
+        ctx.fillStyle = "#fca5a5"; ctx.font = "bold 11px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText("REC", recX + 24, recY + 17);
+        ctx.textAlign = "center";
+
+        // Audio waveform bars
+        const barCount = 24, barMaxH = 72, barW = 6, barGap = 5;
+        const totalBarW = barCount * (barW + barGap) - barGap;
+        const startX = (W - totalBarW) / 2;
+        const waveY  = 680;
+        for (let i = 0; i < barCount; i++) {
+          const idx   = Math.floor((i / barCount) * freqData.length);
+          const level = freqData[idx] / 255;
+          const h     = Math.max(4, level * barMaxH);
+          ctx.fillStyle = `rgba(99,179,237,${0.35 + level * 0.65})`;
+          rr(startX + i * (barW + barGap), waveY - h / 2, barW, h, 3);
+          ctx.fill();
+        }
+
+        animFrameRef.current = requestAnimationFrame(drawFrame);
+      };
+
+      drawFrame();
+
+      // ── MediaRecorder on canvas + audio ───────────────────────────────────
+      const canvasStream = canvas.captureStream(30);
+      screenStreamRef.current = canvasStream;
+      const combined = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...dest.stream.getAudioTracks(),
+      ]);
+
+      const mimeType = [
+        "video/webm;codecs=vp9,opus",
+        "video/webm;codecs=vp8,opus",
+        "video/webm",
+      ].find(t => MediaRecorder.isTypeSupported(t)) || "";
+
+      recordedChunksRef.current = [];
+      const recorder = new MediaRecorder(combined, mimeType ? { mimeType } : {});
+      mediaRecorderRef.current  = recorder;
+
+      recorder.ondataavailable = e => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+
+      const capturedCallCode = callCodeRef.current;
+      recorder.onstop = async () => {
+        if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = null; }
+
+        const blob     = new Blob(recordedChunksRef.current, { type: mimeType || "video/webm" });
+        const duration = Math.floor((Date.now() - recordingStartRef.current) / 1000);
+
+        const objUrl = URL.createObjectURL(blob);
+        const a      = document.createElement("a");
+        a.href     = objUrl;
+        a.download = `call-recording-${Date.now()}.webm`;
+        a.click();
+        URL.revokeObjectURL(objUrl);
+
+        recordedChunksRef.current = [];
+        screenStreamRef.current?.getTracks().forEach(t => t.stop());
+        screenStreamRef.current = null;
+        audioCtxRef.current?.close();
+        audioCtxRef.current = null;
+        setIsVideoRecording(false);
+
+        setVidUploadStatus("uploading");
+        setVidUploadPct(0);
+        try {
+          const { uploadFile } = await import("@/lib/upload-file");
+          const fileName = `call-video-${capturedCallCode || Date.now()}.webm`;
+          const result   = await uploadFile(blob, "recordings", fileName, setVidUploadPct);
+
+          await fetch("/api/call-recordings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              callCode:  capturedCallCode,
+              fileUrl:   result.url,
+              duration,
+              fileSize:  blob.size,
+              otherName: capturedOtherName,
+              callType:  "video",
+            }),
+          });
+
+          setVidUploadStatus("done");
+          setTimeout(() => setVidUploadStatus("idle"), 4000);
+        } catch {
+          setVidUploadStatus("error");
+          setTimeout(() => setVidUploadStatus("idle"), 6000);
+        }
+      };
+
+      recordingStartRef.current = Date.now();
+      recorder.start(1000);
+      setIsVideoRecording(true);
+    } catch {
+      setIsVideoRecording(false);
+    }
+  };
+
   const resetToIdle = () => {
     clearCountdown(); clearStats();
     setError(""); setPhase("idle"); setTargetCodeInput("");
     setOtherName(""); setTimer(0); setIsMuted(false);
-    setUploadStatus("idle"); setUploadPct(0); setEndedReason("");
+    setUploadStatus("idle"); setUploadPct(0);
+    setVidUploadStatus("idle"); setVidUploadPct(0);
+    setEndedReason("");
     setReconnectSecsLeft(0); setConnQuality("good");
   };
 
   // Auto-return to idle 1.5 s after a clean call end.
-  // Reconnect-related endings stay on screen until the user acts.
   useEffect(() => {
     if (phase !== "ended") return;
     const isReconnectEnd =
       endedReason === "reconnect_timeout" ||
       endedReason === "remote_hangup_during_reconnect";
-    if (isReconnectEnd) return; // user must tap Call Back or Dismiss
+    if (isReconnectEnd) return;
     const t = setTimeout(resetToIdle, 1500);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, endedReason]);
+
   return (
     <DashboardLayout>
       {/* Hidden audio element — plays remote stream to speakers */}
@@ -861,22 +1054,6 @@ function CallPageInner() {
                   </div>
                   <p className="text-xs text-zinc-500 mt-1">Share this with others so they can call you</p>
                 </div>
-              </Card>
-            )}
-
-            {isIOS && (
-              <Card className="p-4 bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-700">
-                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-2">
-                  📱 Screen recording on iPhone?
-                </p>
-                <ol className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-decimal list-inside">
-                  <li>Open <strong>Control Centre</strong> → long-press the screen record button</li>
-                  <li>Tap the <strong>Microphone</strong> icon so it turns red (on)</li>
-                  <li>Tap <strong>Start Recording</strong>, then come back here and make your call</li>
-                </ol>
-                <p className="text-xs text-amber-600 dark:text-amber-500 mt-2">
-                  Your voice and the other person&apos;s voice (from speaker) will both be captured.
-                </p>
               </Card>
             )}
 
@@ -934,6 +1111,7 @@ function CallPageInner() {
             <p className="font-medium">Setting up call…</p>
           </Card>
         )}
+
         {/* ── DECLINED ── */}
         {phase === "declined" && (
           <Card className="p-6 text-center space-y-4">
@@ -955,7 +1133,7 @@ function CallPageInner() {
           </Card>
         )}
 
-        {/* ── DARK CALL INTERFACE — calling / joining / connecting / reconnecting / active ── */}
+        {/* ── DARK CALL INTERFACE ── */}
         {(phase === "calling" || phase === "joining" || phase === "connecting" || phase === "reconnecting" || phase === "active") && (() => {
           const statusText =
             phase === "calling"      ? "Ringing…" :
@@ -964,14 +1142,9 @@ function CallPageInner() {
             phase === "reconnecting" ? "Reconnecting…" :
                                        "Live call";
 
-          const borderColor =
-            phase === "reconnecting" ? "border-amber-600/40" : "border-slate-700";
-
-          const statusColor =
-            phase === "reconnecting" ? "text-amber-400" : "text-slate-400";
-
-          const spinnerColor =
-            phase === "reconnecting" ? "text-amber-400" : "text-slate-400";
+          const borderColor  = phase === "reconnecting" ? "border-amber-600/40" : "border-slate-700";
+          const statusColor  = phase === "reconnecting" ? "text-amber-400"      : "text-slate-400";
+          const spinnerColor = phase === "reconnecting" ? "text-amber-400"      : "text-slate-400";
 
           return (
             <div className={`rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border ${borderColor}`}>
@@ -990,7 +1163,6 @@ function CallPageInner() {
                 </div>
                 {phase === "active" ? (
                   <div className="flex items-center gap-2">
-                    {/* Signal bars — always visible, colour reflects connection quality */}
                     <div className="flex items-end gap-[3px] h-4">
                       {[45, 72, 100].map((pct, i) => {
                         const lit =
@@ -1048,26 +1220,51 @@ function CallPageInner() {
                   {isRecording && (
                     <div className="inline-flex items-center gap-1.5 mt-3 bg-red-500/20 border border-red-500/40 rounded-full px-3 py-1">
                       <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                      <span className="text-red-400 text-xs font-semibold tracking-wide">RECORDING</span>
+                      <span className="text-red-400 text-xs font-semibold tracking-wide">🎙 AUDIO REC</span>
+                    </div>
+                  )}
+                  {isVideoRecording && (
+                    <div className="inline-flex items-center gap-1.5 mt-3 bg-red-500/20 border border-red-500/40 rounded-full px-3 py-1">
+                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                      <span className="text-red-400 text-xs font-semibold tracking-wide">📹 VIDEO REC</span>
                     </div>
                   )}
                   {uploadStatus === "uploading" && (
                     <div className="inline-flex items-center gap-1.5 mt-2 bg-blue-500/20 border border-blue-500/40 rounded-full px-3 py-1">
                       <Loader2 size={11} className="animate-spin text-blue-400" />
                       <span className="text-blue-400 text-xs font-semibold tracking-wide">
-                        SAVING{uploadPct > 0 ? ` ${uploadPct}%` : "…"}
+                        🎙 SAVING{uploadPct > 0 ? ` ${uploadPct}%` : "…"}
                       </span>
                     </div>
                   )}
                   {uploadStatus === "done" && (
                     <div className="inline-flex items-center gap-1.5 mt-2 bg-green-500/20 border border-green-500/40 rounded-full px-3 py-1">
                       <CheckCircle2 size={11} className="text-green-400" />
-                      <span className="text-green-400 text-xs font-semibold tracking-wide">RECORDING SAVED</span>
+                      <span className="text-green-400 text-xs font-semibold tracking-wide">🎙 AUDIO SAVED</span>
                     </div>
                   )}
                   {uploadStatus === "error" && (
                     <div className="inline-flex items-center gap-1.5 mt-2 bg-amber-500/20 border border-amber-500/40 rounded-full px-3 py-1">
-                      <span className="text-amber-400 text-xs font-semibold tracking-wide">DOWNLOADED ONLY</span>
+                      <span className="text-amber-400 text-xs font-semibold tracking-wide">🎙 DOWNLOADED ONLY</span>
+                    </div>
+                  )}
+                  {vidUploadStatus === "uploading" && (
+                    <div className="inline-flex items-center gap-1.5 mt-2 bg-blue-500/20 border border-blue-500/40 rounded-full px-3 py-1">
+                      <Loader2 size={11} className="animate-spin text-blue-400" />
+                      <span className="text-blue-400 text-xs font-semibold tracking-wide">
+                        📹 SAVING{vidUploadPct > 0 ? ` ${vidUploadPct}%` : "…"}
+                      </span>
+                    </div>
+                  )}
+                  {vidUploadStatus === "done" && (
+                    <div className="inline-flex items-center gap-1.5 mt-2 bg-green-500/20 border border-green-500/40 rounded-full px-3 py-1">
+                      <CheckCircle2 size={11} className="text-green-400" />
+                      <span className="text-green-400 text-xs font-semibold tracking-wide">📹 VIDEO SAVED</span>
+                    </div>
+                  )}
+                  {vidUploadStatus === "error" && (
+                    <div className="inline-flex items-center gap-1.5 mt-2 bg-amber-500/20 border border-amber-500/40 rounded-full px-3 py-1">
+                      <span className="text-amber-400 text-xs font-semibold tracking-wide">📹 DOWNLOADED ONLY</span>
                     </div>
                   )}
                 </div>
@@ -1075,7 +1272,7 @@ function CallPageInner() {
 
               {/* Controls */}
               <div className="px-6 pb-7 pt-5 border-t border-white/5">
-                <div className="flex items-center justify-center gap-5">
+                <div className="flex items-center justify-center gap-4">
 
                   {/* Mute */}
                   {phase === "active" && (
@@ -1113,24 +1310,52 @@ function CallPageInner() {
                     <PhoneOff size={24} className="text-white" />
                   </button>
 
-                  {/* Record */}
+                  {/* Audio record */}
                   {phase === "active" && supportsRecording && (
-                    <button
-                      onClick={isRecording ? stopRecording : startRecording}
-                      title={isRecording ? "Stop recording" : "Record call (choose Entire Screen to capture PiP)"}
-                      className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg ${
-                        isRecording
-                          ? "bg-red-500/30 ring-2 ring-red-400/60 shadow-red-500/20"
-                          : "bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20"
-                      }`}
-                    >
-                      {isRecording && (
-                        <span className="absolute inset-0 rounded-full animate-ping bg-red-500/20" />
-                      )}
-                      {isRecording
-                        ? <StopCircle size={21} className="text-red-300 relative z-10" />
-                        : <ScreenShare size={21} className="text-white/90" />}
-                    </button>
+                    <div className="flex flex-col items-center gap-1">
+                      <button
+                        onClick={isRecording ? stopRecording : startRecording}
+                        disabled={isVideoRecording}
+                        title={isRecording ? "Stop audio recording" : "Record audio"}
+                        className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg disabled:opacity-30 ${
+                          isRecording
+                            ? "bg-red-500/30 ring-2 ring-red-400/60 shadow-red-500/20"
+                            : "bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20"
+                        }`}
+                      >
+                        {isRecording && <span className="absolute inset-0 rounded-full animate-ping bg-red-500/20" />}
+                        {isRecording
+                          ? <StopCircle size={18} className="text-red-300 relative z-10" />
+                          : <Radio size={18} className="text-white/90" />}
+                      </button>
+                      <span className="text-[10px] font-medium tracking-wide text-slate-400">
+                        {isRecording ? "Stop" : "Audio"}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Video record */}
+                  {phase === "active" && supportsRecording && (
+                    <div className="flex flex-col items-center gap-1">
+                      <button
+                        onClick={isVideoRecording ? stopRecording : startVideoRecording}
+                        disabled={isRecording}
+                        title={isVideoRecording ? "Stop video recording" : "Record video"}
+                        className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg disabled:opacity-30 ${
+                          isVideoRecording
+                            ? "bg-red-500/30 ring-2 ring-red-400/60 shadow-red-500/20"
+                            : "bg-white/10 ring-1 ring-white/10 hover:bg-white/15 hover:ring-white/20"
+                        }`}
+                      >
+                        {isVideoRecording && <span className="absolute inset-0 rounded-full animate-ping bg-red-500/20" />}
+                        {isVideoRecording
+                          ? <StopCircle size={18} className="text-red-300 relative z-10" />
+                          : <Video size={18} className="text-white/90" />}
+                      </button>
+                      <span className="text-[10px] font-medium tracking-wide text-slate-400">
+                        {isVideoRecording ? "Stop" : "Video"}
+                      </span>
+                    </div>
                   )}
 
                 </div>
@@ -1145,7 +1370,6 @@ function CallPageInner() {
             endedReason === "reconnect_timeout" ||
             endedReason === "remote_hangup_during_reconnect";
 
-          // Clean hang-up — brief "Call ended" then auto-back to idle
           if (!isReconnectEnd) {
             return (
               <Card className="p-6 text-center space-y-2">
@@ -1156,12 +1380,10 @@ function CallPageInner() {
             );
           }
 
-          // Reconnect-related end — offer call-back for the caller, instructions for receiver
           const canCallBack = isInitiatorRef.current && !!savedTargetCodeRef.current;
 
           return (
             <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-amber-600/30">
-              {/* Status */}
               <div className="text-center px-6 pt-8 pb-6">
                 <div className="w-16 h-16 mx-auto rounded-full bg-amber-500/20 ring-2 ring-amber-400/40 flex items-center justify-center mb-4">
                   <PhoneOff className="w-8 h-8 text-amber-400" />
@@ -1174,9 +1396,7 @@ function CallPageInner() {
                 </p>
               </div>
 
-              {/* Controls */}
               <div className="px-6 pb-7 pt-4 border-t border-white/5 flex items-end justify-center gap-8">
-                {/* Call back (caller only) or "ask them" message */}
                 {canCallBack ? (
                   <div className="flex flex-col items-center gap-2">
                     <button
@@ -1185,15 +1405,13 @@ function CallPageInner() {
                         setError(""); setOtherName(""); setTimer(0); setIsMuted(false);
                         setUploadStatus("idle"); setUploadPct(0); setEndedReason("");
                         setTargetCodeInput(code);
-                        handleStartCall(code); // auto-dial immediately
+                        handleStartCall(code);
                       }}
                       className="w-16 h-16 rounded-full bg-green-600 hover:bg-green-500 flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-xl shadow-green-600/40 ring-1 ring-green-400/30"
                     >
                       <PhoneCall size={24} className="text-white" />
                     </button>
-                    <span className="text-[11px] font-medium tracking-wide text-slate-400">
-                      Call back
-                    </span>
+                    <span className="text-[11px] font-medium tracking-wide text-slate-400">Call back</span>
                   </div>
                 ) : (
                   <p className="text-amber-400 text-sm text-center pb-2">
@@ -1201,7 +1419,6 @@ function CallPageInner() {
                   </p>
                 )}
 
-                {/* Dismiss */}
                 <div className="flex flex-col items-center gap-2">
                   <button
                     onClick={resetToIdle}
@@ -1217,12 +1434,11 @@ function CallPageInner() {
         })()}
       </div>
 
-      {/* ── RECONNECTING MODAL — full-screen overlay ───────────────────────── */}
+      {/* ── RECONNECTING MODAL ── */}
       {phase === "reconnecting" && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-amber-500/30 w-full max-w-sm">
 
-            {/* Icon + title */}
             <div className="text-center px-6 pt-8 pb-4 space-y-3">
               <div className="relative mx-auto w-16 h-16">
                 <div className="absolute inset-0 rounded-full bg-amber-500/20 animate-ping" />
@@ -1240,7 +1456,6 @@ function CallPageInner() {
               </div>
             </div>
 
-            {/* Spinner + countdown */}
             <div className="text-center px-6 pb-5 space-y-3">
               <div className="flex items-center justify-center gap-2 text-slate-400 text-xs">
                 <Loader2 size={14} className="animate-spin text-amber-400" />
@@ -1257,7 +1472,6 @@ function CallPageInner() {
               )}
             </div>
 
-            {/* Give-up button */}
             <div className="px-6 pb-7 border-t border-white/5 pt-4 flex flex-col items-center gap-1.5">
               <button
                 onClick={() => handleHangUp("user_hangup_during_reconnect")}

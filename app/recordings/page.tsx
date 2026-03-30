@@ -293,8 +293,8 @@ export default function RecordingsPage() {
                     src={playing.fileUrl}
                     controls
                     autoPlay
-                    className="rounded-xl bg-black w-full"
-                    style={{ outline: "none", maxHeight: "340px" }}
+                    className="rounded-xl bg-black h-auto w-auto max-h-[60vh] mx-auto"
+                    style={{ outline: "none" }}
                   />
                 </div>
               ) : (

@@ -281,8 +281,8 @@ export default function AdminCallRecordingsPage() {
                     src={playing.fileUrl}
                     controls
                     autoPlay
-                    className="rounded-xl bg-black"
-                    style={{ outline: "none", width: "260px", aspectRatio: "9/16" }}
+                    className="rounded-xl bg-black h-auto w-auto max-h-[60vh] mx-auto"
+                    style={{ outline: "none" }}
                   />
                 </div>
               ) : (
