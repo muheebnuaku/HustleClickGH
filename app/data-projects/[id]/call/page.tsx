@@ -413,8 +413,8 @@ function CallPageInner() {
   const startIcePoll = (code: string, asInitiator: boolean, isReconnecting = false) => {
     if (pollRef.current) return;
     let busy = false;
-    // Fast poll during reconnect (500ms), normal poll otherwise (1500ms)
-    const pollInterval = isReconnecting ? 500 : 1500;
+    // Fast poll during reconnect (250ms for faster recovery), normal poll otherwise (1500ms)
+    const pollInterval = isReconnecting ? 250 : 1500;
 
     pollRef.current = setInterval(async () => {
       if (busy || !pollRef.current) return;
