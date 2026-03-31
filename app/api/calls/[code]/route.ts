@@ -42,6 +42,7 @@ export async function GET(
     }
 
     let initiatorName = "Unknown";
+    let receiverName = "Unknown";
     let initiatorUserId = "";
     if (!lite) {
       const initiator = await prisma.user.findUnique({
@@ -50,6 +51,15 @@ export async function GET(
       });
       initiatorName   = initiator?.fullName  || "Unknown";
       initiatorUserId = initiator?.userId    || "";
+
+      // Get receiver name if call is active/reconnecting and receiver is set
+      if (callSession.receiverId) {
+        const receiver = await prisma.user.findUnique({
+          where: { id: callSession.receiverId },
+          select: { fullName: true },
+        });
+        receiverName = receiver?.fullName || "Unknown";
+      }
     }
 
     return NextResponse.json({
@@ -59,6 +69,7 @@ export async function GET(
       initiatorName,
       initiatorUserId,
       receiverId:     callSession.receiverId,
+      receiverName,
       offer:          !lite && callSession.offer  ? JSON.parse(callSession.offer as string)  : null,
       answer:         callSession.answer ? JSON.parse(callSession.answer) : null,
       initiatorIce:   JSON.parse(callSession.initiatorIce),

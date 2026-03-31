@@ -99,15 +99,42 @@ export async function POST(request: Request) {
   }
 }
 
-// GET: Check for incoming calls for the current user
-export async function GET() {
+// GET: Check for incoming calls OR fetch active calls for current user during page refresh recovery
+export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session || !session.user) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    // Get current user's personal call code
+    // Check if requesting active calls for reconnect recovery
+    const url = new URL(request.url);
+    const activeOnly = url.searchParams.get("active-only") === "true";
+
+    if (activeOnly) {
+      // Return ALL active calls user is part of (initiator OR receiver)
+      const activeCalls = await prisma.callSession.findMany({
+        where: {
+          OR: [
+            { initiatorId: session.user.id, status: "active" },
+            { receiverId: session.user.id, status: "active" },
+          ],
+        },
+        select: {
+          callCode: true,
+          status: true,
+          initiatorId: true,
+          receiverId: true,
+          offer: true, // for offer retrieval if needed
+        },
+      });
+
+      return NextResponse.json({
+        calls: activeCalls.filter(c => c.status === "active"),
+      });
+    }
+
+    // Normal flow: Get current user's personal call code
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: { personalCallCode: true },

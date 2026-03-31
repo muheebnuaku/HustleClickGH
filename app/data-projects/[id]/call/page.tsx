@@ -275,14 +275,48 @@ function CallPageInner() {
       .catch(() => {});
   }, [status]);
 
-  // Auto-join when arriving from an incoming call notification.
+  // Auto-join when arriving from an incoming call notification OR recovering from page refresh during call
   useEffect(() => {
-    if (joinCode && status === "authenticated" && phase === "idle" && !hasAutoJoined.current) {
+    if (status !== "authenticated" || phase !== "idle" || hasAutoJoined.current) return;
+
+    // Try to rejoin if redirected with ?join param
+    if (joinCode) {
       hasAutoJoined.current = true;
       handleJoinCall(joinCode);
+      return;
     }
+
+    // Try to auto-recover from page refresh during active call
+    // Check if there's a call in progress we should rejoin
+    (async () => {
+      try {
+        const allCallsRes = await fetch("/api/calls?active-only=true");
+        if (allCallsRes.ok) {
+          const { calls } = await allCallsRes.json();
+          const profileRes = await fetch("/api/profile");
+          const profileData = profileRes.ok ? await profileRes.json() : {};
+          const currentUserId = profileData.user?.id;
+
+          if (currentUserId && Array.isArray(calls)) {
+            // Find active call where user is part of
+            const userCall = calls.find(c =>
+              c.status === "active" &&
+              (c.initiatorId === currentUserId || c.receiverId === currentUserId)
+            );
+            if (userCall && userCall.callCode) {
+              hasAutoJoined.current = true;
+              // Re-establish connection based on role
+              const isInitiator = userCall.initiatorId === currentUserId;
+              await handleReconnectToCall(userCall.callCode, isInitiator);
+            }
+          }
+        }
+      } catch {
+        // Silently fail — user can manually rejoin
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [joinCode, status, phase]);
+  }, [status, phase]);
 
   // ── TURN credentials ──────────────────────────────────────────────────────
   const fetchIceServers = async (): Promise<RTCIceServer[]> => {
@@ -625,6 +659,105 @@ function CallPageInner() {
     }
   };
 
+  // ── Reconnect to existing call (after page refresh during active call) ─────────
+  const handleReconnectToCall = async (code: string, wasInitiator: boolean) => {
+    if (!code) return;
+    callCodeRef.current = code;
+    isInitiatorRef.current = wasInitiator;
+
+    try {
+      setError("");
+      setPhase("requesting-mic");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+      });
+      localStreamRef.current = stream;
+
+      const iceServers = await fetchIceServers();
+      const pc = createPC(iceServers, (candidate) => {
+        iceBufRef.current.push(candidate);
+        if (iceFlushRef.current) clearTimeout(iceFlushRef.current);
+        iceFlushRef.current = setTimeout(() => {
+          const batch = iceBufRef.current.splice(0);
+          if (!batch.length) return;
+          const iceType = wasInitiator ? "ice-initiator" : "ice-receiver";
+          fetch(`/api/calls/${code}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: iceType, candidates: batch }),
+          }).catch(() => {});
+        }, 50);
+      });
+
+      stream.getTracks().forEach(t => pc.addTrack(t, stream));
+
+      const res = await fetch(`/api/calls/${code}`);
+      if (!res.ok) throw new Error("Call not found.");
+      const session = await res.json();
+
+      if (session.status === "completed" || session.status === "declined") {
+        throw new Error("This call has ended.");
+      }
+
+      setOtherName(session.initiatorName || session.receiverName || "");
+
+      if (wasInitiator) {
+        // Initiator: create a fresh offer with ICE restart
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
+        iceRestartPendingRef.current = true;
+        seenRecvIce.current = 0;
+
+        // Send restart offer
+        await fetch(`/api/calls/${code}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "restart-offer", offer }),
+        }).catch(() => {});
+
+        setPhase("connecting");
+        startIcePoll(code, true, true); // true for reconnecting flag
+      } else {
+        // Receiver: fetch current offer and respond
+        if (session.offer) {
+          await pc.setRemoteDescription(new RTCSessionDescription(session.offer));
+          const initIce: RTCIceCandidateInit[] = session.initiatorIce || [];
+          for (const c of initIce) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+          seenInitIce.current = initIce.length;
+
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await fetch(`/api/calls/${code}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "answer", answer }),
+          }).catch(() => {});
+        }
+
+        setPhase("connecting");
+        startIcePoll(code, false, true); // true for reconnecting flag
+      }
+
+      clientLog("call_reconnect", { callCode: code, role: wasInitiator ? "initiator" : "receiver" }, "info");
+
+      connectTORef.current = setTimeout(() => {
+        if (pcRef.current?.connectionState !== "connected") {
+          clientLog("call_timeout", { callCode: code, reason: "reconnect_timeout_60s" }, "error");
+          setError("Could not reconnect. Try refreshing the page again.");
+          setPhase("ended");
+          cleanup();
+        }
+      }, 60_000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to reconnect";
+      clientLog("call_error", { callCode: code, phase: "reconnect", error: msg }, "error");
+      setError(msg);
+      setPhase("idle");
+      cleanup();
+    }
+  };
+
   // ── Join call (receiver side) ─────────────────────────────────────────────
   const handleJoinCall = async (codeOverride?: string) => {
     const code = (codeOverride || targetCodeInput).trim().toUpperCase();
@@ -643,19 +776,42 @@ function CallPageInner() {
       isInitiatorRef.current = false;
       callCodeRef.current    = code;
 
-      // Fetch current user's ID
-      const profileRes = await fetch("/api/profile");
-      const profileData = profileRes.ok ? await profileRes.json() : {};
-      const currentUserId = profileData.user?.id;
+      // Fetch current user's ID with retry logic
+      let currentUserId: string | undefined;
+      for (let attempts = 0; attempts < 2; attempts++) {
+        try {
+          const profileRes = await fetch("/api/profile", { signal: AbortSignal.timeout(5000) });
+          if (profileRes.ok) {
+            const profileData = await profileRes.json();
+            currentUserId = profileData.user?.id;
+            break;
+          }
+        } catch { /* retry */ }
+      }
 
       const res = await fetch(`/api/calls/${code}`);
       if (!res.ok) throw new Error("Call not found. Check the code and try again.");
       const session = await res.json();
       if (!session.offer)                        throw new Error("Call setup not ready — try again in a moment.");
 
-      // Allow reconnection if user is already part of this call
-      const isAlreadyPartOfCall = (session.receiverId === currentUserId || session.initiatorId === currentUserId);
-      if (session.status === "active" && !isAlreadyPartOfCall)           throw new Error("This call is already in progress.");
+      // Check if user is already part of this call
+      const isAlreadyPartOfCall = currentUserId && (session.receiverId === currentUserId || session.initiatorId === currentUserId);
+
+      // If call is active but user is not part of it, reject
+      if (session.status === "active" && !isAlreadyPartOfCall) {
+        throw new Error("This call is already in progress.");
+      }
+
+      // If user IS already part of an active call, they're reconnecting — use the reconnect flow instead
+      if (session.status === "active" && isAlreadyPartOfCall) {
+        localStreamRef.current?.getTracks().forEach(t => t.stop());
+        localStreamRef.current = null;
+        setPhase("idle");
+        const wasInitiator = session.initiatorId === currentUserId;
+        await handleReconnectToCall(code, wasInitiator);
+        return;
+      }
+
       if (session.status === "completed")        throw new Error("This call has ended.");
       if (session.status === "declined")         throw new Error("This call was declined.");
 
