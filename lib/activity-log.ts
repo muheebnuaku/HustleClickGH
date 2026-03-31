@@ -20,7 +20,9 @@ export type LogType =
   | "withdrawal_request"
   | "withdrawal_approved"
   | "withdrawal_rejected"
-  | "page_close_during_call";
+  | "page_close_during_call"
+  | "recording_shared"
+  | "recording_share_failed";
 
 export type LogSeverity = "info" | "success" | "warning" | "error";
 
