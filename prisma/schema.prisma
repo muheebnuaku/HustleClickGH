@@ -217,14 +217,17 @@ model CallSession {
 }
 
 model CallRecording {
-  id        String   @id @default(cuid())
-  callCode  String
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  duration  Int      // seconds
-  fileUrl   String
-  fileSize  Int?     // bytes
-  callType  String   @default("audio")
-  otherName String?
-  createdAt DateTime @default(now())
+  id                   String   @id @default(cuid())
+  callCode             String
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  duration             Int      // seconds
+  fileUrl              String
+  fileSize             Int?     // bytes
+  callType             String   @default("audio")
+  otherName            String?
+  shareFromRecordingId String?  // FK to original recording if this was auto-shared
+  sharedRecording      CallRecording? @relation("RecordingShare", fields: [shareFromRecordingId], references: [id], onDelete: SetNull)
+  sharedTo             CallRecording[] @relation("RecordingShare")
+  createdAt            DateTime @default(now())
 }
