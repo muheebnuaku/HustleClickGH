@@ -77,6 +77,8 @@ function CallPageInner() {
   const [endedReason,  setEndedReason]  = useState("");
   const [reconnectSecsLeft, setReconnectSecsLeft] = useState(0);
   const [connQuality,       setConnQuality]       = useState<"good" | "poor" | "bad">("good");
+  const [pendingRejoinCode, setPendingRejoinCode] = useState("");
+  const [pendingRejoinIsInitiator, setPendingRejoinIsInitiator] = useState(false);
 
   useEffect(() => {
     setSupportsRecording(typeof AudioContext !== "undefined" && typeof MediaRecorder !== "undefined");
@@ -286,8 +288,8 @@ function CallPageInner() {
       return;
     }
 
-    // Try to auto-recover from page refresh during active call
-    // Check if there's a call in progress we should rejoin
+    // Check if there's a call in progress we should offer to rejoin
+    // (does NOT auto-rejoin, just detects and shows button)
     (async () => {
       try {
         const allCallsRes = await fetch("/api/calls?active-only=true");
@@ -304,10 +306,12 @@ function CallPageInner() {
               (c.initiatorId === currentUserId || c.receiverId === currentUserId)
             );
             if (userCall && userCall.callCode) {
-              hasAutoJoined.current = true;
-              // Re-establish connection based on role
+              // Don't auto-rejoin; show button instead so user can grant permission explicitly
               const isInitiator = userCall.initiatorId === currentUserId;
-              await handleReconnectToCall(userCall.callCode, isInitiator);
+              setPendingRejoinCode(userCall.callCode);
+              setPendingRejoinIsInitiator(isInitiator);
+              if (userCall.initiatorName) setOtherName(userCall.initiatorName);
+              if (userCall.receiverName && !isInitiator) setOtherName(userCall.receiverName);
             }
           }
         }
@@ -1220,6 +1224,42 @@ function CallPageInner() {
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm flex gap-2">
             <AlertCircle size={16} className="mt-0.5 shrink-0" />{error}
           </div>
+        )}
+
+        {/* ── PENDING REJOIN (call in progress after refresh) ── */}
+        {pendingRejoinCode && phase === "idle" && (
+          <Card className="p-6 bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 border-2 border-blue-400 dark:border-blue-600">
+            <div className="space-y-4">
+              <div className="text-center">
+                <div className="w-12 h-12 mx-auto rounded-full bg-blue-500/20 flex items-center justify-center border-2 border-blue-400 mb-3">
+                  <PhoneCall size={24} className="text-blue-600 dark:text-blue-400" />
+                </div>
+                <p className="font-semibold text-lg text-blue-900 dark:text-blue-300">Call in Progress</p>
+                <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
+                  You were disconnected. {otherName ? `Your call with ${otherName} is still active.` : "Your call is still active."}
+                </p>
+              </div>
+              <Button
+                onClick={() => {
+                  hasAutoJoined.current = true;
+                  handleReconnectToCall(pendingRejoinCode, pendingRejoinIsInitiator);
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6 text-base"
+              >
+                <PhoneCall size={20} className="mr-2" />
+                Rejoin Call
+              </Button>
+              <button
+                onClick={() => {
+                  setPendingRejoinCode("");
+                  setPendingRejoinIsInitiator(false);
+                }}
+                className="w-full text-sm text-blue-700 dark:text-blue-400 hover:underline py-2"
+              >
+                Dismiss
+              </button>
+            </div>
+          </Card>
         )}
 
         {/* ── IDLE ── */}
