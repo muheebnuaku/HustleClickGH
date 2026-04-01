@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import {
   Mic, MicOff, PhoneOff, PhoneCall, Copy, CheckCircle2,
   Loader2, AlertCircle, ArrowLeft, Radio, User,
-  Video, StopCircle, WifiOff,
+  Video, StopCircle, WifiOff, Zap,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -1471,6 +1471,22 @@ function CallPageInner() {
                       {isMuted
                         ? <MicOff size={21} className="text-red-300" />
                         : <Mic size={21} className="text-white/90" />}
+                    </button>
+                  )}
+
+                  {/* Reconnect */}
+                  {(phase === "active" || phase === "reconnecting") && connQuality !== "good" && (
+                    <button
+                      onClick={() => {
+                        if (pcRef.current) {
+                          clientLog("call_reconnecting", { callCode: callCodeRef.current, reason: "user_triggered" }, "warning");
+                          beginReconnectFlow(pcRef.current);
+                        }
+                      }}
+                      title="Reconnect if experiencing connection issues"
+                      className="relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg bg-blue-500/30 ring-2 ring-blue-400/60 hover:bg-blue-500/40 shadow-blue-500/20"
+                    >
+                      <Zap size={21} className="text-blue-300" />
                     </button>
                   )}
 
