@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 
-// GET: List only truly active call sessions (recent calls not yet terminated)
+// GET: List truly active call sessions (status = active/calling/waiting, recent only)
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -12,13 +12,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
     }
 
-    // Only show calls created in the last 30 minutes (stale calls are definitely not active)
-    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+    // Only show calls created in the last 60 minutes to avoid stale calls
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-    // Get CallSession records created recently
-    const recentCallSessions = await prisma.callSession.findMany({
+    // Fetch active/calling/waiting calls created recently
+    const activeCalls = await prisma.callSession.findMany({
       where: {
-        createdAt: { gte: thirtyMinutesAgo },
+        status: { in: ["active", "calling", "waiting"] },
+        createdAt: { gte: oneHourAgo },
       },
       select: {
         id: true,
@@ -33,37 +34,6 @@ export async function GET(req: Request) {
       },
       orderBy: { createdAt: "desc" },
     });
-
-    if (recentCallSessions.length === 0) {
-      return NextResponse.json({ calls: [], total: 0 });
-    }
-
-    // Get all terminal events for these calls
-    const callCodes = recentCallSessions.map(c => c.callCode);
-    const terminalEvents = await prisma.activityLog.findMany({
-      where: {
-        type: { in: ["call_end", "call_timeout", "call_error", "call_cancel", "call_decline", "page_close_during_call"] },
-      },
-      select: { metadata: true },
-    });
-
-    // Extract callCodes that have terminal events
-    const callCodesTerminated = new Set<string>();
-    terminalEvents.forEach(event => {
-      if (event.metadata) {
-        try {
-          const meta = JSON.parse(event.metadata);
-          if (meta.callCode && callCodes.includes(meta.callCode)) {
-            callCodesTerminated.add(meta.callCode);
-          }
-        } catch { }
-      }
-    });
-
-    // Truly active calls = recent AND NOT terminated
-    const activeCalls = recentCallSessions.filter(
-      call => !callCodesTerminated.has(call.callCode)
-    );
 
     if (activeCalls.length === 0) {
       return NextResponse.json({ calls: [], total: 0 });
