@@ -64,13 +64,13 @@ export default function AdminActiveCallsPage() {
   }, []);
 
   // Initial load only
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     if (!hasLoadedRef.current && status === "authenticated") {
       hasLoadedRef.current = true;
       load();
     }
-  }, [status, load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   const handleReconnect = async (callCode: string) => {
     setReconnecting(prev => new Set(prev).add(callCode));
