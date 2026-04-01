@@ -445,6 +445,14 @@ function CallPageInner() {
         beginReconnectFlow(pc);
       }
 
+      if (s === "closed") {
+        clearDisconnectGrace();
+        // Connection is closed, try to reconnect
+        if (phaseRef.current === "active" || phaseRef.current === "connecting" || phaseRef.current === "joining") {
+          beginReconnectFlow(pc);
+        }
+      }
+
       if (s === "disconnected") {
         // Quick reconnect on disconnection (1s grace for network blips)
         clearDisconnectGrace();
