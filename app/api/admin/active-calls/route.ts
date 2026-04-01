@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 // Terminal call events that mean the call is NOT active
 const TERMINAL_EVENTS = new Set(["call_end", "call_timeout", "call_error", "call_cancel", "call_decline", "page_close_during_call"]);
 
-// GET: List only truly active call sessions (verified via activity log)
+// GET: List only truly active call sessions verified by activity log
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -15,9 +15,57 @@ export async function GET(req: Request) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
     }
 
-    // Get all CallSession records with status="active"
-    const callSessions = await prisma.callSession.findMany({
-      where: { status: "active" },
+    // Query ActivityLog for all call_start/call_connecting events (when calls begin)
+    const callStartEvents = await prisma.activityLog.findMany({
+      where: {
+        type: { in: ["call_start", "call_connecting"] },
+      },
+      select: { metadata: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Extract unique callCodes from start events
+    const callCodesStarted = new Set<string>();
+    callStartEvents.forEach(event => {
+      if (event.metadata) {
+        try {
+          const meta = JSON.parse(event.metadata);
+          if (meta.callCode) callCodesStarted.add(meta.callCode);
+        } catch { }
+      }
+    });
+
+    // Get all terminal events
+    const terminalEvents = await prisma.activityLog.findMany({
+      where: {
+        type: { in: Array.from(TERMINAL_EVENTS) },
+      },
+      select: { metadata: true },
+    });
+
+    // Extract callCodes that have terminal events
+    const callCodesTerminated = new Set<string>();
+    terminalEvents.forEach(event => {
+      if (event.metadata) {
+        try {
+          const meta = JSON.parse(event.metadata);
+          if (meta.callCode) callCodesTerminated.add(meta.callCode);
+        } catch { }
+      }
+    });
+
+    // Truly active calls = started but NOT terminated
+    const trulyActiveCodes = Array.from(callCodesStarted).filter(
+      code => !callCodesTerminated.has(code)
+    );
+
+    if (trulyActiveCodes.length === 0) {
+      return NextResponse.json({ calls: [], total: 0 });
+    }
+
+    // Get full call session details for active calls
+    const activeCalls = await prisma.callSession.findMany({
+      where: { callCode: { in: trulyActiveCodes } },
       select: {
         id: true,
         callCode: true,
@@ -29,44 +77,11 @@ export async function GET(req: Request) {
         createdAt: true,
         updatedAt: true,
       },
-      orderBy: { updatedAt: "desc" },
     });
-
-    if (callSessions.length === 0) {
-      return NextResponse.json({ calls: [], total: 0 });
-    }
-
-    // Get all terminal events from activity log to filter out ended calls
-    const terminatedCallCodes = (await prisma.activityLog.findMany({
-      where: {
-        type: { in: Array.from(TERMINAL_EVENTS) },
-      },
-      select: { metadata: true },
-      distinct: ["metadata"],
-    }))
-      .filter(log => log.metadata)
-      .map(log => {
-        try {
-          const meta = JSON.parse(log.metadata as string);
-          return meta.callCode;
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean) as string[];
-
-    const terminatedSet = new Set(terminatedCallCodes);
-
-    // Filter out calls that have terminal events
-    const trulyActiveCalls = callSessions.filter(call => !terminatedSet.has(call.callCode));
-
-    if (trulyActiveCalls.length === 0) {
-      return NextResponse.json({ calls: [], total: 0 });
-    }
 
     // Enrich with user details
     const enriched = await Promise.all(
-      trulyActiveCalls.map(async (call) => {
+      activeCalls.map(async (call) => {
         const [initiator, receiver] = await Promise.all([
           prisma.user.findUnique({
             where: { id: call.initiatorId },

@@ -63,23 +63,14 @@ export default function AdminActiveCallsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Initial load
+  // Initial load only
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     if (!hasLoadedRef.current && status === "authenticated") {
       hasLoadedRef.current = true;
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       load();
     }
   }, [status, load]);
-
-  // Auto-refresh only when there are active connected calls
-  useEffect(() => {
-    if (calls.length === 0) return; // Don't poll when no calls
-
-    // Immediate refresh on component mount/when calls appear, then every 2 seconds
-    const interval = setInterval(load, 2000);
-    return () => clearInterval(interval);
-  }, [load, calls.length]);
 
   const handleReconnect = async (callCode: string) => {
     setReconnecting(prev => new Set(prev).add(callCode));
