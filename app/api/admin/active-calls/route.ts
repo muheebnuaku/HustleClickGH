@@ -4,10 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 
-// Terminal call events that mean the call is NOT active
-const TERMINAL_EVENTS = new Set(["call_end", "call_timeout", "call_error", "call_cancel", "call_decline", "page_close_during_call"]);
-
-// GET: List only truly active call sessions verified by activity log
+// GET: List only truly active call sessions (recent calls not yet terminated)
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -15,57 +12,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
     }
 
-    // Query ActivityLog for all call_start/call_connecting events (when calls begin)
-    const callStartEvents = await prisma.activityLog.findMany({
+    // Only show calls created in the last 30 minutes (stale calls are definitely not active)
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+
+    // Get CallSession records created recently
+    const recentCallSessions = await prisma.callSession.findMany({
       where: {
-        type: { in: ["call_start", "call_connecting"] },
+        createdAt: { gte: thirtyMinutesAgo },
       },
-      select: { metadata: true, createdAt: true },
-      orderBy: { createdAt: "desc" },
-    });
-
-    // Extract unique callCodes from start events
-    const callCodesStarted = new Set<string>();
-    callStartEvents.forEach(event => {
-      if (event.metadata) {
-        try {
-          const meta = JSON.parse(event.metadata);
-          if (meta.callCode) callCodesStarted.add(meta.callCode);
-        } catch { }
-      }
-    });
-
-    // Get all terminal events
-    const terminalEvents = await prisma.activityLog.findMany({
-      where: {
-        type: { in: Array.from(TERMINAL_EVENTS) },
-      },
-      select: { metadata: true },
-    });
-
-    // Extract callCodes that have terminal events
-    const callCodesTerminated = new Set<string>();
-    terminalEvents.forEach(event => {
-      if (event.metadata) {
-        try {
-          const meta = JSON.parse(event.metadata);
-          if (meta.callCode) callCodesTerminated.add(meta.callCode);
-        } catch { }
-      }
-    });
-
-    // Truly active calls = started but NOT terminated
-    const trulyActiveCodes = Array.from(callCodesStarted).filter(
-      code => !callCodesTerminated.has(code)
-    );
-
-    if (trulyActiveCodes.length === 0) {
-      return NextResponse.json({ calls: [], total: 0 });
-    }
-
-    // Get full call session details for active calls
-    const activeCalls = await prisma.callSession.findMany({
-      where: { callCode: { in: trulyActiveCodes } },
       select: {
         id: true,
         callCode: true,
@@ -77,7 +31,43 @@ export async function GET(req: Request) {
         createdAt: true,
         updatedAt: true,
       },
+      orderBy: { createdAt: "desc" },
     });
+
+    if (recentCallSessions.length === 0) {
+      return NextResponse.json({ calls: [], total: 0 });
+    }
+
+    // Get all terminal events for these calls
+    const callCodes = recentCallSessions.map(c => c.callCode);
+    const terminalEvents = await prisma.activityLog.findMany({
+      where: {
+        type: { in: ["call_end", "call_timeout", "call_error", "call_cancel", "call_decline", "page_close_during_call"] },
+      },
+      select: { metadata: true },
+    });
+
+    // Extract callCodes that have terminal events
+    const callCodesTerminated = new Set<string>();
+    terminalEvents.forEach(event => {
+      if (event.metadata) {
+        try {
+          const meta = JSON.parse(event.metadata);
+          if (meta.callCode && callCodes.includes(meta.callCode)) {
+            callCodesTerminated.add(meta.callCode);
+          }
+        } catch { }
+      }
+    });
+
+    // Truly active calls = recent AND NOT terminated
+    const activeCalls = recentCallSessions.filter(
+      call => !callCodesTerminated.has(call.callCode)
+    );
+
+    if (activeCalls.length === 0) {
+      return NextResponse.json({ calls: [], total: 0 });
+    }
 
     // Enrich with user details
     const enriched = await Promise.all(
