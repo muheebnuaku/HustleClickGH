@@ -339,8 +339,10 @@ function CallPageInner() {
 
     clientLog("call_reconnecting", { callCode: callCodeRef.current, connectionState: pc.connectionState }, "warning");
 
-    // Start fast polling immediately (500ms during reconnect vs 1500ms normal)
-    if (callCodeRef.current && !pollRef.current) {
+    // Start fast polling immediately (250ms during reconnect vs 1500ms normal)
+    // Always stop and restart polling to switch to fast interval
+    if (callCodeRef.current) {
+      stopPoll();
       startIcePoll(callCodeRef.current, isInitiatorRef.current, true);
     }
 
@@ -489,8 +491,9 @@ function CallPageInner() {
         const pc = pcRef.current;
         if (!pc || !pc.remoteDescription) return;
 
-        // Admin-triggered reconnect: if status is "reconnecting" and we're in "active" phase, start reconnect flow
-        if (data.status === "reconnecting" && phaseRef.current === "active") {
+        // Admin-triggered reconnect: if status is "reconnecting", start reconnect flow
+        // (works whether we're in "active" or already in "reconnecting" phase)
+        if (data.status === "reconnecting" && phaseRef.current !== "reconnecting") {
           clientLog("call_reconnecting", { callCode: code, reason: "admin_triggered", connectionState: pc.connectionState }, "warning");
           beginReconnectFlow(pc);
           return;
