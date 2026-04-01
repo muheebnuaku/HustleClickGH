@@ -72,11 +72,12 @@ export default function AdminActiveCallsPage() {
     }
   }, [status, load]);
 
-  // Auto-refresh every 3 seconds
+  // Auto-refresh every 3 seconds — only when there are active calls
   useEffect(() => {
+    if (calls.length === 0) return; // Stop polling when no calls
     const interval = setInterval(load, 3000);
     return () => clearInterval(interval);
-  }, [load]);
+  }, [load, calls.length]);
 
   const handleReconnect = async (callCode: string) => {
     setReconnecting(prev => new Set(prev).add(callCode));
