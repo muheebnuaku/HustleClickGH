@@ -15,10 +15,10 @@ export async function GET(req: Request) {
     // Only show calls created in the last 60 minutes to avoid stale calls
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-    // Fetch active/calling/waiting calls created recently
+    // Fetch active/calling/waiting/reconnecting calls created recently
     const activeCalls = await prisma.callSession.findMany({
       where: {
-        status: { in: ["active", "calling", "waiting"] },
+        status: { in: ["active", "calling", "waiting", "reconnecting"] },
         createdAt: { gte: oneHourAgo },
       },
       select: {

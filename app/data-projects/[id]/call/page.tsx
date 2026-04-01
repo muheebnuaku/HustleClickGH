@@ -339,6 +339,15 @@ function CallPageInner() {
 
     clientLog("call_reconnecting", { callCode: callCodeRef.current, connectionState: pc.connectionState }, "warning");
 
+    // Update DB status to reconnecting so both sides & admin know
+    if (callCodeRef.current) {
+      fetch(`/api/calls/${callCodeRef.current}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "status", status: "reconnecting" }),
+      }).catch(() => {});
+    }
+
     // Start fast polling immediately (250ms during reconnect vs 1500ms normal)
     // Always stop and restart polling to switch to fast interval
     if (callCodeRef.current) {
@@ -807,13 +816,13 @@ function CallPageInner() {
       // Check if user is already part of this call
       const isAlreadyPartOfCall = currentUserId && (session.receiverId === currentUserId || session.initiatorId === currentUserId);
 
-      // If call is active but user is not part of it, reject
-      if (session.status === "active" && !isAlreadyPartOfCall) {
+      // If call is active/reconnecting but user is not part of it, reject
+      if ((session.status === "active" || session.status === "reconnecting") && !isAlreadyPartOfCall) {
         throw new Error("This call is already in progress.");
       }
 
-      // If user IS already part of an active call, they're reconnecting — use the reconnect flow instead
-      if (session.status === "active" && isAlreadyPartOfCall) {
+      // If user IS already part of an active/reconnecting call, they're reconnecting — use the reconnect flow instead
+      if ((session.status === "active" || session.status === "reconnecting") && isAlreadyPartOfCall) {
         localStreamRef.current?.getTracks().forEach(t => t.stop());
         localStreamRef.current = null;
         setPhase("idle");
@@ -1399,6 +1408,20 @@ function CallPageInner() {
                       </span>
                     </div>
                   )}
+                  <button
+                    onClick={() => {
+                      if (pcRef.current) {
+                        clientLog("call_reconnecting", {
+                          callCode: callCodeRef.current,
+                          reason: "user_manual_reconnect"
+                        }, "info");
+                        beginReconnectFlow(pcRef.current);
+                      }
+                    }}
+                    className="mt-3 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition"
+                  >
+                    Try to Reconnect Now
+                  </button>
                   <p className="text-slate-500 text-[11px]">Do not close this page</p>
                 </div>
               ) : (
