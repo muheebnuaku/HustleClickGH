@@ -489,6 +489,13 @@ function CallPageInner() {
         const pc = pcRef.current;
         if (!pc || !pc.remoteDescription) return;
 
+        // Admin-triggered reconnect: if status is "reconnecting" and we're in "active" phase, start reconnect flow
+        if (data.status === "reconnecting" && phaseRef.current === "active") {
+          clientLog("call_reconnecting", { callCode: code, reason: "admin_triggered", connectionState: pc.connectionState }, "warning");
+          beginReconnectFlow(pc);
+          return;
+        }
+
         // Initiator: if still reconnecting and got offer, process it immediately
         if (
           asInitiator &&
