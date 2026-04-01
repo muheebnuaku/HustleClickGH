@@ -13,7 +13,7 @@ export async function GET(req: Request) {
     }
 
     const calls = await prisma.callSession.findMany({
-      where: { status: { in: ["active", "calling", "waiting", "reconnecting"] } },
+      where: { status: "active" }, // Only fully connected calls
       select: {
         id: true,
         callCode: true,

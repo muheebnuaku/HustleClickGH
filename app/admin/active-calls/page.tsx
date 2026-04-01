@@ -72,10 +72,12 @@ export default function AdminActiveCallsPage() {
     }
   }, [status, load]);
 
-  // Auto-refresh every 3 seconds — only when there are active calls
+  // Auto-refresh only when there are active connected calls
   useEffect(() => {
-    if (calls.length === 0) return; // Stop polling when no calls
-    const interval = setInterval(load, 3000);
+    if (calls.length === 0) return; // Don't poll when no calls
+
+    // Immediate refresh on component mount/when calls appear, then every 2 seconds
+    const interval = setInterval(load, 2000);
     return () => clearInterval(interval);
   }, [load, calls.length]);
 
@@ -138,7 +140,8 @@ export default function AdminActiveCallsPage() {
         ) : calls.length === 0 ? (
           <div className="text-center py-20">
             <Phone size={40} className="mx-auto mb-3 text-zinc-300" />
-            <p className="text-zinc-500 font-medium">No active calls</p>
+            <p className="text-zinc-500 font-medium">Waiting for active calls…</p>
+            <p className="text-xs text-zinc-400 mt-1">This page will automatically show and monitor live connections</p>
           </div>
         ) : (
           <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden">
