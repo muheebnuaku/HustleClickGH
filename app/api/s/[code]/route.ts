@@ -9,6 +9,7 @@ export async function GET(
 ) {
   try {
     const { code } = await params;
+    console.log(`[API] Fetching public survey with code: ${code}`);
 
     const survey = await prisma.survey.findFirst({
       where: {
@@ -22,17 +23,21 @@ export async function GET(
       },
     });
 
+    console.log(`[API] Survey found:`, survey ? `${survey.id} - ${survey.title}` : "NOT FOUND");
+
     if (!survey) {
       return NextResponse.json({ error: "Survey not found or inactive" }, { status: 404 });
     }
 
     // Check if survey is expired
     if (new Date(survey.expiresAt) < new Date()) {
+      console.log(`[API] Survey expired at ${survey.expiresAt}`);
       return NextResponse.json({ error: "This survey has expired" }, { status: 410 });
     }
 
     // Check if max respondents reached
     if (survey.currentRespondents >= survey.maxRespondents) {
+      console.log(`[API] Max respondents reached: ${survey.currentRespondents}/${survey.maxRespondents}`);
       return NextResponse.json({ error: "This survey has reached its maximum responses" }, { status: 410 });
     }
 
