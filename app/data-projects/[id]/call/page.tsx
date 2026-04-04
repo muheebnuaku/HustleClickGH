@@ -994,6 +994,8 @@ function CallPageInner() {
         const blob = new Blob(recordedChunksRef.current, { type: mimeType || "audio/webm" });
         const duration = Math.floor((Date.now() - recordingStartRef.current) / 1000);
 
+        console.log("[Recording] Stopped. Duration:", duration, "Blob size:", blob.size, "CallCode:", capturedCallCode);
+
         const objUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = objUrl;
@@ -1011,24 +1013,40 @@ function CallPageInner() {
         try {
           const { uploadFile } = await import("@/lib/upload-file");
           const fileName = `call-${capturedCallCode || Date.now()}.${ext}`;
+          console.log("[Recording] Uploading file:", fileName);
           const result   = await uploadFile(blob, "recordings", fileName, setUploadPct);
+          console.log("[Recording] File uploaded. URL:", result.url);
 
-          await fetch("/api/call-recordings", {
+          const body = {
+            callCode:  capturedCallCode,
+            fileUrl:   result.url,
+            duration,
+            fileSize:  blob.size,
+            otherName: capturedOtherName,
+            callType:  "audio",
+          };
+          console.log("[Recording] Sending to API:", body);
+
+          const apiResponse = await fetch("/api/call-recordings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              callCode:  capturedCallCode,
-              fileUrl:   result.url,
-              duration,
-              fileSize:  blob.size,
-              otherName: capturedOtherName,
-              callType:  "audio",
-            }),
+            body: JSON.stringify(body),
           });
 
+          const apiData = await apiResponse.json();
+          console.log("[Recording] API response status:", apiResponse.status, "data:", apiData);
+
+          if (!apiResponse.ok) {
+            throw new Error(apiData.error || `API error: ${apiResponse.status}`);
+          }
+
+          console.log("[Recording] Successfully saved recording:", apiData.recording?.id);
           setUploadStatus("done");
           setTimeout(() => setUploadStatus("idle"), 4000);
-        } catch {
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : "Unknown error";
+          console.error("[Recording] Error:", errMsg);
+          clientLog("recording_upload_error", { callCode: capturedCallCode, error: errMsg }, "error");
           setUploadStatus("error");
           setTimeout(() => setUploadStatus("idle"), 6000);
         }
@@ -1115,6 +1133,8 @@ function CallPageInner() {
         const blob     = new Blob(recordedChunksRef.current, { type: mimeType || "video/webm" });
         const duration = Math.floor((Date.now() - recordingStartRef.current) / 1000);
 
+        console.log("[Video Recording] Stopped. Duration:", duration, "Blob size:", blob.size, "CallCode:", capturedCallCode);
+
         const objUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = objUrl;
@@ -1133,22 +1153,40 @@ function CallPageInner() {
         try {
           const { uploadFile } = await import("@/lib/upload-file");
           const fileName = "call-video-" + (capturedCallCode || Date.now()) + ".webm";
+          console.log("[Video Recording] Uploading file:", fileName);
           const result   = await uploadFile(blob, "recordings", fileName, setVidUploadPct);
-          await fetch("/api/call-recordings", {
+          console.log("[Video Recording] File uploaded. URL:", result.url);
+
+          const body = {
+            callCode:  capturedCallCode,
+            fileUrl:   result.url,
+            duration,
+            fileSize:  blob.size,
+            otherName: capturedOtherName,
+            callType:  "video",
+          };
+          console.log("[Video Recording] Sending to API:", body);
+
+          const apiResponse = await fetch("/api/call-recordings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              callCode:  capturedCallCode,
-              fileUrl:   result.url,
-              duration,
-              fileSize:  blob.size,
-              otherName: capturedOtherName,
-              callType:  "video",
-            }),
+            body: JSON.stringify(body),
           });
+
+          const apiData = await apiResponse.json();
+          console.log("[Video Recording] API response status:", apiResponse.status, "data:", apiData);
+
+          if (!apiResponse.ok) {
+            throw new Error(apiData.error || `API error: ${apiResponse.status}`);
+          }
+
+          console.log("[Video Recording] Successfully saved recording:", apiData.recording?.id);
           setVidUploadStatus("done");
           setTimeout(() => setVidUploadStatus("idle"), 4000);
-        } catch {
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : "Unknown error";
+          console.error("[Video Recording] Error:", errMsg);
+          clientLog("video_recording_upload_error", { callCode: capturedCallCode, error: errMsg }, "error");
           setVidUploadStatus("error");
           setTimeout(() => setVidUploadStatus("idle"), 6000);
         }
