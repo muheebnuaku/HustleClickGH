@@ -553,12 +553,16 @@ function CallPageInner() {
         const pc = pcRef.current;
         if (!pc || !pc.remoteDescription) return;
 
-        // Admin-triggered reconnect: if status is "reconnecting", start reconnect flow
-        // (works whether we're in "active" or already in "reconnecting" phase)
+        // Only enter reconnect flow if local connection is actually failing
+        // (Don't force it just because server status is "reconnecting")
         if (data.status === "reconnecting" && phaseRef.current !== "reconnecting") {
-          clientLog("call_reconnecting", { callCode: code, reason: "admin_triggered", connectionState: pc.connectionState }, "warning");
-          beginReconnectFlow(pc);
-          return;
+          // Only reconnect if local connection state indicates actual failure
+          if (pc.connectionState === "failed" || pc.connectionState === "disconnected" || pc.connectionState === "closed") {
+            clientLog("call_reconnecting", { callCode: code, reason: "connection_state_match", connectionState: pc.connectionState }, "warning");
+            beginReconnectFlow(pc);
+            return;
+          }
+          // If still connected, ignore server reconnecting status and stay active
         }
 
         // Initiator: if still reconnecting and got offer, process it immediately
