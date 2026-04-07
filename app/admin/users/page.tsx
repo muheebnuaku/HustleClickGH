@@ -7,7 +7,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users } from "lucide-react";
+import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users, AlertCircle, Lock, Unlock } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 interface UserData {
@@ -22,11 +22,15 @@ interface UserData {
   referralCount: number;
   createdAt: string;
   role: string;
+  status: string;
+  emailFlagged: boolean;
 }
 
 interface UserStats {
   totalUsers: number;
   activeUsers: number;
+  suspendedUsers: number;
+  flaggedEmails: number;
   totalPaidOut: number;
   totalBalance: number;
 }
