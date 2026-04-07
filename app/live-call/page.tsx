@@ -854,7 +854,10 @@ function LiveCallInner() {
     setError(""); setPhase("idle"); setTargetCodeInput("");
     setOtherName(""); setTimer(0); setIsMuted(false); setIsVideoOff(false);
     setSwapped(false); setPipPos(null);
-    callCodeRef.current = "";
+    // Only clear callCodeRef if we're not showing the rejoin modal
+    if (!canRejoin) {
+      callCodeRef.current = "";
+    }
   };
 
   // Auto-return to idle 1.5 s after a call ends so the user can immediately redial
@@ -863,7 +866,7 @@ function LiveCallInner() {
     const t = setTimeout(resetToIdle, 1500);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase]);
+  }, [phase, canRejoin]);
 
   // ── Screen recording ───────────────────────────────────────────────────────
   const startRecording = async () => {
@@ -1327,7 +1330,7 @@ function LiveCallInner() {
         )}
 
         {/* ── REJOIN MODAL — shown when user gets disconnected but call is still active ── */}
-        {canRejoin && callCodeRef.current && phase === "idle" && (
+        {canRejoin && callCodeRef.current && (phase === "idle" || phase === "ended") && (
           <Card className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/30 border-blue-300 dark:border-blue-700">
             <div className="space-y-4">
               <div className="text-center">
@@ -1346,7 +1349,10 @@ function LiveCallInner() {
                   Rejoin Call
                 </Button>
                 <Button
-                  onClick={() => setCanRejoin(false)}
+                  onClick={() => {
+                    setCanRejoin(false);
+                    callCodeRef.current = "";
+                  }}
                   variant="outline"
                   className="flex-1"
                 >
