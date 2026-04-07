@@ -751,9 +751,9 @@ function CallPageInner() {
     try {
       setError("");
       setPhase("requesting-mic");
+      // Only request audio for reconnect — faster and avoids camera permission delay
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
       });
       localStreamRef.current = stream;
 
