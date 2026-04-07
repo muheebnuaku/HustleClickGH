@@ -1225,6 +1225,18 @@ function LiveCallInner() {
           </div>
         )}
 
+        {phase === "reconnecting" && (
+          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30">
+            <button
+              onClick={() => handleReconnect(callCodeRef.current, isInitiatorRef.current)}
+              className="inline-flex items-center gap-2 rounded-full bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 text-sm font-semibold shadow-lg"
+            >
+              <RefreshCw size={16} />
+              Reconnect now
+            </button>
+          </div>
+        )}
+
         {/* Gradients */}
         <div className="absolute top-0 left-0 right-0 h-36 bg-gradient-to-b from-black/70 to-transparent pointer-events-none z-10" />
         <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-black/85 to-transparent pointer-events-none z-10" />
