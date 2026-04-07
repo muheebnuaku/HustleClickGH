@@ -112,12 +112,18 @@ export async function GET(request: Request) {
     const activeOnly = url.searchParams.get("active-only") === "true";
 
     if (activeOnly) {
-      // Return ALL active calls user is part of (initiator OR receiver)
-      const activeCalls = await prisma.callSession.findMany({
+      // Return all rejoinable calls user is part of (initiator OR receiver)
+      const rejoinableCalls = await prisma.callSession.findMany({
         where: {
           OR: [
-            { initiatorId: session.user.id, status: "active" },
-            { receiverId: session.user.id, status: "active" },
+            {
+              initiatorId: session.user.id,
+              status: { in: ["active", "reconnecting"] },
+            },
+            {
+              receiverId: session.user.id,
+              status: { in: ["active", "reconnecting"] },
+            },
           ],
         },
         select: {
@@ -125,12 +131,31 @@ export async function GET(request: Request) {
           status: true,
           initiatorId: true,
           receiverId: true,
-          offer: true, // for offer retrieval if needed
+          updatedAt: true,
         },
       });
 
+      const participantIds = Array.from(new Set(
+        rejoinableCalls.flatMap((call) => [call.initiatorId, call.receiverId].filter(Boolean) as string[])
+      ));
+
+      const participants = participantIds.length
+        ? await prisma.user.findMany({
+            where: { id: { in: participantIds } },
+            select: { id: true, fullName: true },
+          })
+        : [];
+
+      const userNamesById = new Map(participants.map((user) => [user.id, user.fullName || "Unknown"]));
+
+      const calls = rejoinableCalls.map((call) => ({
+        ...call,
+        initiatorName: userNamesById.get(call.initiatorId) ?? "Unknown",
+        receiverName: call.receiverId ? (userNamesById.get(call.receiverId) ?? "Unknown") : "Unknown",
+      }));
+
       return NextResponse.json({
-        calls: activeCalls.filter(c => c.status === "active"),
+        calls,
       });
     }
 

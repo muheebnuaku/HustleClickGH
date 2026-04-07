@@ -312,49 +312,56 @@ function CallPageInner() {
       return;
     }
 
-    // Check localStorage first for a persisted call code (from before page refresh)
-    const storedCallCode = typeof window !== "undefined" ? localStorage.getItem("hustleclick_active_call_code") : null;
-    if (storedCallCode) {
-      hasAutoJoined.current = true;
-      const storedInitiator = localStorage.getItem("hustleclick_is_initiator") === "true";
-      const storedOtherName = localStorage.getItem("hustleclick_other_name") || "";
-      setPendingRejoinCode(storedCallCode);
-      setPendingRejoinIsInitiator(storedInitiator);
-      if (storedOtherName) setOtherName(storedOtherName);
-      return;
-    }
-
-    // Check if there's a call in progress we should offer to rejoin
-    // (does NOT auto-rejoin, just detects and shows button)
+    // Check DB for rejoinable calls (do not trust stale localStorage by itself)
+    // This ensures recovery still works after a full reload on either participant.
     (async () => {
       try {
-        const allCallsRes = await fetch("/api/calls?active-only=true");
-        if (allCallsRes.ok) {
-          const { calls } = await allCallsRes.json();
-          const profileRes = await fetch("/api/profile");
-          const profileData = profileRes.ok ? await profileRes.json() : {};
-          const currentUserId = profileData.user?.id;
+        const profileRes = await fetch("/api/profile");
+        const profileData = profileRes.ok ? await profileRes.json() : {};
+        const currentUserId = profileData.user?.id;
+        if (!currentUserId) return;
 
-          if (currentUserId && Array.isArray(calls)) {
-            // Find active OR reconnecting call where user is part of
-            const userCall = calls.find(c =>
-              (c.status === "active" || c.status === "reconnecting") &&
-              (c.initiatorId === currentUserId || c.receiverId === currentUserId)
-            );
-            if (userCall && userCall.callCode) {
-              // Don't auto-rejoin; show button instead so user can grant permission explicitly
-              const isInitiator = userCall.initiatorId === currentUserId;
-              setPendingRejoinCode(userCall.callCode);
-              setPendingRejoinIsInitiator(isInitiator);
-              if (userCall.initiatorName) setOtherName(userCall.initiatorName);
-              if (userCall.receiverName && !isInitiator) setOtherName(userCall.receiverName);
-              // Store in localStorage in case of another refresh
-              localStorage.setItem("hustleclick_active_call_code", userCall.callCode);
-              localStorage.setItem("hustleclick_is_initiator", isInitiator ? "true" : "false");
-              if (userCall.initiatorName) localStorage.setItem("hustleclick_other_name", userCall.initiatorName);
-              if (userCall.receiverName && !isInitiator) localStorage.setItem("hustleclick_other_name", userCall.receiverName);
-            }
+        const storedCallCode = typeof window !== "undefined"
+          ? localStorage.getItem("hustleclick_active_call_code")
+          : null;
+
+        const allCallsRes = await fetch("/api/calls?active-only=true");
+        if (!allCallsRes.ok) return;
+
+        const { calls } = await allCallsRes.json();
+        if (!Array.isArray(calls)) return;
+
+        const isParticipant = (c: { initiatorId?: string; receiverId?: string }) =>
+          c.initiatorId === currentUserId || c.receiverId === currentUserId;
+
+        // Prefer the last stored call if it is still active/reconnecting in DB.
+        const userCall =
+          (storedCallCode
+            ? calls.find((c: { callCode?: string; initiatorId?: string; receiverId?: string }) => c.callCode === storedCallCode && isParticipant(c))
+            : null) ||
+          calls.find((c: { initiatorId?: string; receiverId?: string }) => isParticipant(c));
+
+        if (userCall?.callCode) {
+          // Don't auto-rejoin; show explicit button so browser can ask permissions.
+          const isInitiator = userCall.initiatorId === currentUserId;
+          const partnerName = isInitiator ? userCall.receiverName : userCall.initiatorName;
+
+          setPendingRejoinCode(userCall.callCode);
+          setPendingRejoinIsInitiator(isInitiator);
+          setOtherName(partnerName || "");
+
+          localStorage.setItem("hustleclick_active_call_code", userCall.callCode);
+          localStorage.setItem("hustleclick_is_initiator", isInitiator ? "true" : "false");
+          if (partnerName) {
+            localStorage.setItem("hustleclick_other_name", partnerName);
+          } else {
+            localStorage.removeItem("hustleclick_other_name");
           }
+        } else if (typeof window !== "undefined") {
+          // Stored code became stale (call ended); clear recovery cache.
+          localStorage.removeItem("hustleclick_active_call_code");
+          localStorage.removeItem("hustleclick_is_initiator");
+          localStorage.removeItem("hustleclick_other_name");
         }
       } catch {
         // Silently fail — user can manually rejoin
