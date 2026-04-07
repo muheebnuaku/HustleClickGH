@@ -71,6 +71,7 @@ function LiveCallInner() {
   const [pipPos,            setPipPos]            = useState<{ x: number; y: number } | null>(null);
   const [lastCallTarget,    setLastCallTarget]    = useState<{ name: string; code: string } | null>(null);
   const [canRejoin,         setCanRejoin]         = useState(false);
+  const [rejoinCode,        setRejoinCode]        = useState<string>("");
 
   useEffect(() => {
     setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -789,10 +790,11 @@ function LiveCallInner() {
   const handleHangUp = (reason = "user_hangup") => {
     stopPoll(); stopTimer(); clearReconnectTO(); clearConnectTO();
     releaseWakeLock();
-    // If the call dropped unexpectedly, remember who to call back and enable rejoin
+    // If the call dropped unexpectedly, enable rejoin with stored code
     const wasDropped = reason === "remote_hangup" || reason === "reconnect_timeout" || reason === "connection_failed";
     if (wasDropped && callCodeRef.current) {
       setCanRejoin(true);
+      setRejoinCode(callCodeRef.current);
     }
     // Reset signaling state so the next call starts clean
     alreadyAnswered.current = false;
@@ -854,10 +856,7 @@ function LiveCallInner() {
     setError(""); setPhase("idle"); setTargetCodeInput("");
     setOtherName(""); setTimer(0); setIsMuted(false); setIsVideoOff(false);
     setSwapped(false); setPipPos(null);
-    // Only clear callCodeRef if we're not showing the rejoin modal
-    if (!canRejoin) {
-      callCodeRef.current = "";
-    }
+    callCodeRef.current = "";
   };
 
   // Auto-return to idle 1.5 s after a call ends so the user can immediately redial
@@ -866,7 +865,7 @@ function LiveCallInner() {
     const t = setTimeout(resetToIdle, 1500);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, canRejoin]);
+  }, [phase]);
 
   // ── Screen recording ───────────────────────────────────────────────────────
   const startRecording = async () => {
@@ -1330,7 +1329,7 @@ function LiveCallInner() {
         )}
 
         {/* ── REJOIN MODAL — shown when user gets disconnected but call is still active ── */}
-        {canRejoin && callCodeRef.current && (phase === "idle" || phase === "ended") && (
+        {canRejoin && (
           <Card className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/30 border-blue-300 dark:border-blue-700">
             <div className="space-y-4">
               <div className="text-center">
@@ -1342,7 +1341,7 @@ function LiveCallInner() {
               </div>
               <div className="flex gap-3">
                 <Button
-                  onClick={() => handleJoinCall(callCodeRef.current)}
+                  onClick={() => rejoinCode && handleJoinCall(rejoinCode)}
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
                 >
                   <PhoneCall size={16} className="mr-2" />
@@ -1351,7 +1350,7 @@ function LiveCallInner() {
                 <Button
                   onClick={() => {
                     setCanRejoin(false);
-                    callCodeRef.current = "";
+                    setRejoinCode("");
                   }}
                   variant="outline"
                   className="flex-1"
