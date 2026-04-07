@@ -77,8 +77,6 @@ function CallPageInner() {
   const [endedReason,  setEndedReason]  = useState("");
   const [reconnectSecsLeft, setReconnectSecsLeft] = useState(0);
   const [connQuality,       setConnQuality]       = useState<"good" | "poor" | "bad">("good");
-  const [pendingRejoinCode, setPendingRejoinCode] = useState("");
-  const [pendingRejoinIsInitiator, setPendingRejoinIsInitiator] = useState(false);
 
   useEffect(() => {
     setSupportsRecording(typeof AudioContext !== "undefined" && typeof MediaRecorder !== "undefined");
@@ -342,13 +340,12 @@ function CallPageInner() {
           calls.find((c: { initiatorId?: string; receiverId?: string }) => isParticipant(c));
 
         if (userCall?.callCode) {
-          // Don't auto-rejoin; show explicit button so browser can ask permissions.
+          // Auto-rejoin to active/reconnecting calls — will request mic access
           const isInitiator = userCall.initiatorId === currentUserId;
           const partnerName = isInitiator ? userCall.receiverName : userCall.initiatorName;
 
-          setPendingRejoinCode(userCall.callCode);
-          setPendingRejoinIsInitiator(isInitiator);
           setOtherName(partnerName || "");
+          hasAutoJoined.current = true;
 
           localStorage.setItem("hustleclick_active_call_code", userCall.callCode);
           localStorage.setItem("hustleclick_is_initiator", isInitiator ? "true" : "false");
@@ -357,6 +354,9 @@ function CallPageInner() {
           } else {
             localStorage.removeItem("hustleclick_other_name");
           }
+
+          // Automatically reconnect
+          await handleReconnectToCall(userCall.callCode, isInitiator);
         } else if (typeof window !== "undefined") {
           // Stored code became stale (call ended); clear recovery cache.
           localStorage.removeItem("hustleclick_active_call_code");
@@ -1320,42 +1320,6 @@ function CallPageInner() {
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm flex gap-2">
             <AlertCircle size={16} className="mt-0.5 shrink-0" />{error}
           </div>
-        )}
-
-        {/* ── PENDING REJOIN (call in progress after refresh) ── */}
-        {pendingRejoinCode && phase === "idle" && (
-          <Card className="p-6 bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 border-2 border-blue-400 dark:border-blue-600">
-            <div className="space-y-4">
-              <div className="text-center">
-                <div className="w-12 h-12 mx-auto rounded-full bg-blue-500/20 flex items-center justify-center border-2 border-blue-400 mb-3">
-                  <PhoneCall size={24} className="text-blue-600 dark:text-blue-400" />
-                </div>
-                <p className="font-semibold text-lg text-blue-900 dark:text-blue-300">Call in Progress</p>
-                <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
-                  You were disconnected. {otherName ? `Your call with ${otherName} is still active.` : "Your call is still active."}
-                </p>
-              </div>
-              <Button
-                onClick={() => {
-                  hasAutoJoined.current = true;
-                  handleReconnectToCall(pendingRejoinCode, pendingRejoinIsInitiator);
-                }}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6 text-base"
-              >
-                <PhoneCall size={20} className="mr-2" />
-                Rejoin Call
-              </Button>
-              <button
-                onClick={() => {
-                  setPendingRejoinCode("");
-                  setPendingRejoinIsInitiator(false);
-                }}
-                className="w-full text-sm text-blue-700 dark:text-blue-400 hover:underline py-2"
-              >
-                Dismiss
-              </button>
-            </div>
-          </Card>
         )}
 
         {/* ── IDLE ── */}
