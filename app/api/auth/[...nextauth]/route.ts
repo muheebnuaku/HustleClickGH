@@ -81,6 +81,17 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid password");
         }
 
+        if (user.status !== "active") {
+          await logActivity({
+            type: "login_failed",
+            userId: user.id,
+            userName: user.fullName,
+            severity: "warning",
+            metadata: { userId: credentials.userId, reason: "Account suspended" },
+          });
+          throw new Error("Account suspended");
+        }
+
         await logActivity({
           type: "login",
           userId: user.id,

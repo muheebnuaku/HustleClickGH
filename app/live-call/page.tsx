@@ -384,6 +384,16 @@ function LiveCallInner() {
     const pc = pcRef.current;
     if (!pc || !code) return;
     try {
+      // Request microphone access before reconnecting
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: true }, video: false });
+        localStreamRef.current = stream;
+        stream.getTracks().forEach(t => pc.addTrack(t, stream));
+      } catch (err) {
+        console.error("Failed to get microphone access:", err);
+        return;
+      }
+
       if (asInitiator) {
         const offer = await pc.createOffer({ iceRestart: true });
         await pc.setLocalDescription(offer);
