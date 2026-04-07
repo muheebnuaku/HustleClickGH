@@ -147,7 +147,18 @@ export const authOptions: NextAuthOptions = {
               metadata: { provider: account.provider, email: user.email, userId: created.userId },
             });
           } else {
-            // Existing user — backfill call code if somehow missing
+            // Existing user — check if suspended
+            if (existingUser.status !== "active") {
+              await logActivity({
+                type: "login_failed",
+                userId: existingUser.id,
+                userName: existingUser.fullName,
+                severity: "warning",
+                metadata: { provider: account.provider, email: user.email, reason: "Account suspended" },
+              });
+              return false;
+            }
+            // Backfill call code if somehow missing
             if (!existingUser.personalCallCode) {
               const personalCallCode = await generatePersonalCallCode();
               await prisma.user.update({

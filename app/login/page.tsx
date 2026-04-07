@@ -68,7 +68,11 @@ export default function AuthPage() {
       });
 
       if (result?.error) {
-        setError("Invalid User ID or password");
+        if (result.error === "Account suspended") {
+          setError("Your account has been suspended. Please contact support.");
+        } else {
+          setError("Invalid User ID or password");
+        }
         return;
       }
 
