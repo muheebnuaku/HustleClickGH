@@ -73,6 +73,7 @@ function LiveCallInner() {
   const [lastCallTarget,    setLastCallTarget]    = useState<{ name: string; code: string } | null>(null);
   const [canRejoin,         setCanRejoin]         = useState(false);
   const [rejoinCode,        setRejoinCode]        = useState<string>("");
+  const [rejoinWasInitiator, setRejoinWasInitiator] = useState(false);
 
   useEffect(() => {
     setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -340,6 +341,74 @@ function LiveCallInner() {
       .then(d => { if (d.user?.personalCallCode) setPersonalCode(d.user.personalCallCode); })
       .catch(() => {});
   }, [status]);
+
+  // Persist active call context so refresh/reload can recover without ending the call.
+  useEffect(() => {
+    const activePhases: Phase[] = ["calling", "joining", "connecting", "reconnecting", "active"];
+    if (!activePhases.includes(phase) || !callCodeRef.current || typeof window === "undefined") return;
+    localStorage.setItem("hustleclick_active_call_code", callCodeRef.current);
+    localStorage.setItem("hustleclick_is_initiator", isInitiatorRef.current ? "true" : "false");
+    localStorage.setItem("hustleclick_call_type", callTypeRef.current);
+    if (otherName) localStorage.setItem("hustleclick_other_name", otherName);
+  }, [phase, otherName]);
+
+  useEffect(() => {
+    if ((phase === "ended" || phase === "declined") && typeof window !== "undefined") {
+      localStorage.removeItem("hustleclick_active_call_code");
+      localStorage.removeItem("hustleclick_is_initiator");
+      localStorage.removeItem("hustleclick_other_name");
+      localStorage.removeItem("hustleclick_call_type");
+    }
+  }, [phase]);
+
+  // On refresh/reload, recover active/reconnecting call from DB and show rejoin action.
+  useEffect(() => {
+    if (status !== "authenticated" || phase !== "idle") return;
+
+    (async () => {
+      try {
+        const profileRes = await fetch("/api/profile");
+        const profileData = profileRes.ok ? await profileRes.json() : {};
+        const currentUserId = profileData.user?.id;
+        if (!currentUserId) return;
+
+        const storedCallCode = typeof window !== "undefined"
+          ? localStorage.getItem("hustleclick_active_call_code")
+          : null;
+
+        const allCallsRes = await fetch("/api/calls?active-only=true");
+        if (!allCallsRes.ok) return;
+        const { calls } = await allCallsRes.json();
+        if (!Array.isArray(calls)) return;
+
+        const isParticipant = (c: { initiatorId?: string; receiverId?: string }) =>
+          c.initiatorId === currentUserId || c.receiverId === currentUserId;
+
+        const userCall =
+          (storedCallCode
+            ? calls.find((c: { callCode?: string; initiatorId?: string; receiverId?: string }) => c.callCode === storedCallCode && isParticipant(c))
+            : null) ||
+          calls.find((c: { initiatorId?: string; receiverId?: string }) => isParticipant(c));
+
+        if (!userCall?.callCode) return;
+
+        const isInitiator = userCall.initiatorId === currentUserId;
+        const partnerName = isInitiator ? userCall.receiverName : userCall.initiatorName;
+        const storedType = typeof window !== "undefined" ? localStorage.getItem("hustleclick_call_type") : null;
+
+        setRejoinCode(userCall.callCode);
+        setRejoinWasInitiator(isInitiator);
+        setCanRejoin(true);
+        if (partnerName) setOtherName(partnerName);
+        if (storedType === "video" || storedType === "audio") {
+          setCallType(storedType);
+          callTypeRef.current = storedType;
+        }
+      } catch {
+        // Silent: user can still manually dial.
+      }
+    })();
+  }, [status, phase]);
 
   // ── Auto-join (incoming call) ──────────────────────────────────────────────
   useEffect(() => {
@@ -787,6 +856,81 @@ function LiveCallInner() {
     }
   };
 
+  // Rejoin after page refresh/reload without ending the server-side call.
+  const handleReconnectToCall = async (code: string, wasInitiator: boolean) => {
+    if (!code) return;
+    callCodeRef.current = code;
+    isInitiatorRef.current = wasInitiator;
+
+    try {
+      setCanRejoin(false);
+      setError("");
+      setPhase("requesting-media");
+
+      const res = await fetch(`/api/calls/${code}`);
+      if (!res.ok) throw new Error("Call not found.");
+      const session = await res.json();
+
+      if (session.status === "completed" || session.status === "declined" || session.status === "missed") {
+        throw new Error("This call has ended.");
+      }
+
+      const resolvedType = session.callType === "video" ? "video" : "audio";
+      setCallType(resolvedType);
+      callTypeRef.current = resolvedType;
+
+      const stream = await getMedia(resolvedType);
+      localStreamRef.current = stream;
+      if (resolvedType === "video") attachLocalVideo(stream);
+
+      const iceServers = await fetchIceServers();
+      const pc = createPC(iceServers, async candidate => {
+        const iceType = wasInitiator ? "ice-initiator" : "ice-receiver";
+        await fetch(`/api/calls/${code}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: iceType, candidate }),
+        }).catch(() => {});
+      });
+
+      stream.getTracks().forEach(t => pc.addTrack(t, stream));
+
+      if (wasInitiator) {
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
+        await fetch(`/api/calls/${code}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "restart-offer", offer }),
+        }).catch(() => {});
+
+        setPhase("connecting");
+        startIcePoll(code, true);
+      } else {
+        if (session.offer) {
+          await pc.setRemoteDescription(new RTCSessionDescription(session.offer));
+          const initIce: RTCIceCandidateInit[] = session.initiatorIce || [];
+          for (const c of initIce) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+          seenInitIce.current = initIce.length;
+
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await fetch(`/api/calls/${code}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "answer", answer }),
+          }).catch(() => {});
+        }
+
+        setPhase("connecting");
+        startIcePoll(code, false);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to rejoin call";
+      setError(msg);
+      setCanRejoin(true);
+      setPhase("idle");
+      cleanup();
+    }
+  };
+
   // ── Hang up ───────────────────────────────────────────────────────────────
   const handleHangUp = (reason = "user_hangup") => {
     stopPoll(); stopTimer(); clearReconnectTO(); clearConnectTO();
@@ -796,12 +940,18 @@ function LiveCallInner() {
     if (wasDropped && callCodeRef.current) {
       setCanRejoin(true);
       setRejoinCode(callCodeRef.current);
+      setRejoinWasInitiator(isInitiatorRef.current);
     }
     // Reset signaling state so the next call starts clean
     alreadyAnswered.current = false;
     seenInitIce.current     = 0;
     seenRecvIce.current     = 0;
-    if (callCodeRef.current) {
+    const shouldCompleteCall =
+      reason === "user_hangup" ||
+      reason === "user_hangup_during_reconnect" ||
+      reason === "remote_hangup";
+
+    if (callCodeRef.current && shouldCompleteCall) {
       fetch(`/api/calls/${callCodeRef.current}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "status", status: "completed", reason }),
@@ -1354,7 +1504,7 @@ function LiveCallInner() {
               </div>
               <div className="flex gap-3">
                 <Button
-                  onClick={() => rejoinCode && handleJoinCall(rejoinCode)}
+                  onClick={() => rejoinCode && handleReconnectToCall(rejoinCode, rejoinWasInitiator)}
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
                 >
                   <PhoneCall size={16} className="mr-2" />
@@ -1364,6 +1514,7 @@ function LiveCallInner() {
                   onClick={() => {
                     setCanRejoin(false);
                     setRejoinCode("");
+                    setRejoinWasInitiator(false);
                   }}
                   variant="outline"
                   className="flex-1"
