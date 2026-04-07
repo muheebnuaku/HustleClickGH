@@ -217,6 +217,30 @@ function CallPageInner() {
 
   useEffect(() => () => cleanup(), [cleanup]);
 
+  // ── Clear localStorage when call ends or succeeds ───────────────────────────
+  useEffect(() => {
+    if (phase === "ended" || phase === "active" || phase === "connecting" || phase === "joining") {
+      if (phase === "ended" || (phase === "connecting" && callCodeRef.current)) {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("hustleclick_active_call_code");
+          localStorage.removeItem("hustleclick_is_initiator");
+          localStorage.removeItem("hustleclick_other_name");
+        }
+      }
+    }
+  }, [phase]);
+
+  // ── Persist call info to localStorage during active/calling phases ──────────
+  useEffect(() => {
+    if (phase === "calling" || phase === "joining" || phase === "connecting" || phase === "active" || phase === "reconnecting") {
+      if (callCodeRef.current && typeof window !== "undefined") {
+        localStorage.setItem("hustleclick_active_call_code", callCodeRef.current);
+        localStorage.setItem("hustleclick_is_initiator", isInitiatorRef.current ? "true" : "false");
+        if (otherName) localStorage.setItem("hustleclick_other_name", otherName);
+      }
+    }
+  }, [phase, otherName]);
+
   // ── beforeunload — warn on page close/refresh during active call ───────────
   useEffect(() => {
     const activePhases: Phase[] = ["active", "reconnecting", "connecting", "calling"];
@@ -288,6 +312,18 @@ function CallPageInner() {
       return;
     }
 
+    // Check localStorage first for a persisted call code (from before page refresh)
+    const storedCallCode = typeof window !== "undefined" ? localStorage.getItem("hustleclick_active_call_code") : null;
+    if (storedCallCode) {
+      hasAutoJoined.current = true;
+      const storedInitiator = localStorage.getItem("hustleclick_is_initiator") === "true";
+      const storedOtherName = localStorage.getItem("hustleclick_other_name") || "";
+      setPendingRejoinCode(storedCallCode);
+      setPendingRejoinIsInitiator(storedInitiator);
+      if (storedOtherName) setOtherName(storedOtherName);
+      return;
+    }
+
     // Check if there's a call in progress we should offer to rejoin
     // (does NOT auto-rejoin, just detects and shows button)
     (async () => {
@@ -300,9 +336,9 @@ function CallPageInner() {
           const currentUserId = profileData.user?.id;
 
           if (currentUserId && Array.isArray(calls)) {
-            // Find active call where user is part of
+            // Find active OR reconnecting call where user is part of
             const userCall = calls.find(c =>
-              c.status === "active" &&
+              (c.status === "active" || c.status === "reconnecting") &&
               (c.initiatorId === currentUserId || c.receiverId === currentUserId)
             );
             if (userCall && userCall.callCode) {
@@ -312,6 +348,11 @@ function CallPageInner() {
               setPendingRejoinIsInitiator(isInitiator);
               if (userCall.initiatorName) setOtherName(userCall.initiatorName);
               if (userCall.receiverName && !isInitiator) setOtherName(userCall.receiverName);
+              // Store in localStorage in case of another refresh
+              localStorage.setItem("hustleclick_active_call_code", userCall.callCode);
+              localStorage.setItem("hustleclick_is_initiator", isInitiator ? "true" : "false");
+              if (userCall.initiatorName) localStorage.setItem("hustleclick_other_name", userCall.initiatorName);
+              if (userCall.receiverName && !isInitiator) localStorage.setItem("hustleclick_other_name", userCall.receiverName);
             }
           }
         }
