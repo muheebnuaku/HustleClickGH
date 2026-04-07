@@ -789,10 +789,10 @@ function LiveCallInner() {
   const handleHangUp = (reason = "user_hangup") => {
     stopPoll(); stopTimer(); clearReconnectTO(); clearConnectTO();
     releaseWakeLock();
-    // If the call dropped unexpectedly, remember who to call back
-    const wasDropped = reason === "remote_hangup" || reason === "reconnect_timeout";
-    if (wasDropped && otherCodeRef.current) {
-      setLastCallTarget({ name: otherNameRef.current || "them", code: otherCodeRef.current });
+    // If the call dropped unexpectedly, remember who to call back and enable rejoin
+    const wasDropped = reason === "remote_hangup" || reason === "reconnect_timeout" || reason === "connection_failed";
+    if (wasDropped && callCodeRef.current) {
+      setCanRejoin(true);
     }
     // Reset signaling state so the next call starts clean
     alreadyAnswered.current = false;
@@ -1324,6 +1324,37 @@ function LiveCallInner() {
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm flex gap-2">
             <AlertCircle size={16} className="mt-0.5 shrink-0" />{error}
           </div>
+        )}
+
+        {/* ── REJOIN MODAL — shown when user gets disconnected but call is still active ── */}
+        {canRejoin && callCodeRef.current && phase === "idle" && (
+          <Card className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/30 border-blue-300 dark:border-blue-700">
+            <div className="space-y-4">
+              <div className="text-center">
+                <div className="w-14 h-14 mx-auto rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center mb-3">
+                  <PhoneCall className="text-blue-600" size={24} />
+                </div>
+                <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">Call Still Active</p>
+                <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">You were disconnected. The other person is still waiting.</p>
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => handleJoinCall(callCodeRef.current)}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <PhoneCall size={16} className="mr-2" />
+                  Rejoin Call
+                </Button>
+                <Button
+                  onClick={() => setCanRejoin(false)}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          </Card>
         )}
 
         {/* ── IDLE ── */}
