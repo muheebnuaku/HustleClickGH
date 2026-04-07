@@ -969,7 +969,13 @@ function CallPageInner() {
         : reason;
     setEndedReason(effectiveReason);
 
-    if (callCodeRef.current) {
+    const shouldCompleteCall =
+      reason === "user_hangup" ||
+      reason === "user_hangup_during_reconnect" ||
+      reason === "remote_hangup" ||
+      reason === "remote_hangup_during_reconnect";
+
+    if (callCodeRef.current && shouldCompleteCall) {
       fetch(`/api/calls/${callCodeRef.current}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1744,6 +1750,7 @@ function CallPageInner() {
             );
           }
 
+          const canRejoin = !!callCodeRef.current;
           const canCallBack = isInitiatorRef.current && !!savedTargetCodeRef.current;
 
           return (
@@ -1761,7 +1768,23 @@ function CallPageInner() {
               </div>
 
               <div className="px-6 pb-7 pt-4 border-t border-white/5 flex items-end justify-center gap-8">
-                {canCallBack ? (
+                {canRejoin ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const code = callCodeRef.current;
+                        if (!code) return;
+                        setError("");
+                        setEndedReason("");
+                        handleReconnectToCall(code, isInitiatorRef.current);
+                      }}
+                      className="w-16 h-16 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-xl shadow-blue-600/40 ring-1 ring-blue-400/30"
+                    >
+                      <PhoneCall size={24} className="text-white" />
+                    </button>
+                    <span className="text-[11px] font-medium tracking-wide text-slate-400">Rejoin</span>
+                  </div>
+                ) : canCallBack ? (
                   <div className="flex flex-col items-center gap-2">
                     <button
                       onClick={() => {

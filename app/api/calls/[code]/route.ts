@@ -7,6 +7,36 @@ import { logActivity, getIp } from "@/lib/activity-log";
 
 const VALID_STATUSES = new Set(["completed", "missed", "declined", "reconnecting"]);
 
+async function logForParticipants(
+  request: Request,
+  call: { initiatorId: string; receiverId: string | null },
+  type: "call_reconnecting" | "call_end",
+  severity: "info" | "warning" | "success",
+  metadata: Record<string, unknown>,
+) {
+  const ids = Array.from(new Set([call.initiatorId, call.receiverId].filter(Boolean) as string[]));
+  if (!ids.length) return;
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, fullName: true },
+  });
+  const namesById = new Map(users.map((u) => [u.id, u.fullName]));
+
+  await Promise.all(
+    ids.map((id) =>
+      logActivity({
+        type,
+        userId: id,
+        userName: namesById.get(id) ?? null,
+        severity,
+        metadata: { ...metadata, forUserId: id },
+        ip: getIp(request),
+      })
+    )
+  );
+}
+
 // GET: Poll for session state (both sides use this)
 export async function GET(
   req: Request,
@@ -183,19 +213,51 @@ export async function PATCH(
         data: { offer: JSON.stringify(body.offer), answer: null, initiatorIce: "[]", receiverIce: "[]", status: "reconnecting" },
       });
 
+      await logForParticipants(
+        request,
+        { initiatorId: callSession.initiatorId, receiverId: callSession.receiverId },
+        "call_reconnecting",
+        "warning",
+        {
+          callCode: code,
+          actorUserId: session.user.id,
+          reason: "restart_offer",
+        }
+      );
+
     } else if (type === "status") {
       const newStatus = body.status as string;
       if (!VALID_STATUSES.has(newStatus)) {
         return NextResponse.json({ message: "Invalid status" }, { status: 400 });
       }
       await prisma.callSession.update({ where: { callCode: code }, data: { status: newStatus } });
+      if (newStatus === "reconnecting") {
+        await logForParticipants(
+          request,
+          { initiatorId: callSession.initiatorId, receiverId: callSession.receiverId },
+          "call_reconnecting",
+          "warning",
+          {
+            callCode: code,
+            actorUserId: session.user.id,
+            reason: body.reason ?? "status_update",
+          }
+        );
+      }
       if (newStatus === "completed") {
-        await logActivity({
-          type: "call_end", userId: session.user.id, userName: session.user.name ?? null,
-          severity: "success",
-          metadata: { callCode: code, initiatorId: callSession.initiatorId, receiverId: callSession.receiverId, reason: body.reason ?? "user_hangup" },
-          ip: getIp(request),
-        });
+        await logForParticipants(
+          request,
+          { initiatorId: callSession.initiatorId, receiverId: callSession.receiverId },
+          "call_end",
+          "success",
+          {
+            callCode: code,
+            initiatorId: callSession.initiatorId,
+            receiverId: callSession.receiverId,
+            actorUserId: session.user.id,
+            reason: body.reason ?? "user_hangup",
+          }
+        );
         // Fire-and-forget: prune old terminal sessions to keep the table lean
         const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
         prisma.callSession.deleteMany({
