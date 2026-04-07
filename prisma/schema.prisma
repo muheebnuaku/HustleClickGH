@@ -22,6 +22,7 @@ model User {
   nationalId      String?
   role            String        @default("user") // user or admin
   status          String        @default("active") // active, suspended
+  emailFlagged    Boolean       @default(false) // true if email from free provider
   balance         Float         @default(0)
   totalEarned     Float         @default(0)
   referralCode    String        @unique

@@ -68,6 +68,17 @@ export const authOptions: NextAuthOptions = {
           throw new Error("User not found");
         }
 
+        if (user.status !== "active") {
+          await logActivity({
+            type: "login_failed",
+            userId: user.id,
+            userName: user.fullName,
+            severity: "warning",
+            metadata: { userId: credentials.userId, reason: "Account suspended" },
+          });
+          throw new Error("Account suspended");
+        }
+
         const isPasswordValid = await compare(credentials.password, user.password);
 
         if (!isPasswordValid) {
@@ -143,6 +154,17 @@ export const authOptions: NextAuthOptions = {
                 where: { id: existingUser.id },
                 data: { personalCallCode },
               });
+            }
+            // Check if user is suspended
+            if (existingUser.status !== "active") {
+              await logActivity({
+                type: "login_failed",
+                userId: existingUser.id,
+                userName: existingUser.fullName,
+                severity: "warning",
+                metadata: { provider: account.provider, email: user.email, reason: "Account suspended" },
+              });
+              return false;
             }
             await logActivity({
               type: "login",
