@@ -31,16 +31,6 @@ function generatePersonalCallCode(): string {
   return code;
 }
 
-function isFreeEmailProvider(email: string): boolean {
-  const domain = email.split('@')[1]?.toLowerCase() || '';
-  const freeProviders = [
-    'gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com',
-    'mail.com', 'ymail.com', 'aol.com', 'protonmail.com', 'gmx.com',
-    'web.de', 'mail.de', 'live.com', 'msn.com', 'me.com'
-  ];
-  return freeProviders.includes(domain);
-}
-
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -96,7 +86,6 @@ export async function POST(request: Request) {
         referralCode,
         personalCallCode,
         referredBy,
-        emailFlagged: isFreeEmailProvider(email),
         role: "user",
       },
     });

@@ -7,7 +7,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users, AlertCircle, Lock, Unlock } from "lucide-react";
+import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 interface UserData {
@@ -22,15 +22,11 @@ interface UserData {
   referralCount: number;
   createdAt: string;
   role: string;
-  status: string;
-  emailFlagged: boolean;
 }
 
 interface UserStats {
   totalUsers: number;
   activeUsers: number;
-  suspendedUsers: number;
-  flaggedEmails: number;
   totalPaidOut: number;
   totalBalance: number;
 }
@@ -39,18 +35,16 @@ export default function AdminUsersPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const [users, setUsers] = useState<UserData[]>([]);
-  const [stats, setStats] = useState<UserStats>({ totalUsers: 0, activeUsers: 0, suspendedUsers: 0, flaggedEmails: 0, totalPaidOut: 0, totalBalance: 0 });
+  const [stats, setStats] = useState<UserStats>({ totalUsers: 0, activeUsers: 0, totalPaidOut: 0, totalBalance: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterFlagged, setFilterFlagged] = useState(false);
-  const [suspendingId, setSuspendingId] = useState<string | null>(null);
 
   const fetchUsers = async () => {
     try {
       const res = await fetch("/api/admin/users");
       const data = await res.json();
       setUsers(data.users || []);
-      setStats(data.stats || { totalUsers: 0, activeUsers: 0, suspendedUsers: 0, flaggedEmails: 0, totalPaidOut: 0, totalBalance: 0 });
+      setStats(data.stats || { totalUsers: 0, activeUsers: 0, totalPaidOut: 0, totalBalance: 0 });
     } catch (error) {
       console.error("Failed to fetch users:", error);
     } finally {
@@ -73,17 +67,12 @@ export default function AdminUsersPage() {
     }
   }, [status, router, session]);
 
-  const filteredUsers = users.filter((user) => {
-    const matchesSearch = user.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.userId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.phone.includes(searchTerm);
-
-    if (filterFlagged) {
-      return matchesSearch && user.emailFlagged;
-    }
-    return matchesSearch;
-  });
+  const filteredUsers = users.filter((user) =>
+    user.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.userId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.phone.includes(searchTerm)
+  );
 
   const exportEmails = () => {
     const emails = filteredUsers.map(u => u.email).join("\n");
@@ -103,35 +92,13 @@ export default function AdminUsersPage() {
       u.userId, u.fullName, u.email, u.phone, u.balance, u.totalEarned, u.surveysCompleted, u.referralCount, formatDate(u.createdAt)
     ]);
     const csv = [headers, ...rows].map(row => row.join(",")).join("\n");
-
+    
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `users_${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
-  };
-
-  const handleSuspendUser = async (userId: string, action: "suspend" | "unsuspend") => {
-    setSuspendingId(userId);
-    try {
-      const res = await fetch("/api/admin/users", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, action }),
-      });
-
-      if (res.ok) {
-        fetchUsers();
-      } else {
-        alert("Failed to update user status");
-      }
-    } catch (error) {
-      console.error("Error updating user:", error);
-      alert("Error updating user");
-    } finally {
-      setSuspendingId(null);
-    }
   };
 
   if (status === "loading" || isLoading) {
@@ -157,7 +124,7 @@ export default function AdminUsersPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -180,32 +147,6 @@ export default function AdminUsersPage() {
                 <div>
                   <p className="text-sm text-zinc-500">Active Users</p>
                   <p className="text-2xl font-bold text-foreground">{stats.activeUsers}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center">
-                  <Lock className="text-red-600" size={24} />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-500">Suspended</p>
-                  <p className="text-2xl font-bold text-foreground">{stats.suspendedUsers}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-yellow-100 dark:bg-yellow-900/30 rounded-xl flex items-center justify-center">
-                  <AlertCircle className="text-yellow-600" size={24} />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-500">Flagged Emails</p>
-                  <p className="text-2xl font-bold text-foreground">{stats.flaggedEmails}</p>
                 </div>
               </div>
             </CardContent>
@@ -241,38 +182,29 @@ export default function AdminUsersPage() {
         {/* Search & Export */}
         <Card>
           <CardContent className="pt-6">
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={20} />
-                  <Input
-                    placeholder="Search by name, email, user ID, or phone..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-                <div className="flex gap-2 flex-wrap">
-                  <Button
-                    variant={filterFlagged ? "default" : "outline"}
-                    onClick={() => setFilterFlagged(!filterFlagged)}
-                  >
-                    <AlertCircle size={18} />
-                    {filterFlagged ? "Showing Flagged" : "Show Flagged"}
-                  </Button>
-                  <Button variant="outline" onClick={exportEmails}>
-                    <Mail size={18} />
-                    Emails
-                  </Button>
-                  <Button variant="outline" onClick={exportPhones}>
-                    <Phone size={18} />
-                    Phones
-                  </Button>
-                  <Button variant="outline" onClick={exportCSV}>
-                    <Download size={18} />
-                    CSV
-                  </Button>
-                </div>
+            <div className="flex flex-col sm:flex-row gap-4 justify-between">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={20} />
+                <Input
+                  placeholder="Search by name, email, user ID, or phone..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <Button variant="outline" onClick={exportEmails}>
+                  <Mail size={18} />
+                  Emails
+                </Button>
+                <Button variant="outline" onClick={exportPhones}>
+                  <Phone size={18} />
+                  Phones
+                </Button>
+                <Button variant="outline" onClick={exportCSV}>
+                  <Download size={18} />
+                  CSV
+                </Button>
               </div>
             </div>
           </CardContent>
@@ -299,8 +231,7 @@ export default function AdminUsersPage() {
                       <th className="text-right py-3 px-4 text-sm font-medium text-zinc-500">Earned</th>
                       <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Surveys</th>
                       <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Referrals</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">Status</th>
-                      <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Actions</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">Joined</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -314,15 +245,7 @@ export default function AdminUsersPage() {
                         </td>
                         <td className="py-3 px-4">
                           <div>
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm text-foreground">{user.email}</p>
-                              {user.emailFlagged && (
-                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 text-xs font-medium">
-                                  <AlertCircle size={12} />
-                                  Flagged
-                                </span>
-                              )}
-                            </div>
+                            <p className="text-sm text-foreground">{user.email}</p>
                             <p className="text-xs text-zinc-500">{user.phone}</p>
                           </div>
                         </td>
@@ -339,38 +262,7 @@ export default function AdminUsersPage() {
                           <span className="text-foreground">{user.referralCount}</span>
                         </td>
                         <td className="py-3 px-4">
-                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                            user.status === "active"
-                              ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
-                              : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
-                          }`}>
-                            {user.status === "active" ? "Active" : "Suspended"}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <Button
-                            size="sm"
-                            variant={user.status === "active" ? "destructive" : "default"}
-                            onClick={() => handleSuspendUser(user.id, user.status === "active" ? "suspend" : "unsuspend")}
-                            disabled={suspendingId === user.id}
-                            className="gap-1"
-                          >
-                            {suspendingId === user.id ? (
-                              <>
-                                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                              </>
-                            ) : user.status === "active" ? (
-                              <>
-                                <Lock size={14} />
-                                Suspend
-                              </>
-                            ) : (
-                              <>
-                                <Unlock size={14} />
-                                Unsuspend
-                              </>
-                            )}
-                          </Button>
+                          <span className="text-sm text-zinc-500">{formatDate(user.createdAt)}</span>
                         </td>
                       </tr>
                     ))}

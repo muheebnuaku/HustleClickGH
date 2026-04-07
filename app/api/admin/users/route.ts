@@ -40,7 +40,6 @@ export async function GET() {
       totalEarned: user.totalEarned,
       role: user.role,
       status: user.status,
-      emailFlagged: user.emailFlagged,
       surveysCompleted: user._count.surveyResponses,
       referralCount: user._count.referrals,
       createdAt: user.createdAt,
@@ -49,8 +48,6 @@ export async function GET() {
     // Calculate stats
     const totalUsers = users.length;
     const activeUsers = users.filter(u => u.status === "active").length;
-    const suspendedUsers = users.filter(u => u.status === "suspended").length;
-    const flaggedEmails = users.filter(u => u.emailFlagged).length;
     const totalBalance = users.reduce((sum, u) => sum + u.balance, 0);
     const totalPaidOut = users.reduce((sum, u) => {
       const paidOut = u.withdrawals.reduce((s, w) => s + w.amount, 0);
@@ -62,70 +59,12 @@ export async function GET() {
       stats: {
         totalUsers,
         activeUsers,
-        suspendedUsers,
-        flaggedEmails,
         totalPaidOut,
         totalBalance,
       },
     });
   } catch (error) {
     console.error("Users fetch error:", error);
-    return NextResponse.json(
-      { message: "An error occurred" },
-      { status: 500 }
-    );
-  }
-}
-
-// Admin: Suspend/Unsuspend user
-export async function PATCH(request: Request) {
-  try {
-    const session = await getServerSession(authOptions);
-
-    if (!session || !session.user || session.user.role !== "admin") {
-      return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
-    }
-
-    const body = await request.json();
-    const { userId, action } = body; // action: "suspend" or "unsuspend"
-
-    if (!userId || !["suspend", "unsuspend"].includes(action)) {
-      return NextResponse.json(
-        { message: "Invalid request" },
-        { status: 400 }
-      );
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { message: "User not found" },
-        { status: 404 }
-      );
-    }
-
-    const newStatus = action === "suspend" ? "suspended" : "active";
-
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: { status: newStatus },
-    });
-
-    return NextResponse.json({
-      message: `User ${action === "suspend" ? "suspended" : "unsuspended"} successfully`,
-      user: {
-        id: updated.id,
-        userId: updated.userId,
-        fullName: updated.fullName,
-        email: updated.email,
-        status: updated.status,
-      },
-    });
-  } catch (error) {
-    console.error("User update error:", error);
     return NextResponse.json(
       { message: "An error occurred" },
       { status: 500 }
