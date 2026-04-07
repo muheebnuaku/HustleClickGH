@@ -1480,13 +1480,13 @@ function LiveCallInner() {
 
               {/* Body */}
               {isReconnecting ? (
-                <div className="text-center py-6 px-5">
-                  <p className="text-5xl font-mono font-bold text-white tracking-wider mb-3">{fmt(timer)}</p>
+                <div className="text-center py-6 px-5 space-y-4">
+                  <p className="text-5xl font-mono font-bold text-white tracking-wider">{fmt(timer)}</p>
                   <div className="flex items-center justify-center gap-2">
                     <Loader2 size={14} className="text-amber-400 animate-spin" />
                     <p className="text-amber-300 text-sm">Reconnecting automatically…</p>
                   </div>
-                  <p className="text-slate-500 text-xs mt-1">Do not close this page</p>
+                  <p className="text-slate-500 text-xs">Do not close this page</p>
                 </div>
               ) : (
                 <div className="text-center py-8">
@@ -1534,6 +1534,18 @@ function LiveCallInner() {
                         : <ScreenShare size={22} className="text-white" />}
                     </button>
                     <span className="text-slate-400 text-xs">{isRecording ? "Stop Rec" : "Record"}</span>
+                  </div>
+                )}
+
+                {isReconnecting && (
+                  <div className="flex flex-col items-center gap-1.5">
+                    <button
+                      onClick={() => handleReconnect(callCodeRef.current, isInitiatorRef.current)}
+                      className="w-14 h-14 rounded-full bg-amber-600 hover:bg-amber-700 flex items-center justify-center transition-colors"
+                    >
+                      <RefreshCw size={22} className="text-white" />
+                    </button>
+                    <span className="text-slate-400 text-xs">Retry</span>
                   </div>
                 )}
 

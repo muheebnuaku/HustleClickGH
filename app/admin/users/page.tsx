@@ -44,11 +44,31 @@ export default function AdminUsersPage() {
       const res = await fetch("/api/admin/users");
       const data = await res.json();
       setUsers(data.users || []);
-      setStats(data.stats || { totalUsers: 0, activeUsers: 0, totalPaidOut: 0, totalBalance: 0 });
+      setStats(data.stats || { totalUsers: 0, activeUsers: 0, suspendedUsers: 0, flaggedEmails: 0, totalPaidOut: 0, totalBalance: 0 });
     } catch (error) {
       console.error("Failed to fetch users:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSuspendUser = async (userId: string, currentStatus: string) => {
+    setSuspendingId(userId);
+    try {
+      const action = currentStatus === "active" ? "suspend" : "unsuspend";
+      const res = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, action }),
+      });
+
+      if (res.ok) {
+        await fetchUsers();
+      }
+    } catch (error) {
+      console.error("Failed to update user status:", error);
+    } finally {
+      setSuspendingId(null);
     }
   };
 
@@ -67,12 +87,17 @@ export default function AdminUsersPage() {
     }
   }, [status, router, session]);
 
-  const filteredUsers = users.filter((user) =>
-    user.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.userId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.phone.includes(searchTerm)
-  );
+  const filteredUsers = users.filter((user) => {
+    const matchesSearch =
+      user.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.userId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.phone.includes(searchTerm);
+
+    const matchesFilter = !filterFlagged || user.emailFlagged;
+
+    return matchesSearch && matchesFilter;
+  });
 
   const exportEmails = () => {
     const emails = filteredUsers.map(u => u.email).join("\n");
@@ -124,7 +149,7 @@ export default function AdminUsersPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-6 gap-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -145,8 +170,34 @@ export default function AdminUsersPage() {
                   <User className="text-green-600" size={24} />
                 </div>
                 <div>
-                  <p className="text-sm text-zinc-500">Active Users</p>
+                  <p className="text-sm text-zinc-500">Active</p>
                   <p className="text-2xl font-bold text-foreground">{stats.activeUsers}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center">
+                  <Lock className="text-red-600" size={24} />
+                </div>
+                <div>
+                  <p className="text-sm text-zinc-500">Suspended</p>
+                  <p className="text-2xl font-bold text-foreground">{stats.suspendedUsers}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-yellow-100 dark:bg-yellow-900/30 rounded-xl flex items-center justify-center">
+                  <AlertCircle className="text-yellow-600" size={24} />
+                </div>
+                <div>
+                  <p className="text-sm text-zinc-500">Flagged Emails</p>
+                  <p className="text-2xl font-bold text-foreground">{stats.flaggedEmails}</p>
                 </div>
               </div>
             </CardContent>
@@ -182,29 +233,43 @@ export default function AdminUsersPage() {
         {/* Search & Export */}
         <Card>
           <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-4 justify-between">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={20} />
-                <Input
-                  placeholder="Search by name, email, user ID, or phone..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col sm:flex-row gap-4 justify-between">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={20} />
+                  <Input
+                    placeholder="Search by name, email, user ID, or phone..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button variant="outline" onClick={exportEmails}>
+                    <Mail size={18} />
+                    Emails
+                  </Button>
+                  <Button variant="outline" onClick={exportPhones}>
+                    <Phone size={18} />
+                    Phones
+                  </Button>
+                  <Button variant="outline" onClick={exportCSV}>
+                    <Download size={18} />
+                    CSV
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-2 flex-wrap">
-                <Button variant="outline" onClick={exportEmails}>
-                  <Mail size={18} />
-                  Emails
-                </Button>
-                <Button variant="outline" onClick={exportPhones}>
-                  <Phone size={18} />
-                  Phones
-                </Button>
-                <Button variant="outline" onClick={exportCSV}>
-                  <Download size={18} />
-                  CSV
-                </Button>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="flaggedFilter"
+                  checked={filterFlagged}
+                  onChange={(e) => setFilterFlagged(e.target.checked)}
+                  className="w-4 h-4 rounded border-zinc-300"
+                />
+                <label htmlFor="flaggedFilter" className="text-sm text-zinc-600 dark:text-zinc-400 cursor-pointer">
+                  Show only flagged emails (free providers)
+                </label>
               </div>
             </div>
           </CardContent>
@@ -226,12 +291,14 @@ export default function AdminUsersPage() {
                   <thead>
                     <tr className="border-b border-zinc-200 dark:border-zinc-800">
                       <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">User</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">Contact</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">Email</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Status</th>
                       <th className="text-right py-3 px-4 text-sm font-medium text-zinc-500">Balance</th>
                       <th className="text-right py-3 px-4 text-sm font-medium text-zinc-500">Earned</th>
                       <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Surveys</th>
                       <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Referrals</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">Joined</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -244,10 +311,26 @@ export default function AdminUsersPage() {
                           </div>
                         </td>
                         <td className="py-3 px-4">
-                          <div>
-                            <p className="text-sm text-foreground">{user.email}</p>
-                            <p className="text-xs text-zinc-500">{user.phone}</p>
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <p className="text-sm text-foreground">{user.email}</p>
+                              <p className="text-xs text-zinc-500">{user.phone}</p>
+                            </div>
+                            {user.emailFlagged && (
+                              <span className="inline-block px-2 py-1 text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 rounded">
+                                Flagged
+                              </span>
+                            )}
                           </div>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`inline-block px-3 py-1 text-xs font-medium rounded ${
+                            user.status === "active"
+                              ? "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400"
+                              : "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400"
+                          }`}>
+                            {user.status === "active" ? "Active" : "Suspended"}
+                          </span>
                         </td>
                         <td className="py-3 px-4 text-right">
                           <span className="font-medium text-green-600">{formatCurrency(user.balance)}</span>
@@ -263,6 +346,31 @@ export default function AdminUsersPage() {
                         </td>
                         <td className="py-3 px-4">
                           <span className="text-sm text-zinc-500">{formatDate(user.createdAt)}</span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            onClick={() => handleSuspendUser(user.id, user.status)}
+                            disabled={suspendingId === user.id}
+                            className={`px-3 py-1 text-sm font-medium rounded border transition ${
+                              user.status === "active"
+                                ? "border-red-300 text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+                                : "border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-900/20"
+                            } ${suspendingId === user.id ? "opacity-50 cursor-not-allowed" : ""}`}
+                          >
+                            {suspendingId === user.id ? (
+                              <div className="flex items-center gap-1">
+                                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                              </div>
+                            ) : user.status === "active" ? (
+                              <div className="flex items-center gap-1">
+                                <Lock size={14} />Suspend
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1">
+                                <Unlock size={14} />Unsuspend
+                              </div>
+                            )}
+                          </button>
                         </td>
                       </tr>
                     ))}
