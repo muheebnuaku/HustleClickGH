@@ -35,9 +35,11 @@ export default function AdminUsersPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const [users, setUsers] = useState<UserData[]>([]);
-  const [stats, setStats] = useState<UserStats>({ totalUsers: 0, activeUsers: 0, totalPaidOut: 0, totalBalance: 0 });
+  const [stats, setStats] = useState<UserStats>({ totalUsers: 0, activeUsers: 0, suspendedUsers: 0, flaggedEmails: 0, totalPaidOut: 0, totalBalance: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [filterFlagged, setFilterFlagged] = useState(false);
+  const [suspendingId, setSuspendingId] = useState<string | null>(null);
 
   const fetchUsers = async () => {
     try {
