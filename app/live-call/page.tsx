@@ -289,7 +289,10 @@ function LiveCallInner() {
 
   // ── Check if call still exists when disconnected ────────────────────────────
   useEffect(() => {
-    if (phase !== "ended" || !callCodeRef.current) return;
+    if (phase !== "ended" || !callCodeRef.current) {
+      setCanRejoin(false);
+      return;
+    }
 
     const checkCallExists = async () => {
       try {
@@ -300,28 +303,19 @@ function LiveCallInner() {
         }
         const data = await res.json();
         // If call status is not "completed", show rejoin button
-        setCanRejoin(data.status !== "completed");
-      } catch {
+        const stillActive = data.status && data.status !== "completed";
+        setCanRejoin(stillActive);
+      } catch (err) {
+        console.error("Failed to check call status:", err);
         setCanRejoin(false);
       }
     };
 
     checkCallExists();
-    // Re-check every 2 seconds to see if the other person hung up
-    const interval = setInterval(checkCallExists, 2000);
+    // Re-check every 1 second to see if the other person hung up
+    const interval = setInterval(checkCallExists, 1000);
     return () => clearInterval(interval);
   }, [phase]);
-
-  // ── Auto-return to idle after call ends ────────────────────────────────────
-  useEffect(() => {
-    if (phase !== "ended") return;
-    // If rejoin option exists, don't auto-return
-    if (canRejoin) return;
-    const timer = setTimeout(() => {
-      resetToIdle();
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [phase, canRejoin]);
 
   // ── Keyboard refresh block ─────────────────────────────────────────────────
   useEffect(() => {
