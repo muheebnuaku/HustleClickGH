@@ -58,6 +58,7 @@ export default function ReferralPage() {
   const referralLink = `https://hustleclickgh.com/register?ref=${referralCode}`;
   const totalReferrals = referrals.length;
   const totalEarnings = referrals.reduce((sum, r) => sum + r.earned, 0);
+  const displayedReferrals = referrals.slice(0, 50);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(referralLink);
@@ -247,7 +248,7 @@ export default function ReferralPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {referrals.map((referral) => (
+                {displayedReferrals.map((referral) => (
                   <div
                     key={referral.id}
                     className="flex items-center justify-between p-4 rounded-lg border border-zinc-200 dark:border-zinc-800"

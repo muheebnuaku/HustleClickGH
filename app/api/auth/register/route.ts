@@ -90,24 +90,30 @@ export async function POST(request: Request) {
       },
     });
 
-    // If user was referred, create referral record and credit referrer
+    // If user was referred, check if referrer can accept more referrals (max 50)
     if (referredBy) {
-      await prisma.$transaction([
-        prisma.referral.create({
-          data: {
-            referrerId: referredBy,
-            referredId: user.id,
-            earned: SITE_CONFIG.survey.referralBonus,
-          },
-        }),
-        prisma.user.update({
-          where: { id: referredBy },
-          data: {
-            balance: { increment: SITE_CONFIG.survey.referralBonus },
-            totalEarned: { increment: SITE_CONFIG.survey.referralBonus },
-          },
-        }),
-      ]);
+      const referralCount = await prisma.referral.count({
+        where: { referrerId: referredBy },
+      });
+
+      if (referralCount < 50) {
+        await prisma.$transaction([
+          prisma.referral.create({
+            data: {
+              referrerId: referredBy,
+              referredId: user.id,
+              earned: SITE_CONFIG.survey.referralBonus,
+            },
+          }),
+          prisma.user.update({
+            where: { id: referredBy },
+            data: {
+              balance: { increment: SITE_CONFIG.survey.referralBonus },
+              totalEarned: { increment: SITE_CONFIG.survey.referralBonus },
+            },
+          }),
+        ]);
+      }
     }
 
     logActivity({
