@@ -70,6 +70,7 @@ function LiveCallInner() {
   const [swapped,           setSwapped]           = useState(false);
   const [pipPos,            setPipPos]            = useState<{ x: number; y: number } | null>(null);
   const [lastCallTarget,    setLastCallTarget]    = useState<{ name: string; code: string } | null>(null);
+  const [canRejoin,         setCanRejoin]         = useState(false);
 
   useEffect(() => {
     setIsIOS(/iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -285,6 +286,42 @@ function LiveCallInner() {
     document.addEventListener("visibilitychange", handler);
     return () => document.removeEventListener("visibilitychange", handler);
   }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Check if call still exists when disconnected ────────────────────────────
+  useEffect(() => {
+    if (phase !== "ended" || !callCodeRef.current) return;
+
+    const checkCallExists = async () => {
+      try {
+        const res = await fetch(`/api/calls/${callCodeRef.current}`);
+        if (!res.ok) {
+          setCanRejoin(false);
+          return;
+        }
+        const data = await res.json();
+        // If call status is not "completed", show rejoin button
+        setCanRejoin(data.status !== "completed");
+      } catch {
+        setCanRejoin(false);
+      }
+    };
+
+    checkCallExists();
+    // Re-check every 2 seconds to see if the other person hung up
+    const interval = setInterval(checkCallExists, 2000);
+    return () => clearInterval(interval);
+  }, [phase]);
+
+  // ── Auto-return to idle after call ends ────────────────────────────────────
+  useEffect(() => {
+    if (phase !== "ended") return;
+    // If rejoin option exists, don't auto-return
+    if (canRejoin) return;
+    const timer = setTimeout(() => {
+      resetToIdle();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [phase, canRejoin]);
 
   // ── Keyboard refresh block ─────────────────────────────────────────────────
   useEffect(() => {
@@ -1443,13 +1480,46 @@ function LiveCallInner() {
 
         {/* ── ENDED ── */}
         {phase === "ended" && (
-          <Card className="p-6 text-center space-y-2">
-            <div className="w-14 h-14 mx-auto rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
-              <PhoneOff className="w-7 h-7 text-zinc-400" />
-            </div>
-            <p className="font-medium text-zinc-600 dark:text-zinc-400">Call ended</p>
-            <p className="text-xs text-zinc-400">Returning to dial screen…</p>
-          </Card>
+          <>
+            {canRejoin ? (
+              <Card className="p-6 text-center space-y-4">
+                <div className="w-14 h-14 mx-auto rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
+                  <PhoneOff className="w-7 h-7 text-yellow-600" />
+                </div>
+                <div>
+                  <p className="font-medium text-lg text-foreground">Disconnected</p>
+                  <p className="text-sm text-zinc-500 mt-1">{otherName || "Your partner"} is still on the call</p>
+                </div>
+                <div className="flex gap-2 justify-center pt-2">
+                  <Button
+                    onClick={() => {
+                      setPhase("idle");
+                      setCanRejoin(false);
+                      handleStartCall(otherCodeRef.current);
+                    }}
+                    className="bg-amber-600 hover:bg-amber-700 text-white"
+                  >
+                    <PhoneCall size={18} className="mr-2" />
+                    Rejoin Call
+                  </Button>
+                  <Button
+                    onClick={resetToIdle}
+                    variant="outline"
+                  >
+                    Back to Dial
+                  </Button>
+                </div>
+              </Card>
+            ) : (
+              <Card className="p-6 text-center space-y-2">
+                <div className="w-14 h-14 mx-auto rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+                  <PhoneOff className="w-7 h-7 text-zinc-400" />
+                </div>
+                <p className="font-medium text-zinc-600 dark:text-zinc-400">Call ended</p>
+                <p className="text-xs text-zinc-400">Returning to dial screen…</p>
+              </Card>
+            )}
+          </>
         )}
 
         {/* ── DARK CALL INTERFACE — all in-call phases (audio) ── */}
