@@ -28,7 +28,7 @@ type Phase =
   | "declined";
 
 // Fallback ICE servers (STUN + openrelay TURN) when /api/turn-credentials fails.
-// Diverse STUN pool ensures NAT traversal works from any country.
+// Diverse STUN pool + regional TURN ensures NAT traversal works from any country.
 const FALLBACK_ICE: RTCIceServer[] = [
   // Google STUN (global, highly reliable)
   { urls: "stun:stun.l.google.com:19302" },
@@ -41,12 +41,21 @@ const FALLBACK_ICE: RTCIceServer[] = [
   // Twilio STUN (reliable global)
   { urls: "stun:stun.stunprotocol.org:3478" },
   { urls: "stun:stun.l.stunprotocol.org:3478" },
+  { urls: "stun:stun1.stunprotocol.org:3478" },
+  { urls: "stun:stun2.stunprotocol.org:3478" },
   // Nextcloud STUN (community-run fallback)
   { urls: "stun:stun.nextcloud.com:3478" },
-  // TURN as last resort (openrelay public server)
+  // Regional TURN servers (openrelay)
+  // Africa/global (primary)
   { urls: "turn:openrelay.metered.video:80",                username: "openrelayproject", credential: "openrelayproject" },
   { urls: "turn:openrelay.metered.video:443",               username: "openrelayproject", credential: "openrelayproject" },
   { urls: "turn:openrelay.metered.video:443?transport=tcp",  username: "openrelayproject", credential: "openrelayproject" },
+  // Europe regional
+  { urls: "turn:eu.openrelay.metered.video:80",             username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:eu.openrelay.metered.video:443",            username: "openrelayproject", credential: "openrelayproject" },
+  // Asia regional
+  { urls: "turn:ap.openrelay.metered.video:80",             username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:ap.openrelay.metered.video:443",            username: "openrelayproject", credential: "openrelayproject" },
 ];
 
 /** Fire-and-forget client-side activity log */
