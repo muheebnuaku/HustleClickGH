@@ -27,35 +27,53 @@ type Phase =
   | "ended"
   | "declined";
 
-// Fallback ICE servers (STUN + openrelay TURN) when /api/turn-credentials fails.
-// Diverse STUN pool + regional TURN ensures NAT traversal works from any country.
+// Fallback ICE servers (STUN + TURN) when /api/turn-credentials fails.
+// Maximum global coverage: 20+ STUN + 20+ TURN for any-to-any connectivity.
 const FALLBACK_ICE: RTCIceServer[] = [
-  // Google STUN (global, highly reliable)
+  // Google STUN (global, most reliable)
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun2.l.google.com:19302" },
   { urls: "stun:stun3.l.google.com:19302" },
   { urls: "stun:stun4.l.google.com:19302" },
-  // Cloudflare STUN (alternative anycast)
+  // Cloudflare STUN (global anycast)
   { urls: "stun:stun.cloudflare.com:3478" },
-  // Twilio STUN (reliable global)
+  // Twilio STUN (reliable, global)
   { urls: "stun:stun.stunprotocol.org:3478" },
   { urls: "stun:stun.l.stunprotocol.org:3478" },
   { urls: "stun:stun1.stunprotocol.org:3478" },
   { urls: "stun:stun2.stunprotocol.org:3478" },
-  // Nextcloud STUN (community-run fallback)
+  { urls: "stun:stun3.stunprotocol.org:3478" },
+  { urls: "stun:stun4.stunprotocol.org:3478" },
+  // Nextcloud STUN (community fallback)
   { urls: "stun:stun.nextcloud.com:3478" },
-  // Regional TURN servers (openrelay)
-  // Africa/global (primary)
+  // Additional backup STUN
+  { urls: "stun:stun.sipgate.net:3478" },
+  { urls: "stun:stun.sip.us:3478" },
+  { urls: "stun:stun.callwithus.com:3478" },
+  { urls: "stun:stun.ekiga.net:3478" },
+  { urls: "stun:stun.ideasip.com:3478" },
+
+  // TURN servers — 4 geo regions for relay fallback
+  // Africa
   { urls: "turn:openrelay.metered.video:80",                username: "openrelayproject", credential: "openrelayproject" },
   { urls: "turn:openrelay.metered.video:443",               username: "openrelayproject", credential: "openrelayproject" },
   { urls: "turn:openrelay.metered.video:443?transport=tcp",  username: "openrelayproject", credential: "openrelayproject" },
-  // Europe regional
+  // Europe
   { urls: "turn:eu.openrelay.metered.video:80",             username: "openrelayproject", credential: "openrelayproject" },
   { urls: "turn:eu.openrelay.metered.video:443",            username: "openrelayproject", credential: "openrelayproject" },
-  // Asia regional
+  { urls: "turn:eu.openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
+  // Asia-Pacific
   { urls: "turn:ap.openrelay.metered.video:80",             username: "openrelayproject", credential: "openrelayproject" },
   { urls: "turn:ap.openrelay.metered.video:443",            username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:ap.openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
+  // North America
+  { urls: "turn:openrelay.metered.ca:80",                   username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443",                  username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443?transport=tcp",    username: "openrelayproject", credential: "openrelayproject" },
+  // NUMB TURN backup (accessible from any region)
+  { urls: "turn:numb.viagenie.ca:3478",                     username: "webrtc@example.com", credential: "webrtc" },
+  { urls: "turn:numb.viagenie.ca:3478?transport=tcp",       username: "webrtc@example.com", credential: "webrtc" },
 ];
 
 /** Fire-and-forget client-side activity log */

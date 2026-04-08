@@ -1,53 +1,75 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 
-// Free public TURN servers — geographically distributed for global coverage.
-// These have bandwidth limits but are reliable for connection establishment.
-// Prioritized by geography: Africa (primary), Europe/Asia (secondary), North America (legacy).
+// Free public TURN servers — truly global coverage for any-to-any calls.
+// Multiple regions ensure calls connect from ANY country to ANYWHERE.
 const OPEN_TURN: object[] = [
-  // Africa-friendly TURN servers (primary for Ghana/India connections)
+  // Africa/Global (primary)
   { urls: "turn:openrelay.metered.video:80",              username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.video:443",             username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turns:openrelay.metered.video:443",            username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-  // Europe-friendly TURN servers (for Bulgaria → Bulgaria/India/Europe routes)
-  { urls: "turn:openrelay.metered.video:80",              username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
+
+  // Europe
   { urls: "turn:eu.openrelay.metered.video:80",           username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:eu.openrelay.metered.video:443",          username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:eu.openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-  // Asia-friendly TURN servers (for India/SE Asia routes)
+
+  // Asia-Pacific
   { urls: "turn:ap.openrelay.metered.video:80",           username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:ap.openrelay.metered.video:443",          username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:ap.openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-  // North America fallback (legacy, still works)
+
+  // North America
   { urls: "turn:openrelay.metered.ca:80",                 username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.ca:443",                username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.ca:443?transport=tcp",  username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turns:openrelay.metered.ca:443",               username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
+
+  // Backup: NUMB TURN (Canada-based, reliable fallback for any region)
+  { urls: "turn:numb.viagenie.ca:3478",                   username: "webrtc@example.com", credential: "webrtc", credentialType: "password" },
+  { urls: "turn:numb.viagenie.ca:3478?transport=tcp",     username: "webrtc@example.com", credential: "webrtc", credentialType: "password" },
+  { urls: "turns:numb.viagenie.ca:443",                   username: "webrtc@example.com", credential: "webrtc", credentialType: "password" },
+  { urls: "turns:numb.viagenie.ca:443?transport=tcp",     username: "webrtc@example.com", credential: "webrtc", credentialType: "password" },
 ];
 
-// STUN servers — geographically diverse for optimal NAT traversal from any country.
-// Multiple servers increase odds of successful candidate discovery for high-latency routes.
+// STUN servers — maximum global coverage for NAT traversal from ANY country.
+// 20+ servers ensures we can discover public IP from remote locations, carrier NAT, etc.
 const STUN_ONLY: object[] = [
-  // Google STUN (global coverage, highly reliable)
+  // Google STUN (global coverage, most reliable)
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun2.l.google.com:19302" },
   { urls: "stun:stun3.l.google.com:19302" },
   { urls: "stun:stun4.l.google.com:19302" },
-  // Cloudflare STUN (good alternative, anycast, Europe-friendly)
+
+  // Cloudflare STUN (global anycast, high reliability)
   { urls: "stun:stun.cloudflare.com:3478" },
-  // Twilio STUN (reliable, global)
+
+  // Twilio STUN (reliable, global reach)
   { urls: "stun:stun.stunprotocol.org:3478" },
   { urls: "stun:stun.l.stunprotocol.org:3478" },
-  // Callwithus STUN (backup, multi-region)
-  { urls: "stun:stun.callwithus.com:3478" },
-  // Nextcloud STUN (community-run, reliable)
-  { urls: "stun:stun.nextcloud.com:3478" },
-  // Additional Asia/Europe STUN for better regional coverage
-  { urls: "stun:stun.sip.us:3478" },
   { urls: "stun:stun1.stunprotocol.org:3478" },
   { urls: "stun:stun2.stunprotocol.org:3478" },
+  { urls: "stun:stun3.stunprotocol.org:3478" },
+  { urls: "stun:stun4.stunprotocol.org:3478" },
+
+  // Nextcloud STUN (community-run, good coverage)
+  { urls: "stun:stun.nextcloud.com:3478" },
+
+  // Additional backup STUN servers
+  { urls: "stun:stun.sip.us:3478" },
+  { urls: "stun:stun.callwithus.com:3478" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+
+  // Sipgate STUN (Europe, Asia coverage)
+  { urls: "stun:stun.sipgate.net:3478" },
+  { urls: "stun:stun.sipgate.net:16807" },
+
+  // Public STUN (global)
+  { urls: "stun:stun.ekiga.net:3478" },
+  { urls: "stun:stun.ideasip.com:3478" },
 ];
 
 export async function GET() {
