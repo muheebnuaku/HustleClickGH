@@ -20,7 +20,7 @@ model User {
   password        String
   image           String?       // Profile image URL or base64
   nationalId      String?
-  role            String        @default("user") // user or admin
+  role            String        @default("user") // user, admin, or manager
   status          String        @default("active") // active, suspended
   emailFlagged    Boolean       @default(false) // true if email from free provider
   balance         Float         @default(0)
@@ -210,6 +210,8 @@ model CallSession {
   receiverIce     String    @default("[]") // JSON array of RTCIceCandidate from receiver
   status          String    @default("waiting") // calling | waiting | active | completed | declined | missed
   callType        String    @default("audio")   // "audio" | "video"
+  endedBy         String?   // user id of who ended the call (initiator or receiver)
+  endedReason     String?   // reason for ending (user_hangup, remote_hangup, call_timeout, etc)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -220,13 +222,14 @@ model CallSession {
 model CallRecording {
   id                   String   @id @default(cuid())
   callCode             String
-  userId               String
+  userId               String         // Original recorder (owner of call)
   user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   duration             Int      // seconds
   fileUrl              String
   fileSize             Int?     // bytes
   callType             String   @default("audio")
   otherName            String?
+  callEndedBy          String?  // user ID of whoever ended the call (for auto-share)
   shareFromRecordingId String?  // FK to original recording if this was auto-shared
   sharedRecording      CallRecording? @relation("RecordingShare", fields: [shareFromRecordingId], references: [id], onDelete: SetNull)
   sharedTo             CallRecording[] @relation("RecordingShare")

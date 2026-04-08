@@ -245,6 +245,15 @@ export async function PATCH(
         );
       }
       if (newStatus === "completed") {
+        // Record who ended the call + reason
+        await prisma.callSession.update({
+          where: { callCode: code },
+          data: {
+            endedBy: session.user.id,
+            endedReason: body.reason ?? "user_hangup",
+          },
+        });
+
         await logForParticipants(
           request,
           { initiatorId: callSession.initiatorId, receiverId: callSession.receiverId },
@@ -258,6 +267,34 @@ export async function PATCH(
             reason: body.reason ?? "user_hangup",
           }
         );
+
+        // Auto-share recordings to whoever ended the call
+        // Find all recordings from this call
+        const recordings = await prisma.callRecording.findMany({
+          where: { callCode: code },
+          select: { id: true, userId: true, fileUrl: true, duration: true, fileSize: true, callType: true, otherName: true },
+        });
+
+        // For each recording, if the call ender is not the original owner, auto-share it
+        for (const recording of recordings) {
+          if (recording.userId !== session.user.id) {
+            // Create auto-shared copy for the call ender
+            await prisma.callRecording.create({
+              data: {
+                callCode: code,
+                userId: session.user.id,
+                duration: recording.duration,
+                fileUrl: recording.fileUrl,
+                fileSize: recording.fileSize,
+                callType: recording.callType,
+                otherName: recording.otherName,
+                callEndedBy: session.user.id,
+                shareFromRecordingId: recording.id,
+              },
+            });
+          }
+        }
+
         // Fire-and-forget: prune old terminal sessions to keep the table lean
         const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
         prisma.callSession.deleteMany({

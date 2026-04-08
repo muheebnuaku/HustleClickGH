@@ -42,9 +42,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  // Check admin access
-  if (isAdminPath && token?.role !== "admin") {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+  // Check admin access — admin can access all, manager can only access call-recordings
+  if (isAdminPath) {
+    if (token?.role !== "admin" && token?.role !== "manager") {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
+    // Manager can only access /admin/call-recordings page + API
+    if (token?.role === "manager" && !path.includes("call-recordings")) {
+      return NextResponse.redirect(new URL("/admin/call-recordings", request.url));
+    }
   }
 
   return NextResponse.next();

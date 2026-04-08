@@ -39,7 +39,7 @@ function fmtDate(d: string) {
 }
 
 export default function AdminCallRecordingsPage() {
-  const { status } = useSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
 
   const [recordings,  setRecordings]  = useState<Recording[]>([]);
@@ -52,10 +52,21 @@ export default function AdminCallRecordingsPage() {
   const [callType,    setCallType]    = useState("");
   const [playing,     setPlaying]     = useState<Recording | null>(null);
   const [deleting,    setDeleting]    = useState<Set<string>>(new Set());
+  const [userRole,    setUserRole]    = useState<string | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
   }, [status, router]);
+
+  // Fetch user role to determine if they're admin or manager
+  useEffect(() => {
+    if (session?.user?.id) {
+      fetch("/api/profile")
+        .then(r => r.json())
+        .then(d => setUserRole(d.user?.role))
+        .catch(() => {});
+    }
+  }, [session]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -222,15 +233,17 @@ export default function AdminCallRecordingsPage() {
                           >
                             <Download size={13} />Download
                           </button>
-                          <button
-                            onClick={() => handleDelete(r)}
-                            disabled={deleting.has(r.id)}
-                            className="inline-flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700 dark:text-red-400 disabled:opacity-40"
-                            title="Delete recording"
+                          {userRole === "admin" && (
+                            <button
+                              onClick={() => handleDelete(r)}
+                              disabled={deleting.has(r.id)}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700 dark:text-red-400 disabled:opacity-40"
+                              title="Delete recording"
                           >
                             {deleting.has(r.id) ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
                             Delete
                           </button>
+                          )}
                         </div>
                       </td>
                     </tr>

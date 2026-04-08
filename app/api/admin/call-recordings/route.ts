@@ -3,13 +3,16 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 
-// GET /api/admin/call-recordings — all recordings (admin only)
+// GET /api/admin/call-recordings — all recordings (admin + manager with read-only access)
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { role: true } });
-  if (user?.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Allow admin (full access) and manager (read-only)
+  if (user?.role !== "admin" && user?.role !== "manager") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const { searchParams } = new URL(req.url);
   const page     = Math.max(1, parseInt(searchParams.get("page")     || "1"));

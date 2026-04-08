@@ -10,7 +10,7 @@ import { useState, useEffect } from "react";
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  useSession();
+  const { data: session } = useSession();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Prevent body scroll when sidebar is open
@@ -29,7 +29,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     signOut({ callbackUrl: "/" });
   };
 
-  const navItems = [
+  const allNavItems = [
     { href: "/admin/data-projects", label: "Data Projects", icon: Database },
     { href: "/admin", label: "Surveys", icon: LayoutDashboard },
     { href: "/admin/users", label: "Users", icon: Users },
@@ -41,6 +41,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     { href: "/admin/blog", label: "Blog", icon: MessageSquare },
     { href: "/admin/qr-code", label: "QR Code", icon: QrCode },
   ];
+
+  // Filter nav items based on role — managers can only see call-recordings
+  const navItems = session?.user?.role === "manager"
+    ? allNavItems.filter(item => item.href.includes("call-recordings"))
+    : allNavItems;
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
