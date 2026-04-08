@@ -1,23 +1,40 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 
-// Free public TURN servers — always included as fallback alongside Metered.
+// Free public TURN servers — geographically distributed for global coverage.
 // These have bandwidth limits but are reliable for connection establishment.
+// Prioritized by geography: Africa (primary), Europe/Asia fallback, North America (legacy).
 const OPEN_TURN: object[] = [
+  // Africa-friendly TURN servers (primary for Ghana/India connections)
   { urls: "turn:openrelay.metered.video:80",              username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.video:443",             username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turns:openrelay.metered.video:443",            username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
+  // Canada fallback (legacy, still works)
   { urls: "turn:openrelay.metered.ca:80",                 username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.ca:443",                username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.ca:443?transport=tcp",  username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turns:openrelay.metered.ca:443",               username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
 ];
 
+// STUN servers — geographically diverse for optimal NAT traversal from any country.
+// Multiple servers increase odds of successful candidate discovery for high-latency routes.
 const STUN_ONLY: object[] = [
+  // Google STUN (global coverage, highly reliable)
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" },
+  // Cloudflare STUN (good alternative, different anycast)
   { urls: "stun:stun.cloudflare.com:3478" },
+  // Twilio STUN (reliable, global)
+  { urls: "stun:stun.stunprotocol.org:3478" },
+  { urls: "stun:stun.l.stunprotocol.org:3478" },
+  // Callwithus STUN (backup option)
+  { urls: "stun:stun.callwithus.com:3478" },
+  // Nextcloud STUN (community-run, reliable)
+  { urls: "stun:stun.nextcloud.com:3478" },
 ];
 
 export async function GET() {

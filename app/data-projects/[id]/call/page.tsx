@@ -28,9 +28,22 @@ type Phase =
   | "declined";
 
 // Fallback ICE servers (STUN + openrelay TURN) when /api/turn-credentials fails.
+// Diverse STUN pool ensures NAT traversal works from any country.
 const FALLBACK_ICE: RTCIceServer[] = [
+  // Google STUN (global, highly reliable)
   { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" },
+  // Cloudflare STUN (alternative anycast)
   { urls: "stun:stun.cloudflare.com:3478" },
+  // Twilio STUN (reliable global)
+  { urls: "stun:stun.stunprotocol.org:3478" },
+  { urls: "stun:stun.l.stunprotocol.org:3478" },
+  // Nextcloud STUN (community-run fallback)
+  { urls: "stun:stun.nextcloud.com:3478" },
+  // TURN as last resort (openrelay public server)
   { urls: "turn:openrelay.metered.video:80",                username: "openrelayproject", credential: "openrelayproject" },
   { urls: "turn:openrelay.metered.video:443",               username: "openrelayproject", credential: "openrelayproject" },
   { urls: "turn:openrelay.metered.video:443?transport=tcp",  username: "openrelayproject", credential: "openrelayproject" },
@@ -450,7 +463,7 @@ function CallPageInner() {
   ): RTCPeerConnection => {
     const pc = new RTCPeerConnection({
       iceServers,
-      iceCandidatePoolSize: 16,
+      iceCandidatePoolSize: 50,  // Increased from 16 for more candidates on high-latency routes
       bundlePolicy: "max-bundle",
       rtcpMuxPolicy: "require",
     });
@@ -536,9 +549,9 @@ function CallPageInner() {
   const startIcePoll = (code: string, asInitiator: boolean, isReconnecting = false, currentPhase: Phase = "connecting") => {
     if (pollRef.current) return;
     let busy = false;
-    // Fast poll during reconnect (250ms), fast during initial connection (600ms), slower after connected (1500ms)
-    // This ensures ICE candidates are exchanged quickly before connection attempt fails
-    const pollInterval = isReconnecting ? 250 : (currentPhase === "connecting") ? 600 : 1500;
+    // Fast poll during reconnect (250ms), very fast during initial connection (400ms for intl routes), slower after connected (1500ms)
+    // This ensures ICE candidates are exchanged quickly before connection attempt fails, critical for high-latency international routes
+    const pollInterval = isReconnecting ? 250 : (currentPhase === "connecting") ? 400 : 1500;
 
     pollRef.current = setInterval(async () => {
       if (busy || !pollRef.current) return;
@@ -827,12 +840,12 @@ function CallPageInner() {
 
       connectTORef.current = setTimeout(() => {
         if (pcRef.current?.connectionState !== "connected") {
-          clientLog("call_timeout", { callCode: code, reason: "reconnect_timeout_60s" }, "error");
+          clientLog("call_timeout", { callCode: code, reason: "reconnect_timeout_90s" }, "error");
           setError("Could not reconnect. Try refreshing the page again.");
           setPhase("ended");
           cleanup();
         }
-      }, 60_000);
+      }, 90_000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to reconnect";
       clientLog("call_error", { callCode: code, phase: "reconnect", error: msg }, "error");
@@ -941,12 +954,12 @@ function CallPageInner() {
 
       connectTORef.current = setTimeout(() => {
         if (pcRef.current?.connectionState !== "connected") {
-          clientLog("call_timeout", { callCode: code, reason: "connect_timeout_60s" }, "error");
+          clientLog("call_timeout", { callCode: code, reason: "connect_timeout_90s" }, "error");
           setError("Could not connect to the caller. Check your network and try again.");
           setPhase("ended");
           cleanup();
         }
-      }, 60_000);
+      }, 90_000);
 
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to join call";
