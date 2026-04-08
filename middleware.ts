@@ -48,8 +48,12 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
     // Manager can only access /admin/call-recordings page + API
-    if (token?.role === "manager" && !path.includes("call-recordings")) {
-      return NextResponse.redirect(new URL("/admin/call-recordings", request.url));
+    if (token?.role === "manager") {
+      const isCallRecordingsPath = path === "/admin/call-recordings" ||
+                                    path.startsWith("/api/admin/call-recordings");
+      if (!isCallRecordingsPath) {
+        return NextResponse.redirect(new URL("/admin/call-recordings", request.url));
+      }
     }
   }
 
