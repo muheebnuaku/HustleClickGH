@@ -506,6 +506,33 @@ function CallPageInner() {
       }
 
       if (s === "failed") {
+        clientLog("call_connection_failed", {
+          callCode: callCodeRef.current,
+          phase: phaseRef.current,
+          iceConnectionState: pc.iceConnectionState,
+          iceGatheringState: pc.iceGatheringState,
+        }, "error");
+
+        // For initial connection failures, attempt ICE restart immediately + aggressive recovery
+        if (phaseRef.current === "connecting" && !iceRestartPendingRef.current && isInitiatorRef.current && callCodeRef.current) {
+          clientLog("call_ice_restart_initiated", { callCode: callCodeRef.current, reason: "initial_connection_failed" }, "info");
+          const pc2   = pc;
+          const code2 = callCodeRef.current;
+          iceRestartPendingRef.current = true;
+          seenRecvIce.current = 0;
+          // Restart ICE immediately on connection failure for international routes
+          pc2.createOffer({ iceRestart: true })
+            .then(offer => pc2.setLocalDescription(offer).then(() => offer))
+            .then(offer => fetch(`/api/calls/${code2}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "restart-offer", offer }),
+            }))
+            .catch(() => {
+              iceRestartPendingRef.current = false;
+            });
+        }
+
         clearDisconnectGrace();
         beginReconnectFlow(pc);
       }
@@ -542,6 +569,19 @@ function CallPageInner() {
       }
     };
 
+    // Monitor ICE connection state for early failure detection on international routes
+    pc.oniceconnectionstatechange = () => {
+      const iceState = pc.iceConnectionState;
+      if (iceState === "failed" || iceState === "disconnected") {
+        clientLog("call_ice_failure", {
+          callCode: callCodeRef.current,
+          iceConnectionState: iceState,
+          connectionState: pc.connectionState,
+          phase: phaseRef.current,
+        }, "warning");
+      }
+    };
+
     return pc;
   };
 
@@ -549,9 +589,9 @@ function CallPageInner() {
   const startIcePoll = (code: string, asInitiator: boolean, isReconnecting = false, currentPhase: Phase = "connecting") => {
     if (pollRef.current) return;
     let busy = false;
-    // Fast poll during reconnect (250ms), very fast during initial connection (400ms for intl routes), slower after connected (1500ms)
-    // This ensures ICE candidates are exchanged quickly before connection attempt fails, critical for high-latency international routes
-    const pollInterval = isReconnecting ? 250 : (currentPhase === "connecting") ? 400 : 1500;
+    // Ultra-fast poll during initial connection (200ms for intl routes), fast during reconnect (250ms), slower after connected (1500ms)
+    // Aggressive exchange of ICE candidates is critical for intercontinental routes to succeed before 90s timeout
+    const pollInterval = (currentPhase === "connecting") ? 200 : isReconnecting ? 250 : 1500;
 
     pollRef.current = setInterval(async () => {
       if (busy || !pollRef.current) return;
