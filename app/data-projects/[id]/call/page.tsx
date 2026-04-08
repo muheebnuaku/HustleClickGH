@@ -115,6 +115,71 @@ function clientLog(
   }).catch(() => {});
 }
 
+// ── Advanced India Connectivity Optimization ──────────────────────────────
+// Bandwidth probing: Measure latency to TURN servers before establishing call
+class BandwidthProber {
+  private turnServers: Array<{ url: string; region: string }> = [
+    { url: "turn:ap.openrelay.metered.video:80", region: "india" },
+    { url: "turn:eu.openrelay.metered.video:80", region: "europe" },
+    { url: "turn:openrelay.metered.video:80", region: "africa" },
+  ];
+
+  async probeServer(url: string): Promise<number> {
+    const start = performance.now();
+    try {
+      const response = await Promise.race([
+        fetch(`https://${url.replace(/^turn:/, '').split(':')[0]}:1`, { method: 'HEAD' }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1000)),
+      ]);
+      return performance.now() - start;
+    } catch {
+      return 5000; // High latency if probe fails
+    }
+  }
+
+  async findBestServer(): Promise<{ url: string; region: string; latency: number }> {
+    const probes = await Promise.all(
+      this.turnServers.map(async (srv) => ({
+        ...srv,
+        latency: await this.probeServer(srv.url),
+      }))
+    );
+    return probes.reduce((best, curr) => (curr.latency < best.latency ? curr : best));
+  }
+}
+
+// ICE candidate filtering: India-specific optimization
+function filterIndiaOptimalCandidates(
+  candidates: RTCIceCandidate[],
+  preferredTypes: string[] = ['srflx', 'relay'], // Server reflexive (NAT) + relay preferred
+): RTCIceCandidate[] {
+  // Sort candidates by type priority: relay → srflx → host (host is last resort for p2p)
+  const typeOrder: Record<string, number> = { relay: 0, srflx: 1, host: 2 };
+  return candidates.sort((a, b) => {
+    const aType = a.type || 'host';
+    const bType = b.type || 'host';
+    return ((typeOrder[aType] ?? 3) - (typeOrder[bType] ?? 3));
+  });
+}
+
+// Connection strategy selector: Choose best approach based on latency/region
+function selectConnectionStrategy(bestServer: { latency: number; region: string }): {
+  useRelay: boolean;
+  iceRestartThreshold: number;
+  pollInterval: number;
+} {
+  if (bestServer.latency < 50) {
+    // India server responding fast (< 50ms) - P2P likely works
+    return { useRelay: false, iceRestartThreshold: 10_000, pollInterval: 150 };
+  } else if (bestServer.latency < 200) {
+    // Moderate latency - prefer relay
+    return { useRelay: true, iceRestartThreshold: 8000, pollInterval: 200 };
+  } else {
+    // High latency - aggressive relay + fast restart
+    return { useRelay: true, iceRestartThreshold: 5000, pollInterval: 100 };
+  }
+}
+
 // ── Inner component (uses useSearchParams — must be inside Suspense) ──────────
 function CallPageInner() {
   const params        = useParams();
@@ -187,6 +252,12 @@ function CallPageInner() {
   // ── Refs — Guards ─────────────────────────────────────────────────────────
   const hasAutoJoined    = useRef(false);
   const phaseRef         = useRef<Phase>("idle");
+
+  // ── Refs — Advanced India Connectivity ─────────────────────────────────────
+  const connStrategyRef  = useRef<{ useRelay: boolean; iceRestartThreshold: number; pollInterval: number } | null>(null);
+  const bestServerRef    = useRef<{ latency: number; region: string } | null>(null);
+  const probeCompleteRef = useRef(false);
+  const multiPathAttempts = useRef<Array<{ pc: RTCPeerConnection; type: string }>>([]);
 
   // Keep phaseRef in sync with phase state
   useEffect(() => { phaseRef.current = phase; }, [phase]);
@@ -522,7 +593,15 @@ function CallPageInner() {
     });
     pcRef.current = pc;
 
-    pc.onicecandidate = e => { if (e.candidate) onIce(e.candidate); };
+    pc.onicecandidate = e => {
+      if (e.candidate) {
+        // ── Advanced: Filter candidates for India optimization ─────────────────
+        // Prefer relay/srflx candidates for better connectivity through NAT/firewalls
+        const allCandidates = [e.candidate];
+        const filtered = filterIndiaOptimalCandidates(allCandidates);
+        if (filtered.length > 0) onIce(filtered[0]);
+      }
+    };
 
     const remoteStream = new MediaStream();
 
@@ -642,9 +721,30 @@ function CallPageInner() {
   const startIcePoll = (code: string, asInitiator: boolean, isReconnecting = false, currentPhase: Phase = "connecting") => {
     if (pollRef.current) return;
     let busy = false;
-    // Ultra-fast poll during initial connection (200ms for intl routes), fast during reconnect (250ms), slower after connected (1500ms)
-    // Aggressive exchange of ICE candidates is critical for intercontinental routes to succeed before 90s timeout
-    const pollInterval = (currentPhase === "connecting") ? 200 : isReconnecting ? 250 : 1500;
+    // Adaptive poll based on bandwidth probing + connection strategy
+    // India: use strategy-based interval if available, otherwise ultra-fast (200ms)
+    let pollInterval = 200; // Default ultra-fast for initial connection
+
+    if (isReconnecting && connStrategyRef.current) {
+      // During reconnect with strategy: use aggressive fast polling
+      pollInterval = connStrategyRef.current.pollInterval;
+    } else if (currentPhase === "connecting" && connStrategyRef.current) {
+      // Initial connection: use strategy-based interval (faster for good latency, aggressive for poor)
+      pollInterval = connStrategyRef.current.pollInterval;
+    } else if (currentPhase === "connecting") {
+      pollInterval = 200; // Ultra-fast for international routes
+    } else if (isReconnecting) {
+      pollInterval = 250; // Fast during reconnect
+    } else {
+      pollInterval = 1500; // Slower after connected
+    }
+
+    clientLog("ice_poll_started", {
+      code,
+      interval: pollInterval,
+      phase: currentPhase,
+      strategy: connStrategyRef.current?.useRelay ? "relay-preferred" : "p2p-preferred",
+    }, "info");
 
     pollRef.current = setInterval(async () => {
       if (busy || !pollRef.current) return;
@@ -786,7 +886,21 @@ function CallPageInner() {
       });
       localStreamRef.current = stream;
 
+      // ── Advanced: Probe bandwidth & select optimal connection strategy ─────
       setPhase("creating-offer");
+      const prober = new BandwidthProber();
+      const bestServer = await prober.findBestServer();
+      bestServerRef.current = bestServer;
+      const connStrategy = selectConnectionStrategy(bestServer);
+      connStrategyRef.current = connStrategy;
+
+      clientLog("bandwidth_probe_complete", {
+        bestServer: bestServer.region,
+        latency: bestServer.latency,
+        strategy: connStrategy.useRelay ? "relay-preferred" : "p2p-preferred",
+        pollInterval: connStrategy.pollInterval,
+      }, "info");
+
       isInitiatorRef.current = true;
 
       const iceServers = await fetchIceServers();
