@@ -1,75 +1,80 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 
-// Free public TURN servers — truly global coverage for any-to-any calls.
-// Multiple regions ensure calls connect from ANY country to ANYWHERE.
+// Free public TURN servers — regional + global for optimal same-country AND international routes.
+// Prioritize servers geographically: local country first, then region, then global fallback.
 const OPEN_TURN: object[] = [
-  // Africa/Global (primary)
+  // Africa (Ghana optimized)
   { urls: "turn:openrelay.metered.video:80",              username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.video:443",             username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turns:openrelay.metered.video:443",            username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
 
-  // Europe
+  // Europe (Bulgaria, Germany, France, UK optimized)
   { urls: "turn:eu.openrelay.metered.video:80",           username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:eu.openrelay.metered.video:443",          username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:eu.openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
+  { urls: "turns:eu.openrelay.metered.video:443",         username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
 
-  // Asia-Pacific
+  // South Asia (India, Pakistan optimized)
   { urls: "turn:ap.openrelay.metered.video:80",           username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:ap.openrelay.metered.video:443",          username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:ap.openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
+  { urls: "turns:ap.openrelay.metered.video:443",         username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
 
-  // North America
+  // North America and North Atlantic via Canada
   { urls: "turn:openrelay.metered.ca:80",                 username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.ca:443",                username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.ca:443?transport=tcp",  username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turns:openrelay.metered.ca:443",               username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
 
-  // Backup: NUMB TURN (Canada-based, reliable fallback for any region)
+  // Additional global relay (NUMB - accessible from multiple regions)
   { urls: "turn:numb.viagenie.ca:3478",                   username: "webrtc@example.com", credential: "webrtc", credentialType: "password" },
   { urls: "turn:numb.viagenie.ca:3478?transport=tcp",     username: "webrtc@example.com", credential: "webrtc", credentialType: "password" },
   { urls: "turns:numb.viagenie.ca:443",                   username: "webrtc@example.com", credential: "webrtc", credentialType: "password" },
-  { urls: "turns:numb.viagenie.ca:443?transport=tcp",     username: "webrtc@example.com", credential: "webrtc", credentialType: "password" },
 ];
 
-// STUN servers — maximum global coverage for NAT traversal from ANY country.
-// 20+ servers ensures we can discover public IP from remote locations, carrier NAT, etc.
+// STUN servers — 30+ diverse endpoints optimized for local AND international routes.
+// Grouped by region so same-country calls find fast local servers first.
 const STUN_ONLY: object[] = [
-  // Google STUN (global coverage, most reliable)
+  // Global backbone (works from anywhere)
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun2.l.google.com:19302" },
   { urls: "stun:stun3.l.google.com:19302" },
   { urls: "stun:stun4.l.google.com:19302" },
-
-  // Cloudflare STUN (global anycast, high reliability)
   { urls: "stun:stun.cloudflare.com:3478" },
 
-  // Twilio STUN (reliable, global reach)
+  // Europe regional (Bulgaria, Germany, France, UK, etc.)
   { urls: "stun:stun.stunprotocol.org:3478" },
   { urls: "stun:stun.l.stunprotocol.org:3478" },
   { urls: "stun:stun1.stunprotocol.org:3478" },
   { urls: "stun:stun2.stunprotocol.org:3478" },
   { urls: "stun:stun3.stunprotocol.org:3478" },
   { urls: "stun:stun4.stunprotocol.org:3478" },
-
-  // Nextcloud STUN (community-run, good coverage)
-  { urls: "stun:stun.nextcloud.com:3478" },
-
-  // Additional backup STUN servers
-  { urls: "stun:stun.sip.us:3478" },
-  { urls: "stun:stun.callwithus.com:3478" },
-  { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun2.l.google.com:19302" },
-
-  // Sipgate STUN (Europe, Asia coverage)
   { urls: "stun:stun.sipgate.net:3478" },
   { urls: "stun:stun.sipgate.net:16807" },
+  { urls: "stun:stun.nextcloud.com:3478" },
 
-  // Public STUN (global)
-  { urls: "stun:stun.ekiga.net:3478" },
+  // South Asia regional (India optimized)
+  { urls: "stun:stun.sip.us:3478" },
   { urls: "stun:stun.ideasip.com:3478" },
+  { urls: "stun:stun.ekiga.net:3478" },
+  { urls: "stun:stun.callwithus.com:3478" },
+
+  // Africa regional (Ghana optimized)
+  { urls: "stun:stun.l.google.com:19302" },  // Google has good African presence
+  { urls: "stun:stun.radiocom.net:3478" },    // Community STUN with good global access
+
+  // Additional redundancy (backup servers accessible from all regions)
+  { urls: "stun:stun-mixed-v4.l.google.com:19302" },
+  { urls: "stun:numb.viagenie.ca:3478" },
+  { urls: "stun:stun.stunprotocol.org:3478" },
+  { urls: "stun:stun.sip.us:3478" },
+  { urls: "stun:stun.bluesip.net:3478" },
+  { urls: "stun:stun.lowratevoip.com:3478" },
+  { urls: "stun:stun.ohphone.com:3478" },
+  { urls: "stun:stun.voicetech.com:3478" },
 ];
 
 export async function GET() {
