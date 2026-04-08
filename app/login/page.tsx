@@ -82,6 +82,8 @@ export default function AuthPage() {
 
         if (sessionData?.user?.role === "admin") {
           router.push("/admin");
+        } else if (sessionData?.user?.role === "manager") {
+          router.push("/admin/call-recordings");
         } else {
           router.push("/dashboard");
         }
