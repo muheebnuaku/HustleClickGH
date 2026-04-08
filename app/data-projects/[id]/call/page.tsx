@@ -533,11 +533,12 @@ function CallPageInner() {
   };
 
   // ── Signaling polls ───────────────────────────────────────────────────────
-  const startIcePoll = (code: string, asInitiator: boolean, isReconnecting = false) => {
+  const startIcePoll = (code: string, asInitiator: boolean, isReconnecting = false, currentPhase: Phase = "connecting") => {
     if (pollRef.current) return;
     let busy = false;
-    // Fast poll during reconnect (250ms for faster recovery), normal poll otherwise (1500ms)
-    const pollInterval = isReconnecting ? 250 : 1500;
+    // Fast poll during reconnect (250ms), fast during initial connection (600ms), slower after connected (1500ms)
+    // This ensures ICE candidates are exchanged quickly before connection attempt fails
+    const pollInterval = isReconnecting ? 250 : (currentPhase === "connecting") ? 600 : 1500;
 
     pollRef.current = setInterval(async () => {
       if (busy || !pollRef.current) return;
@@ -659,7 +660,7 @@ function CallPageInner() {
           if (!pc) return;
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
           setPhase("connecting");
-          startIcePoll(code, true, false);
+          startIcePoll(code, true, false, "connecting");
         }
       } catch { /* ignore */ } finally { busy = false; }
     }, pollInterval);
@@ -934,7 +935,7 @@ function CallPageInner() {
       });
 
       setPhase("connecting");
-      startIcePoll(code, false, false);
+      startIcePoll(code, false, false, "connecting");
 
       clientLog("call_connecting", { callCode: code, role: "receiver" }, "info");
 
