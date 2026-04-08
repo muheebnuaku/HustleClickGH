@@ -28,27 +28,14 @@ type Phase =
   | "declined";
 
 // Fallback ICE servers (STUN + TURN) when /api/turn-credentials fails.
-// India-to-India priority: India STUN/TURN first, then global backbone, then regional fallbacks.
+// Multi-region optimized: Ghana + Bulgaria + India equally balanced for any-to-any calls
 const FALLBACK_ICE: RTCIceServer[] = [
-  // India primary STUN cluster (CRITICAL for India-to-India calls)
-  { urls: "stun:stun.sip.us:3478" },
-  { urls: "stun:stun.sip.us:3478" },          // Duplicate for load distribution
-  { urls: "stun:stun.ideasip.com:3478" },
-  { urls: "stun:stun.ideasip.com:3478" },     // Duplicate for redundancy
-  { urls: "stun:stun.ekiga.net:3478" },
-  { urls: "stun:stun.ekiga.net:3478" },       // Duplicate for redundancy
-  { urls: "stun:stun.callwithus.com:3478" },
-
-  // Global backbone (Google — works perfectly from India + everywhere else)
+  // AFRICA STUN - Ghana optimized
   { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun.radiocom.net:3478" },
   { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun2.l.google.com:19302" },
-  { urls: "stun:stun3.l.google.com:19302" },
-  { urls: "stun:stun4.l.google.com:19302" },
-  { urls: "stun:stun-mixed-v4.l.google.com:19302" },
-  { urls: "stun:stun.cloudflare.com:3478" },
 
-  // Europe STUN (Bulgaria, Germany, France, UK, etc.)
+  // EUROPE STUN - Bulgaria optimized
   { urls: "stun:stun.stunprotocol.org:3478" },
   { urls: "stun:stun.l.stunprotocol.org:3478" },
   { urls: "stun:stun1.stunprotocol.org:3478" },
@@ -59,47 +46,53 @@ const FALLBACK_ICE: RTCIceServer[] = [
   { urls: "stun:stun.sipgate.net:16807" },
   { urls: "stun:stun.nextcloud.com:3478" },
 
-  // Additional backup STUN
+  // ASIA STUN - India optimized
+  { urls: "stun:stun.sip.us:3478" },
+  { urls: "stun:stun.ideasip.com:3478" },
+  { urls: "stun:stun.ekiga.net:3478" },
+  { urls: "stun:stun.callwithus.com:3478" },
+
+  // Global backbone (Google — universally reliable)
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" },
+  { urls: "stun:stun-mixed-v4.l.google.com:19302" },
+  { urls: "stun:stun.cloudflare.com:3478" },
   { urls: "stun:stun.bluesip.net:3478" },
   { urls: "stun:stun.lowratevoip.com:3478" },
   { urls: "stun:stun.ohphone.com:3478" },
   { urls: "stun:stun.voicetech.com:3478" },
-  { urls: "stun:stun.radiocom.net:3478" },
   { urls: "stun:numb.viagenie.ca:3478" },
 
-  // TURN servers — India-to-India PRIORITY
-  // South Asia PRIMARY (ap.openrelay = India-to-India fast path)
-  { urls: "turn:ap.openrelay.metered.video:80",             username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:ap.openrelay.metered.video:443",            username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:ap.openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turns:ap.openrelay.metered.video:443",           username: "openrelayproject", credential: "openrelayproject" },
+  // TURN servers — Multi-region PRIORITY
+  // AFRICA (Ghana) PRIMARY
+  { urls: "turn:openrelay.metered.video:80",              username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.video:443",             username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turns:openrelay.metered.video:443",            username: "openrelayproject", credential: "openrelayproject" },
 
-  // South Asia BACKUP (redundancy for India)
-  { urls: "turn:ap.openrelay.metered.video:80",             username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:ap.openrelay.metered.video:443",            username: "openrelayproject", credential: "openrelayproject" },
-
-  // Africa (Ghana secondary)
-  { urls: "turn:openrelay.metered.video:80",                username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:openrelay.metered.video:443",               username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:openrelay.metered.video:443?transport=tcp",  username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turns:openrelay.metered.video:443",              username: "openrelayproject", credential: "openrelayproject" },
-
-  // Europe (Bulgaria, Germany, France, UK)
-  { urls: "turn:eu.openrelay.metered.video:80",             username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:eu.openrelay.metered.video:443",            username: "openrelayproject", credential: "openrelayproject" },
+  // EUROPE (Bulgaria) PRIMARY
+  { urls: "turn:eu.openrelay.metered.video:80",           username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:eu.openrelay.metered.video:443",          username: "openrelayproject", credential: "openrelayproject" },
   { urls: "turn:eu.openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turns:eu.openrelay.metered.video:443",           username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turns:eu.openrelay.metered.video:443",         username: "openrelayproject", credential: "openrelayproject" },
 
-  // North America
-  { urls: "turn:openrelay.metered.ca:80",                   username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:openrelay.metered.ca:443",                  username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:openrelay.metered.ca:443?transport=tcp",    username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turns:openrelay.metered.ca:443",                 username: "openrelayproject", credential: "openrelayproject" },
+  // ASIA (India) PRIMARY
+  { urls: "turn:ap.openrelay.metered.video:80",           username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:ap.openrelay.metered.video:443",          username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:ap.openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turns:ap.openrelay.metered.video:443",         username: "openrelayproject", credential: "openrelayproject" },
 
-  // Universal backup (NUMB — last resort)
-  { urls: "turn:numb.viagenie.ca:3478",                     username: "webrtc@example.com", credential: "webrtc" },
-  { urls: "turn:numb.viagenie.ca:3478?transport=tcp",       username: "webrtc@example.com", credential: "webrtc" },
-  { urls: "turns:numb.viagenie.ca:443",                     username: "webrtc@example.com", credential: "webrtc" },
+  // North America (fallback)
+  { urls: "turn:openrelay.metered.ca:80",                 username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443",                username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443?transport=tcp",  username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turns:openrelay.metered.ca:443",               username: "openrelayproject", credential: "openrelayproject" },
+
+  // Universal backup (NUMB — last resort from any region)
+  { urls: "turn:numb.viagenie.ca:3478",                   username: "webrtc@example.com", credential: "webrtc" },
+  { urls: "turn:numb.viagenie.ca:3478?transport=tcp",     username: "webrtc@example.com", credential: "webrtc" },
+  { urls: "turns:numb.viagenie.ca:443",                   username: "webrtc@example.com", credential: "webrtc" },
 ];
 
 /** Fire-and-forget client-side activity log */
@@ -115,13 +108,13 @@ function clientLog(
   }).catch(() => {});
 }
 
-// ── Advanced India Connectivity Optimization ──────────────────────────────
-// Bandwidth probing: Measure latency to TURN servers before establishing call
+// ── Advanced Multi-Region Connectivity Optimization ──────────────────────────────
+// Detects user's region (Ghana, Bulgaria, India, etc.) and optimizes routing
 class BandwidthProber {
-  private turnServers: Array<{ url: string; region: string }> = [
-    { url: "turn:ap.openrelay.metered.video:80", region: "india" },
-    { url: "turn:eu.openrelay.metered.video:80", region: "europe" },
-    { url: "turn:openrelay.metered.video:80", region: "africa" },
+  private regionServers: Array<{ url: string; region: string; continent: string }> = [
+    { url: "turn:openrelay.metered.video:80", region: "ghana", continent: "africa" },
+    { url: "turn:eu.openrelay.metered.video:80", region: "bulgaria", continent: "europe" },
+    { url: "turn:ap.openrelay.metered.video:80", region: "india", continent: "asia" },
   ];
 
   async probeServer(url: string): Promise<number> {
@@ -137,23 +130,29 @@ class BandwidthProber {
     }
   }
 
-  async findBestServer(): Promise<{ url: string; region: string; latency: number }> {
+  async detectUserRegion(): Promise<{ region: string; continent: string; latency: number }> {
     const probes = await Promise.all(
-      this.turnServers.map(async (srv) => ({
-        ...srv,
+      this.regionServers.map(async (srv) => ({
+        region: srv.region,
+        continent: srv.continent,
         latency: await this.probeServer(srv.url),
       }))
     );
-    return probes.reduce((best, curr) => (curr.latency < best.latency ? curr : best));
+    const best = probes.reduce((best, curr) => (curr.latency < best.latency ? curr : best));
+    clientLog("region_detection_complete", {
+      detectedRegion: best.region,
+      continent: best.continent,
+      latency: best.latency,
+    }, "info");
+    return best;
   }
 }
 
-// ICE candidate filtering: India-specific optimization
-function filterIndiaOptimalCandidates(
+// ICE candidate filtering: Region-specific optimization
+function filterRegionOptimalCandidates(
   candidates: RTCIceCandidate[],
-  preferredTypes: string[] = ['srflx', 'relay'], // Server reflexive (NAT) + relay preferred
+  preferredTypes: string[] = ['srflx', 'relay'],
 ): RTCIceCandidate[] {
-  // Sort candidates by type priority: relay → srflx → host (host is last resort for p2p)
   const typeOrder: Record<string, number> = { relay: 0, srflx: 1, host: 2 };
   return candidates.sort((a, b) => {
     const aType = a.type || 'host';
@@ -162,21 +161,37 @@ function filterIndiaOptimalCandidates(
   });
 }
 
-// Connection strategy selector: Choose best approach based on latency/region
-function selectConnectionStrategy(bestServer: { latency: number; region: string }): {
+// Connection strategy selector: Region-aware optimization (Ghana + Bulgaria + India)
+function selectRegionConnectionStrategy(detectedRegion: { latency: number; region: string; continent: string }): {
   useRelay: boolean;
   iceRestartThreshold: number;
   pollInterval: number;
+  region: string;
 } {
-  if (bestServer.latency < 50) {
-    // India server responding fast (< 50ms) - P2P likely works
-    return { useRelay: false, iceRestartThreshold: 10_000, pollInterval: 150 };
-  } else if (bestServer.latency < 200) {
-    // Moderate latency - prefer relay
-    return { useRelay: true, iceRestartThreshold: 8000, pollInterval: 200 };
+  let baseThreshold = 8000;
+  let basePoll = 200;
+
+  // Continent-specific adjustments
+  if (detectedRegion.continent === "africa") {
+    // Ghana: more aggressive due to carrier NAT
+    baseThreshold = 7000;
+    basePoll = 150;
+  } else if (detectedRegion.continent === "europe") {
+    // Bulgaria: good connectivity, moderate aggression
+    baseThreshold = 8000;
+    basePoll = 180;
+  } else if (detectedRegion.continent === "asia") {
+    // India: very aggressive for quick connection
+    baseThreshold = 5000;
+    basePoll = 100;
+  }
+
+  if (detectedRegion.latency < 50) {
+    return { useRelay: false, iceRestartThreshold: baseThreshold + 2000, pollInterval: basePoll - 50, region: detectedRegion.region };
+  } else if (detectedRegion.latency < 200) {
+    return { useRelay: true, iceRestartThreshold: baseThreshold, pollInterval: basePoll, region: detectedRegion.region };
   } else {
-    // High latency - aggressive relay + fast restart
-    return { useRelay: true, iceRestartThreshold: 5000, pollInterval: 100 };
+    return { useRelay: true, iceRestartThreshold: Math.max(5000, baseThreshold - 2000), pollInterval: Math.min(basePoll + 50, 250), region: detectedRegion.region };
   }
 }
 
@@ -253,9 +268,9 @@ function CallPageInner() {
   const hasAutoJoined    = useRef(false);
   const phaseRef         = useRef<Phase>("idle");
 
-  // ── Refs — Advanced India Connectivity ─────────────────────────────────────
-  const connStrategyRef  = useRef<{ useRelay: boolean; iceRestartThreshold: number; pollInterval: number } | null>(null);
-  const bestServerRef    = useRef<{ latency: number; region: string } | null>(null);
+  // ── Refs — Advanced Multi-Region Connectivity ────────────────────────────────
+  const connStrategyRef  = useRef<{ useRelay: boolean; iceRestartThreshold: number; pollInterval: number; region: string } | null>(null);
+  const detectedRegionRef = useRef<{ region: string; continent: string; latency: number } | null>(null);
   const probeCompleteRef = useRef(false);
   const multiPathAttempts = useRef<Array<{ pc: RTCPeerConnection; type: string }>>([]);
 
@@ -595,10 +610,10 @@ function CallPageInner() {
 
     pc.onicecandidate = e => {
       if (e.candidate) {
-        // ── Advanced: Filter candidates for India optimization ─────────────────
+        // ── Advanced: Filter candidates for region optimization ────────────────
         // Prefer relay/srflx candidates for better connectivity through NAT/firewalls
         const allCandidates = [e.candidate];
-        const filtered = filterIndiaOptimalCandidates(allCandidates);
+        const filtered = filterRegionOptimalCandidates(allCandidates);
         if (filtered.length > 0) onIce(filtered[0]);
       }
     };
@@ -743,6 +758,7 @@ function CallPageInner() {
       code,
       interval: pollInterval,
       phase: currentPhase,
+      region: connStrategyRef.current?.region,
       strategy: connStrategyRef.current?.useRelay ? "relay-preferred" : "p2p-preferred",
     }, "info");
 
@@ -886,17 +902,18 @@ function CallPageInner() {
       });
       localStreamRef.current = stream;
 
-      // ── Advanced: Probe bandwidth & select optimal connection strategy ─────
+      // ── Advanced: Detect region & select optimal connection strategy ────────
       setPhase("creating-offer");
       const prober = new BandwidthProber();
-      const bestServer = await prober.findBestServer();
-      bestServerRef.current = bestServer;
-      const connStrategy = selectConnectionStrategy(bestServer);
+      const detectedRegion = await prober.detectUserRegion();
+      detectedRegionRef.current = detectedRegion;
+      const connStrategy = selectRegionConnectionStrategy(detectedRegion);
       connStrategyRef.current = connStrategy;
 
-      clientLog("bandwidth_probe_complete", {
-        bestServer: bestServer.region,
-        latency: bestServer.latency,
+      clientLog("region_optimization_complete", {
+        region: detectedRegion.region,
+        continent: detectedRegion.continent,
+        latency: detectedRegion.latency,
         strategy: connStrategy.useRelay ? "relay-preferred" : "p2p-preferred",
         pollInterval: connStrategy.pollInterval,
       }, "info");
