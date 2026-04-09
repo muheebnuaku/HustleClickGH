@@ -223,9 +223,16 @@ function CallPageInner() {
   const [endedReason,  setEndedReason]  = useState("");
   const [reconnectSecsLeft, setReconnectSecsLeft] = useState(0);
   const [connQuality,       setConnQuality]       = useState<"good" | "poor" | "bad">("good");
+  const [isAdmin,           setIsAdmin]           = useState(false);
+  const [isForceEnding,     setIsForceEnding]     = useState(false);
 
   useEffect(() => {
     setSupportsRecording(typeof AudioContext !== "undefined" && typeof MediaRecorder !== "undefined");
+    // Check if user is admin
+    fetch("/api/profile")
+      .then(r => r.json())
+      .then(d => { if (d.user?.role === "admin") setIsAdmin(true); })
+      .catch(() => {});
   }, []);
 
   // ── Refs — WebRTC ─────────────────────────────────────────────────────────
@@ -1859,6 +1866,39 @@ function CallPageInner() {
                       className="relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg bg-blue-500/30 ring-2 ring-blue-400/60 hover:bg-blue-500/40 shadow-blue-500/20"
                     >
                       <Zap size={21} className="text-blue-300" />
+                    </button>
+                  )}
+
+                  {/* Force End (admin only) */}
+                  {phase === "active" && isAdmin && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm("Force end this call?")) return;
+                        setIsForceEnding(true);
+                        try {
+                          const res = await fetch(`/api/admin/calls/${callCodeRef.current}/force-end`, {
+                            method: "POST",
+                          });
+                          if (res.ok) {
+                            handleHangUp("admin_force_end");
+                          } else {
+                            alert("Failed to force end call");
+                            setIsForceEnding(false);
+                          }
+                        } catch (err) {
+                          alert("Error force ending call");
+                          setIsForceEnding(false);
+                        }
+                      }}
+                      disabled={isForceEnding}
+                      title="Force end this call (admin only)"
+                      className="relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:scale-105 shadow-lg disabled:opacity-60 bg-orange-500/30 ring-2 ring-orange-400/60 hover:bg-orange-500/40 shadow-orange-500/20"
+                    >
+                      {isForceEnding ? (
+                        <Loader2 size={21} className="text-orange-300 animate-spin" />
+                      ) : (
+                        <PhoneOff size={21} className="text-orange-300" />
+                      )}
                     </button>
                   )}
 

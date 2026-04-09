@@ -46,6 +46,7 @@ export default function AdminActiveCallsPage() {
   const [calls, setCalls] = useState<ActiveCall[]>([]);
   const [loading, setLoading] = useState(true);
   const [reconnecting, setReconnecting] = useState<Set<string>>(new Set());
+  const [forceEnding, setForceEnding] = useState<Set<string>>(new Set());
   const hasLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -93,6 +94,30 @@ export default function AdminActiveCallsPage() {
     } catch {
       alert("Error triggering reconnect");
       setReconnecting(prev => {
+        const s = new Set(prev);
+        s.delete(callCode);
+        return s;
+      });
+    }
+  };
+
+  const handleForceEnd = async (callCode: string) => {
+    if (!confirm("Are you sure you want to force end this call?")) return;
+    setForceEnding(prev => new Set(prev).add(callCode));
+    try {
+      const res = await fetch(`/api/admin/calls/${callCode}/force-end`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        alert("Failed to force end call");
+      } else {
+        // Reload calls after force end
+        load();
+      }
+    } catch {
+      alert("Error force ending call");
+    } finally {
+      setForceEnding(prev => {
         const s = new Set(prev);
         s.delete(callCode);
         return s;
@@ -194,26 +219,48 @@ export default function AdminActiveCallsPage() {
                       <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">{fmt(call.duration)}</td>
                       <td className="px-4 py-3 text-xs text-zinc-500 whitespace-nowrap">{fmtDate(call.createdAt)}</td>
                       <td className="px-4 py-3">
-                        <button
-                          onClick={() => handleReconnect(call.callCode)}
-                          disabled={reconnecting.has(call.callCode)}
-                          className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
-                            reconnecting.has(call.callCode)
-                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 opacity-60 cursor-wait"
-                              : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50"
-                          }`}
-                          title="Force both users to reconnect"
-                        >
-                          {reconnecting.has(call.callCode) ? (
-                            <>
-                              <Loader2 size={13} className="animate-spin" />Reconnecting…
-                            </>
-                          ) : (
-                            <>
-                              <Zap size={13} />Reconnect
-                            </>
-                          )}
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleReconnect(call.callCode)}
+                            disabled={reconnecting.has(call.callCode)}
+                            className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                              reconnecting.has(call.callCode)
+                                ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 opacity-60 cursor-wait"
+                                : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                            }`}
+                            title="Force both users to reconnect"
+                          >
+                            {reconnecting.has(call.callCode) ? (
+                              <>
+                                <Loader2 size={13} className="animate-spin" />Reconnecting…
+                              </>
+                            ) : (
+                              <>
+                                <Zap size={13} />Reconnect
+                              </>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => handleForceEnd(call.callCode)}
+                            disabled={forceEnding.has(call.callCode)}
+                            className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                              forceEnding.has(call.callCode)
+                                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 opacity-60 cursor-wait"
+                                : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
+                            }`}
+                            title="Force end this call immediately"
+                          >
+                            {forceEnding.has(call.callCode) ? (
+                              <>
+                                <Loader2 size={13} className="animate-spin" />Ending…
+                              </>
+                            ) : (
+                              <>
+                                <Phone size={13} />Force End
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
