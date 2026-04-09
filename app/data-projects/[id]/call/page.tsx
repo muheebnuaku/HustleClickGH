@@ -1218,7 +1218,8 @@ function CallPageInner() {
       reason === "user_hangup" ||
       reason === "user_hangup_during_reconnect" ||
       reason === "remote_hangup" ||
-      reason === "remote_hangup_during_reconnect";
+      reason === "remote_hangup_during_reconnect" ||
+      reason === "admin_force_end";
 
     if (callCodeRef.current && shouldCompleteCall) {
       fetch(`/api/calls/${callCodeRef.current}`, {
@@ -1226,6 +1227,11 @@ function CallPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "status", status: "completed", reason }),
       }).catch(() => {});
+    }
+
+    // Stop any active recording so the onstop callback fires and uploads it
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
     }
 
     localStreamRef.current?.getTracks().forEach(t => t.stop());
