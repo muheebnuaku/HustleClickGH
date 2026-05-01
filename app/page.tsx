@@ -316,7 +316,7 @@ export default function Home() {
               <div className="flex items-center gap-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 px-7 py-5 rounded-2xl shadow-lg group-hover:shadow-xl group-hover:border-blue-200 dark:group-hover:border-blue-900 transition-all">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src="/hustlelogo.png"
+                  src="/hustlelogo-clean.png"
                   alt="HustleClickGH"
                   width={52}
                   height={52}
