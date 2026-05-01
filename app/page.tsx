@@ -311,10 +311,27 @@ export default function Home() {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-10">
+            {/* HustleClickGH */}
+            <div className="group flex flex-col items-center gap-3">
+              <div className="flex items-center gap-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 px-7 py-5 rounded-2xl shadow-lg group-hover:shadow-xl group-hover:border-blue-200 dark:group-hover:border-blue-900 transition-all">
+                <img
+                  src="/hustlelogo.png"
+                  alt="HustleClickGH"
+                  width={52}
+                  height={52}
+                  className="object-contain rounded-xl"
+                />
+                <div className="border-l border-slate-200 dark:border-slate-700 pl-4">
+                  <p className="text-slate-900 dark:text-white font-bold text-base leading-tight">HUSTLECLICKGH</p>
+                  <p className="text-blue-600 text-xs font-semibold tracking-wide mt-0.5">Ghana&apos;s AI Dataset Platform</p>
+                </div>
+              </div>
+              <span className="text-xs text-slate-500 dark:text-slate-400">Platform Provider</span>
+            </div>
+
             {/* Huawei Cloud HCPN Partner Badge */}
             <div className="group flex flex-col items-center gap-3">
               <div className="flex items-center gap-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 px-7 py-5 rounded-2xl shadow-lg group-hover:shadow-xl group-hover:border-red-200 dark:group-hover:border-red-900 transition-all">
-                {/* Official Huawei logo */}
                 <img
                   src="/huawei-logo.svg"
                   alt="Huawei"
