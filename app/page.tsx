@@ -314,12 +314,13 @@ export default function Home() {
             {/* HustleClickGH */}
             <div className="group flex flex-col items-center gap-3">
               <div className="flex items-center gap-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 px-7 py-5 rounded-2xl shadow-lg group-hover:shadow-xl group-hover:border-blue-200 dark:group-hover:border-blue-900 transition-all">
-                <img
+                <Image
                   src="/hustlelogo.png"
                   alt="HustleClickGH"
                   width={52}
                   height={52}
                   className="object-contain rounded-xl"
+                  priority
                 />
                 <div className="border-l border-slate-200 dark:border-slate-700 pl-4">
                   <p className="text-slate-900 dark:text-white font-bold text-base leading-tight">HUSTLECLICKGH</p>
@@ -332,12 +333,14 @@ export default function Home() {
             {/* Huawei Cloud HCPN Partner Badge */}
             <div className="group flex flex-col items-center gap-3">
               <div className="flex items-center gap-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 px-7 py-5 rounded-2xl shadow-lg group-hover:shadow-xl group-hover:border-red-200 dark:group-hover:border-red-900 transition-all">
-                <img
+                <Image
                   src="/huawei-logo.svg"
                   alt="Huawei"
                   width={56}
                   height={56}
                   className="object-contain"
+                  unoptimized
+                  priority
                 />
                 <div className="border-l border-slate-200 dark:border-slate-700 pl-4">
                   <p className="text-slate-900 dark:text-white font-bold text-base leading-tight">HUAWEI CLOUD</p>
