@@ -4,37 +4,29 @@ import { NextResponse } from "next/server";
 // Multi-region TURN optimization: Ghana + Bulgaria + India for any-to-any calls
 // TURN prioritization ensures fast same-region connections + optimal international routing
 const OPEN_TURN: object[] = [
-  // AFRICA - Ghana PRIMARY (first for Ghana users)
-  { urls: "turn:openrelay.metered.video:80",              username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-  { urls: "turn:openrelay.metered.video:443",             username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
+  // AFRICA - Ghana PRIMARY
+  { urls: "turn:openrelay.metered.video:80",                username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
+  { urls: "turn:openrelay.metered.video:443",               username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-  { urls: "turns:openrelay.metered.video:443",            username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-  { urls: "turn:openrelay.metered.video:80",              username: "openrelayproject", credential: "openrelayproject", credentialType: "password" }, // Duplicate for redundancy
+  { urls: "turns:openrelay.metered.video:443",              username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
 
-  // EUROPE - Bulgaria PRIMARY (first for Bulgaria users + EU)
-  { urls: "turn:eu.openrelay.metered.video:80",           username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-  { urls: "turn:eu.openrelay.metered.video:443",          username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
+  // EUROPE - Bulgaria / EU
+  { urls: "turn:eu.openrelay.metered.video:80",               username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
+  { urls: "turn:eu.openrelay.metered.video:443",              username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:eu.openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-  { urls: "turns:eu.openrelay.metered.video:443",         username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-  { urls: "turn:eu.openrelay.metered.video:80",           username: "openrelayproject", credential: "openrelayproject", credentialType: "password" }, // Duplicate for redundancy
+  { urls: "turns:eu.openrelay.metered.video:443",             username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
 
-  // ASIA - India PRIMARY (first for India users)
-  { urls: "turn:ap.openrelay.metered.video:80",           username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-  { urls: "turn:ap.openrelay.metered.video:443",          username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
+  // ASIA - India
+  { urls: "turn:ap.openrelay.metered.video:80",               username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
+  { urls: "turn:ap.openrelay.metered.video:443",              username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:ap.openrelay.metered.video:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-  { urls: "turns:ap.openrelay.metered.video:443",         username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-  { urls: "turn:ap.openrelay.metered.video:80",           username: "openrelayproject", credential: "openrelayproject", credentialType: "password" }, // Duplicate for redundancy
+  { urls: "turns:ap.openrelay.metered.video:443",             username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
 
-  // NORTH AMERICA - Fallback (Canada via Metered.ca)
+  // NORTH AMERICA - Canada fallback
   { urls: "turn:openrelay.metered.ca:80",                 username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.ca:443",                username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turn:openrelay.metered.ca:443?transport=tcp",  username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
   { urls: "turns:openrelay.metered.ca:443",               username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
-
-  // UNIVERSAL BACKUP (NUMB - accessible from all regions as last resort)
-  { urls: "turn:numb.viagenie.ca:3478",                   username: "webrtc@example.com", credential: "webrtc", credentialType: "password" },
-  { urls: "turn:numb.viagenie.ca:3478?transport=tcp",     username: "webrtc@example.com", credential: "webrtc", credentialType: "password" },
-  { urls: "turns:numb.viagenie.ca:443",                   username: "webrtc@example.com", credential: "webrtc", credentialType: "password" },
 ];
 
 // STUN servers — 50+ endpoints optimized for Ghana, Bulgaria, and India same-country + international
@@ -73,7 +65,6 @@ const STUN_ONLY: object[] = [
   { urls: "stun:stun.lowratevoip.com:3478" },
   { urls: "stun:stun.ohphone.com:3478" },
   { urls: "stun:stun.voicetech.com:3478" },
-  { urls: "stun:numb.viagenie.ca:3478" },
 ];
 
 export async function GET() {

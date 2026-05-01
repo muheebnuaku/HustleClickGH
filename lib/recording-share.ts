@@ -3,14 +3,21 @@
  * Downloads an existing recording and re-uploads it to create a copy.
  */
 
-import { readFileSync, writeFileSync, unlinkSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { tmpdir } from "os";
 
 /**
  * Download and re-upload a recording to create a copy for the other user.
  * Handles both Vercel Blob URLs (production) and local file paths (dev).
  */
+function mimeFromFileName(fileName: string): string {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  if (ext === "mp4") return "video/mp4";
+  if (ext === "ogg") return "audio/ogg";
+  if (ext === "webm") return "video/webm";
+  return "audio/webm";
+}
+
 export async function downloadAndReuploadRecording(
   sourceUrl: string,
   suggestedFileName: string,
@@ -43,8 +50,9 @@ export async function downloadAndReuploadRecording(
         return res.arrayBuffer();
       });
 
-      const blob = new Blob([buffer], { type: "audio/webm" });
-      const file = new File([blob], suggestedFileName, { type: "audio/webm" });
+      const mime = mimeFromFileName(suggestedFileName);
+      const blob = new Blob([buffer], { type: mime });
+      const file = new File([blob], suggestedFileName, { type: mime });
 
       // Import Vercel Blob server SDK
       const { put } = await import("@vercel/blob");

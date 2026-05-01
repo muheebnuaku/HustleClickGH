@@ -41,33 +41,42 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { amount, paymentMethod, mobileNumber, accountName } = body;
 
-    // Get user balance
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json({ message: "User not found" }, { status: 404 });
-    }
-
-    if (user.balance < amount) {
+    const parsedAmount = parseFloat(amount);
+    if (!parsedAmount || parsedAmount < 10) {
       return NextResponse.json(
-        { message: "Insufficient balance" },
+        { message: "Minimum withdrawal amount is GH₵10" },
         { status: 400 }
       );
     }
 
-    // Create withdrawal request
-    const withdrawal = await prisma.withdrawal.create({
-      data: {
-        userId,
-        amount: parseFloat(amount),
-        paymentMethod,
-        mobileNumber,
-        accountName,
-        status: "pending",
-      },
-    });
+    // Atomically check balance and create withdrawal in one transaction
+    // to prevent race conditions from concurrent requests
+    let withdrawal;
+    try {
+      withdrawal = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.findUnique({ where: { id: userId } });
+        if (!user) throw new Error("USER_NOT_FOUND");
+        if (user.balance < parsedAmount) throw new Error("INSUFFICIENT_BALANCE");
+
+        return tx.withdrawal.create({
+          data: {
+            userId,
+            amount: parsedAmount,
+            paymentMethod,
+            mobileNumber,
+            accountName,
+            status: "pending",
+          },
+        });
+      });
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg === "USER_NOT_FOUND")
+        return NextResponse.json({ message: "User not found" }, { status: 404 });
+      if (msg === "INSUFFICIENT_BALANCE")
+        return NextResponse.json({ message: "Insufficient balance" }, { status: 400 });
+      throw err;
+    }
 
     return NextResponse.json({
       message: "Withdrawal request submitted successfully",

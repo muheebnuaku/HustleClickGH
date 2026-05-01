@@ -9,9 +9,9 @@ export function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {/* Brand */}
           <div>
-            <h3 className="text-white text-lg font-bold mb-4">HUSTLECLICK</h3>
+            <h3 className="text-white text-lg font-bold mb-4">HUSTLECLICKGH</h3>
             <p className="text-sm text-zinc-400">
-              Building smart systems that connect people, machines, and ideas.
+              Ghana&apos;s AI Dataset Collection Platform — earn GH₵ by contributing voice recordings and language data for AI training.
             </p>
           </div>
 
@@ -19,15 +19,15 @@ export function Footer() {
           <div>
             <h4 className="text-white font-semibold mb-4">Quick Links</h4>
             <div className="flex flex-col gap-2">
-              <a href="#about" className="text-sm hover:text-white transition-colors">
-                About
-              </a>
-              <a href="#projects" className="text-sm hover:text-white transition-colors">
-                Projects
-              </a>
-              <a href="#pricing" className="text-sm hover:text-white transition-colors">
-                Services
-              </a>
+              <Link href="/" className="text-sm hover:text-white transition-colors">
+                Home
+              </Link>
+              <Link href="/register" className="text-sm hover:text-white transition-colors">
+                Start Earning
+              </Link>
+              <Link href="/login" className="text-sm hover:text-white transition-colors">
+                View Projects
+              </Link>
               <Link href="/login" className="text-sm hover:text-white transition-colors">
                 Log In
               </Link>
@@ -58,8 +58,12 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-8 pt-8 border-t border-zinc-800 text-center text-sm text-zinc-500">
-          © {new Date().getFullYear()} Hustle Click | Built with Innovation & Passion
+        <div className="mt-8 pt-8 border-t border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-zinc-500">
+          <span>© {new Date().getFullYear()} HustleClickGH — Ghana&apos;s AI Dataset Collection Platform</span>
+          <div className="flex items-center gap-2">
+            <span className="text-zinc-600">Certified Partner:</span>
+            <span className="text-red-400 font-semibold">HUAWEI CLOUD · HCPN</span>
+          </div>
         </div>
       </div>
     </footer>

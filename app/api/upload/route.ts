@@ -81,7 +81,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
-    const projectId = (formData.get("projectId") as string | null) || "general";
+    const rawProjectId = (formData.get("projectId") as string | null) || "general";
+    // Sanitize: only allow alphanumeric, dash, underscore — prevents path traversal
+    const projectId = rawProjectId.replace(/[^a-zA-Z0-9_-]/g, "") || "general";
 
     if (!file) {
       return NextResponse.json({ message: "No file provided" }, { status: 400 });

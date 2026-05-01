@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Menu, X, Home, Info, FolderOpen, Briefcase, Code, GraduationCap, MessageCircle, LogIn } from "lucide-react";
+import { Menu, X, Home, Mic, Database, Mail, LogIn } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 
@@ -21,13 +21,10 @@ export function Navbar() {
   }, [isOpen]);
 
   const navLinks = [
-    { href: "#hero", label: "Home", icon: Home },
-    { href: "#about", label: "About", icon: Info },
-    { href: "#projects", label: "Projects", icon: FolderOpen },
-    { href: "#pricing", label: "Services", icon: Briefcase },
-    { href: "#skills", label: "Skills", icon: Code },
-    { href: "#classes", label: "Classes", icon: GraduationCap },
-    { href: "#contact", label: "Contact", icon: MessageCircle },
+    { href: "/", label: "Home", icon: Home },
+    { href: "/register", label: "Start Earning", icon: Mic },
+    { href: "/login", label: "View Projects", icon: Database },
+    { href: `mailto:kwabenacrys@gmail.com`, label: "Contact", icon: Mail },
   ];
 
   return (
@@ -36,19 +33,19 @@ export function Navbar() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <Link href="/" className="text-xl font-bold text-foreground">
-              HUSTLECLICK
+              HUSTLECLICKGH
             </Link>
 
             {/* Desktop Navigation */}
             <div className="hidden md:flex items-center gap-8">
               {navLinks.map((link) => (
-                <a
+                <Link
                   key={link.href}
                   href={link.href}
                   className="text-sm font-medium text-zinc-600 hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-50 transition-colors"
                 >
                   {link.label}
-                </a>
+                </Link>
               ))}
               <Link
                 href="/login"
@@ -89,7 +86,7 @@ export function Navbar() {
         {/* Sidebar Header */}
         <div className="flex items-center justify-between p-6 border-b border-zinc-200 dark:border-zinc-800">
           <Link href="/" className="text-xl font-bold text-foreground" onClick={() => setIsOpen(false)}>
-            HUSTLECLICK
+            HUSTLECLICKGH
           </Link>
           <button
             onClick={() => setIsOpen(false)}
@@ -103,7 +100,7 @@ export function Navbar() {
         {/* Sidebar Navigation */}
         <div className="flex flex-col p-4 space-y-2">
           {navLinks.map((link) => (
-            <a
+            <Link
               key={link.href}
               href={link.href}
               onClick={() => setIsOpen(false)}
@@ -111,7 +108,7 @@ export function Navbar() {
             >
               <link.icon size={20} />
               <span className="font-medium">{link.label}</span>
-            </a>
+            </Link>
           ))}
         </div>
 

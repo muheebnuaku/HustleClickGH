@@ -107,6 +107,9 @@ model Withdrawal {
   
   // Relations
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
 }
 
 model Referral {
@@ -183,7 +186,9 @@ model DataSubmission {
   project         DataProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([projectId, userId])
+  @@index([projectId, userId])
+  @@index([userId])
+  @@index([projectId, gender, status])
 }
 
 model ActivityLog {
@@ -195,6 +200,9 @@ model ActivityLog {
   metadata    String?  // JSON blob with extra details
   ip          String?
   createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([type, createdAt])
 }
 
 model CallSession {
@@ -234,4 +242,7 @@ model CallRecording {
   sharedRecording      CallRecording? @relation("RecordingShare", fields: [shareFromRecordingId], references: [id], onDelete: SetNull)
   sharedTo             CallRecording[] @relation("RecordingShare")
   createdAt            DateTime @default(now())
+
+  @@index([callCode])
+  @@index([userId])
 }

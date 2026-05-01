@@ -18,7 +18,20 @@ async function generateUserId(): Promise<string> {
 }
 
 function generateReferralCode(): string {
-  return Math.random().toString(36).substr(2, 8).toUpperCase();
+  return Math.random().toString(36).substring(2, 10).toUpperCase();
+}
+
+const FREE_EMAIL_PROVIDERS = new Set([
+  "gmail.com", "yahoo.com", "yahoo.co.uk", "yahoo.com.gh",
+  "outlook.com", "hotmail.com", "hotmail.co.uk",
+  "icloud.com", "me.com", "mac.com",
+  "aol.com", "protonmail.com", "proton.me",
+  "live.com", "msn.com", "ymail.com",
+]);
+
+function isEmailFlagged(email: string): boolean {
+  const domain = email.split("@")[1]?.toLowerCase() ?? "";
+  return FREE_EMAIL_PROVIDERS.has(domain);
 }
 
 function generatePersonalCallCode(): string {
@@ -86,6 +99,7 @@ export async function POST(request: Request) {
         referralCode,
         personalCallCode,
         referredBy,
+        emailFlagged: isEmailFlagged(email),
         role: "user",
       },
     });

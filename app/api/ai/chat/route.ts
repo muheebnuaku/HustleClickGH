@@ -12,6 +12,11 @@ const openai = new OpenAI({
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
     const { message, context, history = [], stream = false } = body;
 
@@ -140,66 +145,24 @@ If users have issues you can't solve, direct them to contact support or check ba
 Remember: Always be encouraging and help users maximize their earnings! 💰
 `;
 
-    // Add user-specific context if logged in
-    if (session?.user) {
-      const user = await prisma.user.findUnique({
-        where: { id: session.user.id },
-        include: {
-          surveyResponses: true,
-          withdrawals: {
-            orderBy: { requestedAt: "desc" },
-            take: 3,
-          },
-        },
-      });
+    // Add non-sensitive user context (no financial data sent to OpenAI)
+    const [surveyCount, referralCount, userSurveyCount] = await Promise.all([
+      prisma.surveyResponse.count({ where: { userId: session.user.id } }),
+      prisma.referral.count({ where: { referrerId: session.user.id } }),
+      prisma.survey.count({ where: { createdBy: session.user.id, surveyType: "user" } }),
+    ]);
 
-      // Get user's created surveys
-      const userSurveys = await prisma.survey.findMany({
-        where: { 
-          createdBy: session.user.id,
-          surveyType: "user" 
-        },
-        include: {
-          responses: true,
-        },
-      });
-
-      // Get referrals
-      const referrals = await prisma.referral.findMany({
-        where: { referrerId: session.user.id },
-      });
-
-      if (user) {
-        systemContext += `
+    systemContext += `
 
 Current user context:
-- Name: ${user.fullName}
-- Balance: GHS ${user.balance.toFixed(2)}
-- Total Earned: GHS ${user.totalEarned.toFixed(2)}
-- Surveys Completed: ${user.surveyResponses.length}
-- Referrals: ${referrals.length}
-- User Surveys Created: ${userSurveys.length}
+- Name: ${session.user.name ?? "User"}
+- Surveys Completed: ${surveyCount}
+- Referrals Made: ${referralCount}
+- User Surveys Created: ${userSurveyCount}
 `;
 
-        // Add survey-specific context if on survey page
-        if (context?.surveyId) {
-          const survey = userSurveys.find((s) => s.id === context.surveyId);
-          if (survey) {
-            systemContext += `
-Currently viewing survey: "${survey.title}"
-- Responses: ${survey.responses.length}/${survey.maxRespondents}
-- Status: ${survey.status}
-`;
-          }
-        }
-
-        // Add page-specific context
-        if (context?.page) {
-          systemContext += `\nUser is currently on: ${context.page} page`;
-        }
-      }
-    } else {
-      systemContext += "\nNote: User is not logged in. Encourage them to create an account to start earning.";
+    if (context?.page) {
+      systemContext += `\nUser is currently on: ${context.page} page`;
     }
 
     // Build conversation messages with history

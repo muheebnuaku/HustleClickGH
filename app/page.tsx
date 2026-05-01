@@ -302,6 +302,45 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Partners & Recognition Section */}
+      <section className="py-16 bg-white dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-10">
+            <p className="text-sm font-semibold uppercase tracking-widest text-slate-400 mb-2">Recognized & Trusted By</p>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Our Partners</h2>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-10">
+            {/* Huawei Cloud HCPN Partner Badge */}
+            <div className="group flex flex-col items-center gap-3">
+              <div className="flex items-center gap-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 px-7 py-5 rounded-2xl shadow-lg group-hover:shadow-xl group-hover:border-red-200 dark:group-hover:border-red-900 transition-all">
+                {/* Official Huawei logo */}
+                <img
+                  src="/huawei-logo.svg"
+                  alt="Huawei"
+                  width={56}
+                  height={56}
+                  className="object-contain"
+                />
+                <div className="border-l border-slate-200 dark:border-slate-700 pl-4">
+                  <p className="text-slate-900 dark:text-white font-bold text-base leading-tight">HUAWEI CLOUD</p>
+                  <p className="text-red-600 text-xs font-semibold tracking-wide mt-0.5">Certified Partner · HCPN</p>
+                </div>
+              </div>
+              <span className="text-xs text-slate-500 dark:text-slate-400">Huawei Cloud Partner Network</span>
+            </div>
+
+            {/* Placeholder for future partners */}
+            <div className="flex flex-col items-center gap-3 opacity-40">
+              <div className="flex items-center justify-center w-48 h-16 border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-2xl">
+                <span className="text-slate-400 text-sm">Your logo here</span>
+              </div>
+              <span className="text-xs text-slate-400">Partner with us</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Use Cases Section */}
       <section className="py-24 bg-white dark:bg-slate-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
