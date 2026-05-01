@@ -122,8 +122,8 @@ export async function POST(
     }
 
     // Check if user already submitted
-    const existing = await prisma.dataSubmission.findUnique({
-      where: { projectId_userId: { projectId, userId } },
+    const existing = await prisma.dataSubmission.findFirst({
+      where: { projectId, userId },
     });
     if (existing) {
       // Allow re-submission if the previous one was rejected

@@ -23,8 +23,8 @@ export async function GET(
       return NextResponse.json({ message: "Project not found" }, { status: 404 });
     }
 
-    const userSubmission = await prisma.dataSubmission.findUnique({
-      where: { projectId_userId: { projectId: id, userId } },
+    const userSubmission = await prisma.dataSubmission.findFirst({
+      where: { projectId: id, userId },
     });
 
     // Count pending+approved submissions per gender so users see accurate remaining slots
