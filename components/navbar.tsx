@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Menu, X, Home, Mic, Database, Mail, LogIn } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { SITE_CONFIG } from "@/lib/constants";
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -24,7 +25,7 @@ export function Navbar() {
     { href: "/", label: "Home", icon: Home },
     { href: "/register", label: "Start Earning", icon: Mic },
     { href: "/login", label: "View Projects", icon: Database },
-    { href: `mailto:kwabenacrys@gmail.com`, label: "Contact", icon: Mail },
+    { href: `mailto:${SITE_CONFIG.contact.email}`, label: "Contact", icon: Mail },
   ];
 
   return (
