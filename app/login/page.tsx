@@ -10,6 +10,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ConsentAgreement } from "@/components/consent-agreement";
+import { GHANA_REGIONS, ID_TYPES } from "@/lib/constants";
 import { LogIn, Eye, EyeOff, Sparkles, ArrowLeft, ArrowRight, CheckCircle2, UserPlus, Gift, Wallet, TrendingUp, Users, Home, Copy, PartyPopper } from "lucide-react";
 
 const loginSchema = z.object({
@@ -22,6 +24,11 @@ const registerSchema = z.object({
   email: z.string().email("Invalid email address"),
   phone: z.string().min(10, "Phone number must be at least 10 digits"),
   referralId: z.string().optional(),
+  country: z.string().min(2, "Country is required"),
+  region: z.string().min(2, "Region is required"),
+  city: z.string().min(2, "City is required"),
+  idType: z.string().min(2, "ID type is required"),
+  idNumber: z.string().min(4, "Enter a valid ID number"),
   password: z
     .string()
     .min(8, "Password must be at least 8 characters")
@@ -47,6 +54,8 @@ export default function AuthPage() {
   const [registeredUserId, setRegisteredUserId] = useState("");
   const [showCongrats, setShowCongrats] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [consentAgreed, setConsentAgreed] = useState(false);
+  const [consentName, setConsentName] = useState("");
 
   const loginForm = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -54,6 +63,7 @@ export default function AuthPage() {
 
   const registerForm = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
+    defaultValues: { country: "Ghana", idType: "ghana_card" },
   });
 
   const handleLogin = async (data: LoginFormData) => {
@@ -97,14 +107,20 @@ export default function AuthPage() {
   };
 
   const handleRegister = async (data: RegisterFormData) => {
-    setIsLoading(true);
     setError("");
+
+    if (!consentAgreed || consentName.trim().length < 2) {
+      setError("Please sign and agree to the Data Processing Agreement to create your account.");
+      return;
+    }
+
+    setIsLoading(true);
 
     try {
       const response = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, consentAgreed, consentName: consentName.trim() }),
       });
 
       const result = await response.json();
@@ -462,6 +478,72 @@ export default function AuthPage() {
                       />
                     </div>
 
+                    {/* Location (required) */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-foreground">Country</label>
+                        <Input
+                          placeholder="Ghana"
+                          className="h-10 rounded-xl"
+                          {...registerForm.register("country")}
+                          disabled={isLoading}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-foreground">Region</label>
+                        <select
+                          className="flex h-10 w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-transparent px-2 text-sm"
+                          {...registerForm.register("region")}
+                          disabled={isLoading}
+                        >
+                          <option value="">Select…</option>
+                          {GHANA_REGIONS.map((r) => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-foreground">City</label>
+                        <Input
+                          placeholder="City / Town"
+                          className="h-10 rounded-xl"
+                          {...registerForm.register("city")}
+                          disabled={isLoading}
+                        />
+                      </div>
+                    </div>
+                    {(registerForm.formState.errors.region || registerForm.formState.errors.city || registerForm.formState.errors.country) && (
+                      <p className="text-xs text-red-600">Country, region and city are required</p>
+                    )}
+
+                    {/* Identity (required) */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-foreground">ID Type</label>
+                        <select
+                          className="flex h-10 w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-transparent px-2 text-sm"
+                          {...registerForm.register("idType")}
+                          disabled={isLoading}
+                        >
+                          {ID_TYPES.map((t) => (
+                            <option key={t.value} value={t.value}>{t.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-foreground">ID Number</label>
+                        <Input
+                          placeholder="GHA-XXXXXXXXX-X"
+                          className="h-10 rounded-xl"
+                          {...registerForm.register("idNumber")}
+                          disabled={isLoading}
+                        />
+                        {registerForm.formState.errors.idNumber && (
+                          <p className="text-xs text-red-600">{registerForm.formState.errors.idNumber.message}</p>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-foreground">Password</label>
@@ -514,9 +596,19 @@ export default function AuthPage() {
                       Password: 8+ chars, 1 uppercase, 1 number, 1 symbol
                     </p>
 
-                    <Button 
-                      type="submit" 
-                      className="w-full h-11 rounded-xl font-semibold bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700" 
+                    {/* Consent — required to register */}
+                    <ConsentAgreement
+                      agreed={consentAgreed}
+                      onAgreedChange={setConsentAgreed}
+                      signedName={consentName}
+                      onSignedNameChange={setConsentName}
+                      disabled={isLoading}
+                      compact
+                    />
+
+                    <Button
+                      type="submit"
+                      className="w-full h-11 rounded-xl font-semibold bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
                       disabled={isLoading}
                     >
                       {isLoading ? (
@@ -573,7 +665,9 @@ export default function AuthPage() {
                   </form>
 
                   <p className="text-[10px] text-zinc-500 text-center">
-                    By signing up, you agree to our Terms & Privacy Policy
+                    By signing up, you agree to our{" "}
+                    <Link href="/terms" target="_blank" className="underline">Terms</Link> &{" "}
+                    <Link href="/privacy" target="_blank" className="underline">Privacy Policy</Link>
                   </p>
                 </div>
               </div>

@@ -28,6 +28,15 @@ export function Footer() {
               <Link href="/login" className="text-sm hover:text-white transition-colors">
                 View Projects
               </Link>
+              <Link href="/partners" className="text-sm hover:text-white transition-colors">
+                For Companies
+              </Link>
+              <Link href="/privacy" className="text-sm hover:text-white transition-colors">
+                Privacy Policy
+              </Link>
+              <Link href="/terms" className="text-sm hover:text-white transition-colors">
+                Terms
+              </Link>
               <Link href="/login" className="text-sm hover:text-white transition-colors">
                 Log In
               </Link>

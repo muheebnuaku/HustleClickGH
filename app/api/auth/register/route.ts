@@ -4,6 +4,8 @@ import { hash } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { SITE_CONFIG } from "@/lib/constants";
 import { logActivity, getIp } from "@/lib/activity-log";
+import { encryptField, lastChars, isEncryptionConfigured } from "@/lib/crypto";
+import { CONSENT_VERSION } from "@/lib/legal";
 
 async function generateUserId(): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -47,12 +49,49 @@ function generatePersonalCallCode(): string {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { fullName, email, phone, password, referralId } = body;
+    const {
+      fullName,
+      email,
+      phone,
+      password,
+      referralId,
+      country,
+      region,
+      city,
+      idType,
+      idNumber,
+      consentAgreed,
+      consentName,
+    } = body;
 
     // Validate required fields
     if (!fullName || !email || !phone || !password) {
       return NextResponse.json(
         { message: "All fields are required" },
+        { status: 400 }
+      );
+    }
+
+    // Location is required for contributors (Ghana Data Protection Act: purpose-bound collection)
+    if (!country || !region || !city) {
+      return NextResponse.json(
+        { message: "Country, region, and city are required" },
+        { status: 400 }
+      );
+    }
+
+    // Identity verification is required
+    if (!idType || !idNumber || String(idNumber).trim().length < 4) {
+      return NextResponse.json(
+        { message: "A valid ID type and ID number are required" },
+        { status: 400 }
+      );
+    }
+
+    // Consent to the Data Processing Agreement is required and must be explicit
+    if (consentAgreed !== true || !consentName || String(consentName).trim().length < 2) {
+      return NextResponse.json(
+        { message: "You must read and sign the Data Processing Agreement to register" },
         { status: 400 }
       );
     }
@@ -88,6 +127,13 @@ export async function POST(request: Request) {
       }
     }
 
+    // Encrypt the ID number at rest (store only last 4 chars in the clear for display).
+    const rawId = String(idNumber).trim();
+    if (!isEncryptionConfigured()) {
+      console.warn("[register] FIELD_ENCRYPTION_KEY not set — storing ID number WITHOUT encryption.");
+    }
+    const storedId = isEncryptionConfigured() ? encryptField(rawId) : rawId;
+
     // Create user
     const user = await prisma.user.create({
       data: {
@@ -101,6 +147,28 @@ export async function POST(request: Request) {
         referredBy,
         emailFlagged: isEmailFlagged(email),
         role: "user",
+        country: String(country).trim(),
+        region: String(region).trim(),
+        city: String(city).trim(),
+        idType: String(idType).trim(),
+        idNumber: storedId,
+        idNumberLast4: lastChars(rawId, 4),
+        profileCompleted: true,
+        consentSignedAt: new Date(),
+        consentVersion: CONSENT_VERSION,
+      },
+    });
+
+    // Auditable consent record
+    await prisma.consentRecord.create({
+      data: {
+        userId: user.id,
+        documentType: "data_processing_agreement",
+        documentVersion: CONSENT_VERSION,
+        signedName: String(consentName).trim(),
+        agreed: true,
+        ipAddress: getIp(request),
+        userAgent: request.headers.get("user-agent"),
       },
     });
 

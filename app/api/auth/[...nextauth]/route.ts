@@ -106,6 +106,7 @@ export const authOptions: NextAuthOptions = {
           name: user.fullName,
           email: user.email,
           role: user.role,
+          profileCompleted: user.profileCompleted,
         };
       },
     }),
@@ -182,13 +183,14 @@ export const authOptions: NextAuthOptions = {
       }
       return true;
     },
-    async jwt({ token, user, account }) {
+    async jwt({ token, user, account, trigger }) {
       if (user) {
         // For credentials login
         if (!account || account.provider === "credentials") {
           token.id = user.id;
           token.userId = user.userId;
           token.role = user.role;
+          token.profileCompleted = user.profileCompleted ?? false;
         } else {
           // For OAuth login, fetch user from database
           const dbUser = await prisma.user.findUnique({
@@ -198,9 +200,21 @@ export const authOptions: NextAuthOptions = {
             token.id = dbUser.id;
             token.userId = dbUser.userId;
             token.role = dbUser.role;
+            token.profileCompleted = dbUser.profileCompleted;
           }
         }
       }
+
+      // Refresh token from DB when the client calls session.update()
+      // (e.g. after completing onboarding, so the middleware gate reopens).
+      if (trigger === "update" && token.id) {
+        const dbUser = await prisma.user.findUnique({ where: { id: token.id as string } });
+        if (dbUser) {
+          token.role = dbUser.role;
+          token.profileCompleted = dbUser.profileCompleted;
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
@@ -208,6 +222,7 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.id as string;
         session.user.userId = token.userId as string;
         session.user.role = token.role as string;
+        session.user.profileCompleted = Boolean(token.profileCompleted);
       }
       return session;
     },

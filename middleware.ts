@@ -16,11 +16,21 @@ export async function middleware(request: NextRequest) {
   }
 
   // Public paths that don't require authentication
-  const publicPaths = ["/", "/login", "/register", "/surveys"];
+  const publicPaths = [
+    "/",
+    "/login",
+    "/register",
+    "/surveys",
+    "/partners",
+    "/privacy",
+    "/terms",
+    "/data-processing-agreement",
+  ];
   const isPublicPath =
     publicPaths.includes(path) ||
     path.startsWith("/s/") ||
-    path.startsWith("/api/s/");
+    path.startsWith("/api/s/") ||
+    path === "/api/partners";
 
   // Allow public paths without authentication
   if (isPublicPath) {
@@ -40,6 +50,20 @@ export async function middleware(request: NextRequest) {
   // Redirect to dashboard if already authenticated and trying to access login/register
   if (token && (path === "/login" || path === "/register")) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
+  // Onboarding gate — contributors must provide location, ID and consent before
+  // using the platform (required for Ghana Data Protection Act compliance).
+  // Applies to OAuth users (created without these details) and any pre-existing
+  // contributor who has not yet completed their profile. Admins/managers are exempt.
+  if (
+    token &&
+    token.role === "user" &&
+    token.profileCompleted === false &&
+    path !== "/onboarding" &&
+    !path.startsWith("/api")
+  ) {
+    return NextResponse.redirect(new URL("/onboarding", request.url));
   }
 
   // Check admin access — admin can access all, manager can only access call-recordings

@@ -22,7 +22,12 @@ export type LogType =
   | "withdrawal_rejected"
   | "page_close_during_call"
   | "recording_shared"
-  | "recording_share_failed";
+  | "recording_share_failed"
+  | "partner_inquiry"
+  | "consent_signed"
+  | "profile_completed"
+  | "account_export"
+  | "account_delete_request";
 
 export type LogSeverity = "info" | "success" | "warning" | "error";
 
