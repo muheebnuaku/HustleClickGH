@@ -177,9 +177,9 @@ export default function AuthPage() {
   ];
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-100 dark:bg-zinc-950 dark:via-black p-4 overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-zinc-100 dark:bg-zinc-950 p-3 sm:p-4 overflow-x-hidden">
       {/* 3D Flip Container */}
-      <div className="w-full max-w-6xl h-[700px] relative" style={{ perspective: "2000px" }}>
+      <div className="w-full max-w-6xl h-[92dvh] sm:h-[700px] max-h-[760px] relative" style={{ perspective: "2000px" }}>
         <div 
           className={`relative w-full h-full transition-transform duration-700 ease-in-out`}
           style={{ 
@@ -253,8 +253,8 @@ export default function AuthPage() {
               </div>
 
               {/* Right Side - Login Form */}
-              <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-10 bg-white dark:bg-zinc-950">
-                <div className="w-full max-w-md space-y-6">
+              <div className="w-full lg:w-1/2 flex items-start sm:items-center justify-center p-6 sm:p-10 bg-white dark:bg-zinc-950 overflow-y-auto">
+                <div className="w-full max-w-md space-y-6 my-auto">
                   <div className="lg:hidden flex items-center justify-center gap-3 mb-6">
                     <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
                       <Sparkles size={24} className="text-white" />
@@ -392,8 +392,8 @@ export default function AuthPage() {
           >
             <div className="flex h-full">
               {/* Left Side - Register Form (Mirrored) */}
-              <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-10 bg-white dark:bg-zinc-950 overflow-y-auto">
-                <div className="w-full max-w-md space-y-5">
+              <div className="w-full lg:w-1/2 flex items-start justify-center p-6 sm:p-10 bg-white dark:bg-zinc-950 overflow-y-auto">
+                <div className="w-full max-w-md space-y-5 my-auto">
                   <div className="lg:hidden flex items-center justify-center gap-3 mb-4">
                     <div className="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center">
                       <Sparkles size={24} className="text-white" />
@@ -437,7 +437,7 @@ export default function AuthPage() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-foreground">Email</label>
                         <Input
@@ -479,7 +479,7 @@ export default function AuthPage() {
                     </div>
 
                     {/* Location (required) */}
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-foreground">Country</label>
                         <Input
@@ -517,7 +517,7 @@ export default function AuthPage() {
                     )}
 
                     {/* Identity (required) */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-foreground">ID Type</label>
                         <select
