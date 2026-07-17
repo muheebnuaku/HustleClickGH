@@ -459,7 +459,7 @@ export default function SurveyDetailPage({
 
                         {/* Rating Average */}
                         {currentQuestion.questionType === "rating" && (
-                          <div className="mb-4 p-4 bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 rounded-lg">
+                          <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
                             <p className="text-sm text-zinc-600 dark:text-zinc-400">Average Rating</p>
                             <div className="flex items-center gap-2">
                               <span className="text-3xl font-bold text-yellow-600">
@@ -639,7 +639,7 @@ export default function SurveyDetailPage({
                           }`}
                         >
                           <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-xs font-bold">
+                            <div className="w-8 h-8 rounded-full bg-green-400 flex items-center justify-center text-white text-xs font-bold">
                               {index + 1}
                             </div>
                             <div className="flex-1 min-w-0">
@@ -673,7 +673,7 @@ export default function SurveyDetailPage({
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg p-4">
+                      <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4">
                         <p className="font-medium">{selectedResponse.user.fullName}</p>
                         <p className="text-sm text-zinc-500">{selectedResponse.user.email}</p>
                         <p className="text-xs text-zinc-400 mt-1">

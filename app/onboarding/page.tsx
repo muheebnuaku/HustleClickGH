@@ -78,16 +78,16 @@ export default function OnboardingPage() {
   if (status === "loading") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-        <div className="w-10 h-10 border-4 border-green-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-10 h-10 border-t-2 border-b-2 border-green-500 rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-zinc-100 via-white to-zinc-100 dark:from-zinc-950 dark:via-black dark:to-zinc-950 py-10 px-4">
+    <div className="min-h-screen bg-zinc-100 dark:bg-zinc-950 dark:via-black py-10 px-4">
       <div className="max-w-xl mx-auto">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-green-600 to-emerald-600 flex items-center justify-center text-white">
+          <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-green-600 flex items-center justify-center text-white">
             <Sparkles size={28} />
           </div>
           <h1 className="text-2xl font-bold text-foreground">Complete your profile</h1>
@@ -202,7 +202,7 @@ export default function OnboardingPage() {
             type="submit"
             size="lg"
             disabled={loading}
-            className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+            className="w-full bg-green-600 hover:bg-green-700"
           >
             {loading ? "Saving…" : "Finish & continue"}
           </Button>

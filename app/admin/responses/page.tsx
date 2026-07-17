@@ -291,7 +291,7 @@ function AdminResponsesPageContent() {
     return (
       <AdminLayout>
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-12 h-12 border-t-2 border-b-2 border-green-500 rounded-full animate-spin"></div>
         </div>
       </AdminLayout>
     );
@@ -369,22 +369,22 @@ function AdminResponsesPageContent() {
           <>
             {/* Stats Overview - Compact horizontal on mobile */}
             <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-              <div className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-full flex items-center gap-2">
+              <div className="flex-shrink-0 px-4 py-2 bg-blue-500 text-white rounded-full flex items-center gap-2">
                 <Users size={16} />
                 <span className="text-sm font-medium whitespace-nowrap">{filteredResponses.length} Responses</span>
               </div>
               
-              <div className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-full flex items-center gap-2">
+              <div className="flex-shrink-0 px-4 py-2 bg-green-500 text-white rounded-full flex items-center gap-2">
                 <ClipboardList size={16} />
                 <span className="text-sm font-medium whitespace-nowrap">{questions.length} Questions</span>
               </div>
               
-              <div className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-full flex items-center gap-2">
+              <div className="flex-shrink-0 px-4 py-2 bg-purple-500 text-white rounded-full flex items-center gap-2">
                 <TrendingUp size={16} />
                 <span className="text-sm font-medium whitespace-nowrap">100% Complete</span>
               </div>
               
-              <div className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-full flex items-center gap-2">
+              <div className="flex-shrink-0 px-4 py-2 bg-orange-500 text-white rounded-full flex items-center gap-2">
                 <Clock size={16} />
                 <span className="text-sm font-medium whitespace-nowrap">~3 min Avg</span>
               </div>
@@ -731,7 +731,7 @@ function AdminResponsesPageContent() {
                         className="border border-zinc-200 dark:border-zinc-700 rounded-xl overflow-hidden"
                       >
                         {/* Response Header */}
-                        <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white p-4">
+                        <div className="bg-blue-500 text-white p-4">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-lg font-bold">
@@ -823,7 +823,7 @@ function AdminResponsesPageContent() {
                             <tr key={r.id} className="border-b border-zinc-100 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
                               <td className="py-3 px-4">
                                 <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">
+                                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold">
                                     {r.user.fullName.charAt(0).toUpperCase()}
                                   </div>
                                   <div>
@@ -878,7 +878,7 @@ function AdminResponsesPageContent() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {filteredResponses.map((r) => (
                       <Card key={r.id} className="overflow-hidden">
-                        <CardHeader className="bg-gradient-to-r from-blue-500 to-purple-600 text-white">
+                        <CardHeader className="bg-blue-500 text-white">
                           <div className="flex justify-between items-start">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-lg font-bold">

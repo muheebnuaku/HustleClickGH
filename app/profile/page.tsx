@@ -3,11 +3,13 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Save, Camera, User, Copy, Check } from "lucide-react";
+import { ImageCropper } from "@/components/image-cropper";
+import { Save, Camera, User, Copy, Check, Pencil, ShieldCheck, ChevronRight } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -48,6 +50,7 @@ export default function ProfilePage() {
   const [message, setMessage] = useState("");
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [userStats, setUserStats] = useState<UserStats>({ surveysCompleted: 0, referrals: 0 });
@@ -123,88 +126,61 @@ export default function ProfilePage() {
     }
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Step 1: user picks a file → load it into the cropper (no upload yet)
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith("image/")) {
       setMessage("Please select an image file");
       return;
     }
-
-    // Validate file size (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      setMessage("Image must be less than 2MB");
+    // Allow larger originals (up to 8MB) since we crop + compress before upload
+    if (file.size > 8 * 1024 * 1024) {
+      setMessage("Image must be less than 8MB");
       return;
     }
 
+    setMessage("");
+    const reader = new FileReader();
+    reader.onload = (event) => setCropSrc(event.target?.result as string);
+    reader.readAsDataURL(file);
+    // reset the input so selecting the same file again re-triggers onChange
+    e.target.value = "";
+  };
+
+  // Step 2: cropper returns a square data URL → upload it
+  const uploadCroppedImage = async (dataUrl: string) => {
+    setCropSrc(null);
     setUploadingImage(true);
     setMessage("");
-
     try {
-      // Convert to base64
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const base64 = event.target?.result as string;
-        
-        // Create a smaller version of the image
-        const img = new Image();
-        img.onload = async () => {
-          const canvas = document.createElement("canvas");
-          const MAX_SIZE = 200;
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height) {
-            if (width > MAX_SIZE) {
-              height = (height * MAX_SIZE) / width;
-              width = MAX_SIZE;
-            }
-          } else {
-            if (height > MAX_SIZE) {
-              width = (width * MAX_SIZE) / height;
-              height = MAX_SIZE;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext("2d");
-          ctx?.drawImage(img, 0, 0, width, height);
-          
-          const resizedBase64 = canvas.toDataURL("image/jpeg", 0.8);
-          
-          // Upload to server
-          const response = await fetch("/api/profile", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image: resizedBase64 }),
-          });
-
-          if (response.ok) {
-            setProfileImage(resizedBase64);
-            setMessage("✓ Profile picture updated!");
-            setTimeout(() => setMessage(""), 3000);
-          } else {
-            throw new Error("Failed to upload image");
-          }
-          setUploadingImage(false);
-        };
-        img.src = base64;
-      };
-      reader.readAsDataURL(file);
+      const response = await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: dataUrl }),
+      });
+      if (!response.ok) throw new Error("Failed to upload image");
+      setProfileImage(dataUrl);
+      setMessage("✓ Profile picture updated!");
+      setTimeout(() => setMessage(""), 3000);
     } catch {
       setMessage("Failed to upload image");
+    } finally {
       setUploadingImage(false);
     }
+  };
+
+  // Re-open the cropper on the current photo to reposition/re-crop it
+  const editCurrentImage = () => {
+    if (profileImage) setCropSrc(profileImage);
   };
 
   if (status === "loading" || isFetching) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-12 h-12 border-t-2 border-b-2 border-green-500 rounded-full animate-spin"></div>
         </div>
       </DashboardLayout>
     );
@@ -262,6 +238,7 @@ export default function ProfilePage() {
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploadingImage}
+                    title="Upload new photo"
                     className="absolute bottom-0 right-0 w-9 h-9 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-white shadow-lg transition-colors disabled:opacity-50"
                   >
                     {uploadingImage ? (
@@ -270,6 +247,16 @@ export default function ProfilePage() {
                       <Camera size={18} />
                     )}
                   </button>
+                  {profileImage && !uploadingImage && (
+                    <button
+                      type="button"
+                      onClick={editCurrentImage}
+                      title="Reposition / crop current photo"
+                      className="absolute bottom-0 left-0 w-9 h-9 bg-zinc-700 hover:bg-zinc-800 rounded-full flex items-center justify-center text-white shadow-lg transition-colors"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  )}
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -278,7 +265,11 @@ export default function ProfilePage() {
                     className="hidden"
                   />
                 </div>
-                <p className="text-sm text-zinc-500">Click the camera to upload a profile picture</p>
+                <p className="text-sm text-zinc-500">
+                  {profileImage
+                    ? "Camera to upload a new photo · pencil to reposition the current one"
+                    : "Click the camera to upload a profile picture"}
+                </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -432,7 +423,44 @@ export default function ProfilePage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Data & Privacy */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldCheck size={20} className="text-green-600" /> Data &amp; Privacy
+            </CardTitle>
+            <CardDescription>
+              Review your agreements, export your data, or delete your account.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/account/data"
+              className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-green-50 dark:bg-green-900/20 flex items-center justify-center text-green-600">
+                  <ShieldCheck size={20} />
+                </div>
+                <div>
+                  <p className="font-medium text-foreground">Manage data &amp; privacy</p>
+                  <p className="text-sm text-zinc-500">Consent, data export and account deletion</p>
+                </div>
+              </div>
+              <ChevronRight size={20} className="text-zinc-400" />
+            </Link>
+          </CardContent>
+        </Card>
       </div>
+
+      {cropSrc && (
+        <ImageCropper
+          src={cropSrc}
+          onCancel={() => setCropSrc(null)}
+          onCropComplete={uploadCroppedImage}
+        />
+      )}
     </DashboardLayout>
   );
 }

@@ -1577,7 +1577,7 @@ function CallPageInner() {
         {phase === "idle" && (
           <div className="space-y-4">
             {personalCode && (
-              <Card className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-blue-200 dark:border-blue-800">
+              <Card className="p-4 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
                 <div className="text-center">
                   <p className="text-xs text-zinc-500 mb-1 uppercase tracking-wide">Your Personal Call Code</p>
                   <div className="inline-flex items-center gap-2">
@@ -1685,7 +1685,7 @@ function CallPageInner() {
           const spinnerColor = phase === "reconnecting" ? "text-amber-400"      : "text-slate-400";
 
           return (
-            <div ref={callCardRef} className={`rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border ${borderColor}`}>
+            <div ref={callCardRef} className={`rounded-2xl overflow-hidden bg-slate-900 shadow-2xl border ${borderColor}`}>
               {/* Remote video display */}
               {phase === "active" && (
                 <div className="w-full aspect-video bg-black flex items-center justify-center overflow-hidden">
@@ -2002,7 +2002,7 @@ function CallPageInner() {
           const canCallBack = isInitiatorRef.current && !!savedTargetCodeRef.current;
 
           return (
-            <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-amber-600/30">
+            <div className="rounded-2xl overflow-hidden bg-slate-900 shadow-2xl border border-amber-600/30">
               <div className="text-center px-6 pt-8 pb-6">
                 <div className="w-16 h-16 mx-auto rounded-full bg-amber-500/20 ring-2 ring-amber-400/40 flex items-center justify-center mb-4">
                   <PhoneOff className="w-8 h-8 text-amber-400" />
@@ -2072,7 +2072,7 @@ function CallPageInner() {
       {/* ── RECONNECTING MODAL ── */}
       {phase === "reconnecting" && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-amber-500/30 w-full max-w-sm">
+          <div className="rounded-2xl overflow-hidden bg-slate-900 shadow-2xl border border-amber-500/30 w-full max-w-sm">
 
             <div className="text-center px-6 pt-8 pb-4 space-y-3">
               <div className="relative mx-auto w-16 h-16">

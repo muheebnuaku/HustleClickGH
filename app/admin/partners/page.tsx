@@ -125,7 +125,7 @@ export default function AdminPartnersPage() {
         {/* List */}
         {isLoading ? (
           <div className="flex items-center justify-center min-h-[300px]">
-            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <div className="w-10 h-10 border-t-2 border-b-2 border-green-500 rounded-full animate-spin" />
           </div>
         ) : inquiries.length === 0 ? (
           <Card>

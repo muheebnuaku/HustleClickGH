@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { LogOut, LayoutDashboard, User, Users, Menu, X, Home, ClipboardList, FileEdit, Database, Phone, Video, ShieldCheck } from "lucide-react";
+import { LogOut, LayoutDashboard, User, Users, Menu, X, Home, ClipboardList, FileEdit, Database, Phone, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
@@ -62,7 +62,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     { href: "/recordings", label: "Recordings", icon: Video },
     { href: "/profile", label: "Profile", icon: User },
     { href: "/referral", label: "Refer & Earn", icon: Users },
-    { href: "/account/data", label: "Data & Privacy", icon: ShieldCheck },
   ];
 
   return (
@@ -192,7 +191,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 className={cn(
                   "flex items-center gap-4 px-4 py-3 rounded-xl transition-all",
                   isActive
-                    ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg"
+                    ? "bg-blue-600 text-white shadow-lg"
                     : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900"
                 )}
               >

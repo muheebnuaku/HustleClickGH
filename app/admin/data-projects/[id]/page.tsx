@@ -237,7 +237,7 @@ export default function AdminProjectSubmissionsPage() {
 
                   {/* Actions (only for pending) */}
                   {sub.status === "pending" && (
-                    <div className="rounded-2xl bg-gradient-to-b from-slate-800 to-slate-900 p-4 flex flex-col gap-3 min-w-[210px]">
+                    <div className="rounded-2xl bg-slate-800 p-4 flex flex-col gap-3 min-w-[210px]">
                       {/* Approve */}
                       <div className="flex flex-col items-center gap-1.5">
                         <button

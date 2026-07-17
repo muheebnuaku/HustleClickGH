@@ -26,7 +26,7 @@ export default function Home() {
       <Navbar />
 
       {/* Hero Section */}
-      <section className="relative min-h-screen flex items-center overflow-hidden bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
+      <section className="relative min-h-screen flex items-center overflow-hidden bg-slate-900">
         {/* Background Pattern */}
         <div className="absolute inset-0">
           <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMyMDI0MmYiIGZpbGwtb3BhY2l0eT0iMC40Ij48cGF0aCBkPSJNMzYgMzRoLTJ2LTRoMnY0em0wLThoLTJ2LTRoMnY0em0tOCA4aC0ydi00aDJ2NHptMC04aC0ydi00aDJ2NHoiLz48L2c+PC9nPjwvc3ZnPg==')] opacity-20"></div>
@@ -45,7 +45,7 @@ export default function Home() {
 
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight">
                 Build AI Datasets,
-                <span className="block text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-400 to-purple-400">
+                <span className="block text-blue-400">
                   Earn Real Money
                 </span>
               </h1>
@@ -56,7 +56,7 @@ export default function Home() {
 
               {/* CTA Buttons */}
               <div className="flex flex-row gap-4 justify-center lg:justify-start mb-10">
-                <Button size="lg" className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white shadow-lg shadow-blue-500/25 text-lg px-8" asChild>
+                <Button size="lg" className="bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25 text-lg px-8" asChild>
                   <Link href="/register">
                     Start Earning
                   </Link>
@@ -219,7 +219,7 @@ export default function Home() {
       </section>
 
       {/* How It Works Section */}
-      <section className="py-24 bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-950">
+      <section className="py-24 bg-slate-50 dark:bg-slate-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-4 py-2 rounded-full text-sm font-medium mb-4">
@@ -254,7 +254,7 @@ export default function Home() {
             ].map((item, index) => (
               <div key={item.step} className="relative group">
                 {index < 2 && (
-                  <div className="hidden md:block absolute top-24 left-full w-full h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 z-0" style={{ width: "calc(100% - 2rem)", left: "calc(50% + 1rem)" }}></div>
+                  <div className="hidden md:block absolute top-24 left-full w-full h-0.5 bg-blue-500 z-0" style={{ width: "calc(100% - 2rem)", left: "calc(50% + 1rem)" }}></div>
                 )}
 
                 <Card className="relative overflow-hidden border-2 hover:border-blue-300 transition-all hover:shadow-xl">
@@ -270,7 +270,7 @@ export default function Home() {
                   </div>
 
                   <CardContent className="p-6">
-                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-lg mb-4 -mt-10 relative z-10 shadow-lg">
+                    <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-lg mb-4 -mt-10 relative z-10 shadow-lg">
                       {item.step}
                     </div>
                     <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">{item.title}</h3>
@@ -284,7 +284,7 @@ export default function Home() {
       </section>
 
       {/* Stats Section */}
-      <section className="py-20 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600">
+      <section className="py-20 bg-blue-600">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center text-white">
             {[
@@ -433,7 +433,7 @@ export default function Home() {
       </section>
 
       {/* Testimonials Section */}
-      <section className="py-24 bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-950">
+      <section className="py-24 bg-slate-50 dark:bg-slate-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 px-4 py-2 rounded-full text-sm font-medium mb-4">
@@ -477,7 +477,7 @@ export default function Home() {
                   <p className="text-slate-600 dark:text-slate-400 mb-6 italic">&ldquo;{testimonial.content}&rdquo;</p>
 
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold">
+                    <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">
                       {testimonial.name.charAt(0)}
                     </div>
                     <div>
@@ -493,7 +493,7 @@ export default function Home() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-24 bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 relative overflow-hidden">
+      <section className="py-24 bg-slate-900 relative overflow-hidden">
         <div className="absolute inset-0">
           <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
           <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl"></div>
@@ -508,7 +508,7 @@ export default function Home() {
           </p>
 
           <div className="flex flex-row gap-4 justify-center">
-            <Button size="lg" className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white shadow-lg shadow-blue-500/25 text-lg px-8" asChild>
+            <Button size="lg" className="bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25 text-lg px-8" asChild>
               <Link href="/register">
                 Start Earning Today
               </Link>

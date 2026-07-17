@@ -1493,7 +1493,7 @@ function LiveCallInner() {
 
         {/* ── REJOIN MODAL — shown when user gets disconnected but call is still active ── */}
         {canRejoin && (
-          <Card className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/30 border-blue-300 dark:border-blue-700">
+          <Card className="p-6 bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700">
             <div className="space-y-4">
               <div className="text-center">
                 <div className="w-14 h-14 mx-auto rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center mb-3">
@@ -1554,7 +1554,7 @@ function LiveCallInner() {
               </Card>
             )}
             {personalCode && (
-              <Card className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-blue-200 dark:border-blue-800">
+              <Card className="p-4 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
                 <div className="text-center">
                   <p className="text-xs text-zinc-500 mb-1 uppercase tracking-wide">Your Call Code</p>
                   <div className="inline-flex items-center gap-2">
@@ -1728,7 +1728,7 @@ function LiveCallInner() {
                                        "Live call";
 
           return (
-            <div className={`rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border ${isReconnecting ? "border-amber-600/40" : "border-slate-700"}`}>
+            <div className={`rounded-2xl overflow-hidden bg-slate-900 shadow-2xl border ${isReconnecting ? "border-amber-600/40" : "border-slate-700"}`}>
               {/* Header */}
               <div className="flex items-center justify-between px-5 pt-5 pb-3">
                 <div className="flex items-center gap-3">

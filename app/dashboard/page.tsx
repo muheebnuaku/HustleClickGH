@@ -137,7 +137,7 @@ export default function DashboardPage() {
       <DashboardLayout>
         <div className="space-y-6 animate-pulse">
           {/* Welcome header skeleton */}
-          <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-500 rounded-2xl p-6">
+          <div className="bg-blue-600 rounded-2xl p-6">
             <div className="flex items-center justify-between">
               <div className="h-6 w-40 bg-white/30 rounded-lg" />
               <div className="h-9 w-9 bg-white/30 rounded-md" />
@@ -242,7 +242,7 @@ export default function DashboardPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Welcome Header */}
-        <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-500 rounded-2xl p-6 text-white shadow-lg">
+        <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-lg">
           <div className="flex items-center justify-between">
             <h1 className="text-lg md:text-xl font-bold" style={{ marginTop: '-10px' }}>
               Welcome back, {session?.user?.name?.split(" ")[0] || "User"}!
@@ -289,7 +289,7 @@ export default function DashboardPage() {
         {/* Available Surveys Preview */}
         {stats.availableSurveys > 0 && (
           <Card className="overflow-hidden">
-            <div className="bg-gradient-to-r from-blue-500 to-purple-500 p-4 text-white">
+            <div className="bg-blue-500 p-4 text-white">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">

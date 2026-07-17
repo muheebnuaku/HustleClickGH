@@ -51,7 +51,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
       {/* Top Header */}
-      <header className="bg-gradient-to-r from-blue-600 to-purple-600 text-white sticky top-0 z-40 shadow-lg">
+      <header className="bg-blue-600 text-white sticky top-0 z-40 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             {/* Mobile Menu Button */}
@@ -94,7 +94,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         )}
       >
         {/* Sidebar Header */}
-        <div className="flex items-center justify-between p-6 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+        <div className="flex items-center justify-between p-6 bg-blue-600 text-white">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
               <Shield size={24} />
@@ -126,7 +126,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                 className={cn(
                   "flex items-center gap-4 px-4 py-3 rounded-xl transition-all",
                   isActive
-                    ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg"
+                    ? "bg-blue-600 text-white shadow-lg"
                     : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900"
                 )}
               >

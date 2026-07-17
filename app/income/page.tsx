@@ -119,7 +119,7 @@ export default function IncomePage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-12 h-12 border-t-2 border-b-2 border-green-500 rounded-full animate-spin"></div>
         </div>
       </DashboardLayout>
     );
@@ -136,7 +136,7 @@ export default function IncomePage() {
         </div>
 
         {/* Balance Card */}
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 border-green-200 dark:border-green-800">
+        <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
           <CardContent className="pt-6">
             <div className="text-center">
               <p className="text-sm text-green-700 dark:text-green-400">Available Balance</p>

@@ -84,7 +84,7 @@ export default function PartnersPage() {
       <Navbar />
 
       {/* Hero */}
-      <section className="relative pt-28 pb-16 bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 overflow-hidden">
+      <section className="relative pt-28 pb-16 bg-slate-900 overflow-hidden">
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl" />
         <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" />
         <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
@@ -94,7 +94,7 @@ export default function PartnersPage() {
           </div>
           <h1 className="text-4xl sm:text-5xl font-bold text-white mb-6 leading-tight">
             Partner with HustleClickGH for
-            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-400 to-purple-400">
+            <span className="block text-blue-400">
               consented, high-quality AI data
             </span>
           </h1>
@@ -104,7 +104,7 @@ export default function PartnersPage() {
           </p>
           <Button
             size="lg"
-            className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white text-lg px-8"
+            className="bg-blue-500 hover:bg-blue-600 text-white text-lg px-8"
             asChild
           >
             <Link href="#inquiry">Start a project</Link>
@@ -236,7 +236,7 @@ export default function PartnersPage() {
                 type="submit"
                 size="lg"
                 disabled={submitting}
-                className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
+                className="w-full bg-blue-600 hover:bg-blue-700"
               >
                 {submitting ? "Sending…" : (<><Send size={18} /> Send inquiry</>)}
               </Button>

@@ -268,7 +268,7 @@ export default function SurveysPage() {
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="relative">
             <div className="w-16 h-16 border-4 border-blue-200 dark:border-blue-900 rounded-full"></div>
-            <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
+            <div className="w-16 h-16 border-t-2 border-b-2 border-green-500 rounded-full animate-spin absolute top-0 left-0"></div>
           </div>
         </div>
       </DashboardLayout>
@@ -286,7 +286,7 @@ export default function SurveysPage() {
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl">
             {/* Header */}
-            <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-6 text-white">
+            <div className="bg-blue-600 p-6 text-white">
               <div className="flex items-center justify-between mb-4">
                 <button
                   onClick={closeSurvey}
@@ -306,7 +306,7 @@ export default function SurveysPage() {
             {/* Progress bar */}
             <div className="h-1 bg-zinc-200 dark:bg-zinc-800">
               <div
-                className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300"
+                className="h-full bg-blue-500 transition-all duration-300"
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -461,7 +461,7 @@ export default function SurveysPage() {
                   <Button
                     onClick={submitSurvey}
                     disabled={isSubmitting}
-                    className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
                   >
                     {isSubmitting ? (
                       <>
@@ -496,7 +496,7 @@ export default function SurveysPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header with gradient */}
-        <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-500 rounded-2xl p-6 text-white shadow-lg">
+        <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-lg">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold flex items-center gap-3">
@@ -613,7 +613,7 @@ export default function SurveysPage() {
               {filteredCompletedSurveys.map((survey) => (
                 <Card
                   key={survey.id}
-                  className="group relative overflow-hidden border-green-200 dark:border-green-800 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20"
+                  className="group relative overflow-hidden border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20"
                 >
                   <div className="absolute top-3 right-3">
                     <div className="bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1">
@@ -700,7 +700,7 @@ export default function SurveysPage() {
                     >
                       {/* Hot badge */}
                       {isHot && !isCompleted && (
-                        <div className="absolute top-3 right-3 bg-gradient-to-r from-orange-500 to-red-500 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 z-10">
+                        <div className="absolute top-3 right-3 bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 z-10">
                           <Sparkles size={12} />
                           HOT
                         </div>
@@ -756,7 +756,7 @@ export default function SurveysPage() {
                                 isCompleted
                                   ? "bg-green-500"
                                   : spotsLeft <= 5
-                                  ? "bg-gradient-to-r from-orange-500 to-red-500"
+                                  ? "bg-orange-500"
                                   : "bg-blue-500"
                               }`}
                               style={{
@@ -822,7 +822,7 @@ export default function SurveysPage() {
         )}
 
         {/* Tips section */}
-        <Card className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-blue-200 dark:border-blue-800">
+        <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/50 rounded-full flex items-center justify-center flex-shrink-0">

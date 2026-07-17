@@ -191,7 +191,7 @@ export default function RecordingsPage() {
                       <p className="text-xs text-zinc-400 mt-0.5">{fmtDate(r.createdAt)} · {fmtBytes(r.fileSize)}</p>
                     </div>
                   </div>
-                  <div className="mt-3 rounded-xl bg-gradient-to-b from-slate-800 to-slate-900 px-4 py-4 flex items-center justify-center gap-10">
+                  <div className="mt-3 rounded-xl bg-slate-800 px-4 py-4 flex items-center justify-center gap-10">
                     {/* Play */}
                     <div className="flex flex-col items-center gap-1.5">
                       <button
@@ -257,7 +257,7 @@ export default function RecordingsPage() {
           onClick={() => setPlaying(null)}
         >
           <div
-            className="rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-slate-700 w-full max-w-md"
+            className="rounded-2xl overflow-hidden bg-slate-900 shadow-2xl border border-slate-700 w-full max-w-md"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}

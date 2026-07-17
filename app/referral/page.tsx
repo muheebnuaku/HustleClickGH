@@ -86,7 +86,7 @@ export default function ReferralPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-12 h-12 border-t-2 border-b-2 border-green-500 rounded-full animate-spin"></div>
         </div>
       </DashboardLayout>
     );
@@ -104,7 +104,7 @@ export default function ReferralPage() {
 
         {/* Referral Stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 border-blue-200 dark:border-blue-800">
+          <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
             <CardContent className="pt-6">
               <div className="text-center">
                 <p className="text-sm text-blue-700 dark:text-blue-400">Total Referrals</p>
@@ -113,7 +113,7 @@ export default function ReferralPage() {
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 border-green-200 dark:border-green-800">
+          <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
             <CardContent className="pt-6">
               <div className="text-center">
                 <p className="text-sm text-green-700 dark:text-green-400">Successful Referrals</p>
@@ -122,7 +122,7 @@ export default function ReferralPage() {
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 border-purple-200 dark:border-purple-800">
+          <Card className="bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800">
             <CardContent className="pt-6">
               <div className="text-center">
                 <p className="text-sm text-purple-700 dark:text-purple-400">Total Earnings</p>
@@ -167,7 +167,7 @@ export default function ReferralPage() {
               </div>
               <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-blue-600 to-purple-600 transition-all"
+                  className="h-full bg-blue-600 transition-all"
                   style={{
                     width: `${(totalReferrals / SITE_CONFIG.survey.referralMilestone) * 100}%`,
                   }}

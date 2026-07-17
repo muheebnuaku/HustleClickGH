@@ -177,7 +177,7 @@ export default function AuthPage() {
   ];
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-zinc-100 via-white to-zinc-100 dark:from-zinc-950 dark:via-black dark:to-zinc-950 p-4 overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-zinc-100 dark:bg-zinc-950 dark:via-black p-4 overflow-hidden">
       {/* 3D Flip Container */}
       <div className="w-full max-w-6xl h-[700px] relative" style={{ perspective: "2000px" }}>
         <div 
@@ -202,7 +202,7 @@ export default function AuthPage() {
                   className="object-cover"
                   priority
                 />
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-600/90 via-purple-600/80 to-pink-600/90"></div>
+                <div className="absolute inset-0 bg-blue-600/90"></div>
                 
                 <div className="relative z-10 flex flex-col justify-between p-10 text-white">
                   <div className="flex items-center gap-3">
@@ -256,7 +256,7 @@ export default function AuthPage() {
               <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-10 bg-white dark:bg-zinc-950">
                 <div className="w-full max-w-md space-y-6">
                   <div className="lg:hidden flex items-center justify-center gap-3 mb-6">
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
+                    <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
                       <Sparkles size={24} className="text-white" />
                     </div>
                     <div>
@@ -322,7 +322,7 @@ export default function AuthPage() {
 
                     <Button
                       type="submit"
-                      className="w-full h-11 rounded-xl font-semibold bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
+                      className="w-full h-11 rounded-xl font-semibold bg-blue-600 hover:bg-blue-700"
                       disabled={isLoading}
                     >
                       {isLoading ? (
@@ -395,7 +395,7 @@ export default function AuthPage() {
               <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-10 bg-white dark:bg-zinc-950 overflow-y-auto">
                 <div className="w-full max-w-md space-y-5">
                   <div className="lg:hidden flex items-center justify-center gap-3 mb-4">
-                    <div className="w-10 h-10 bg-gradient-to-br from-green-600 to-emerald-600 rounded-xl flex items-center justify-center">
+                    <div className="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center">
                       <Sparkles size={24} className="text-white" />
                     </div>
                     <div>
@@ -608,7 +608,7 @@ export default function AuthPage() {
 
                     <Button
                       type="submit"
-                      className="w-full h-11 rounded-xl font-semibold bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                      className="w-full h-11 rounded-xl font-semibold bg-green-600 hover:bg-green-700"
                       disabled={isLoading}
                     >
                       {isLoading ? (
@@ -681,7 +681,7 @@ export default function AuthPage() {
                   className="object-cover"
                   priority
                 />
-                <div className="absolute inset-0 bg-gradient-to-bl from-green-600/90 via-emerald-600/80 to-teal-600/90"></div>
+                <div className="absolute inset-0 bg-green-600/90"></div>
                 
                 <div className="relative z-10 flex flex-col justify-between p-10 text-white">
                   <div className="flex items-center gap-3 justify-end">
@@ -776,7 +776,7 @@ export default function AuthPage() {
 
             <Button
               onClick={handleCongratsOk}
-              className="w-full h-12 rounded-xl font-semibold bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white"
+              className="w-full h-12 rounded-xl font-semibold bg-green-600 hover:bg-green-700 text-white"
             >
               OK, Proceed to Login
             </Button>
