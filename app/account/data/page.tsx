@@ -2,40 +2,47 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { signOut } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, ShieldCheck, Trash2, AlertTriangle } from "lucide-react";
+import { PageLoader } from "@/components/ui/loader";
+import { ShieldCheck, Trash2, AlertTriangle, Check } from "lucide-react";
+import { CONSENT_SUMMARY, CONSENT_VERSION } from "@/lib/legal";
 
 export default function AccountDataPage() {
   const router = useRouter();
-  const [exporting, setExporting] = useState(false);
+  const { data: session, status, update } = useSession();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
-  const handleExport = async () => {
-    setExporting(true);
+  // Consent gate state
+  const [agreed, setAgreed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleAgree = async () => {
+    if (!agreed) return;
+    setSubmitting(true);
     setError("");
     try {
-      const res = await fetch("/api/account/export");
-      if (!res.ok) throw new Error("Export failed. Please try again.");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "hustleclickgh-data.json";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const res = await fetch("/api/account/consent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agreed: true }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || "Could not save. Please try again.");
+      }
+      await update(); // refresh session so the middleware gate reopens
+      router.replace("/dashboard");
+      router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Export failed.");
-    } finally {
-      setExporting(false);
+      setError(err instanceof Error ? err.message : "Could not save. Please try again.");
+      setSubmitting(false);
     }
   };
 
@@ -52,7 +59,6 @@ export default function AccountDataPage() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.message || "Deletion failed.");
       }
-      // Account gone — sign out and return home.
       await signOut({ callbackUrl: "/" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Deletion failed.");
@@ -60,6 +66,89 @@ export default function AccountDataPage() {
     }
   };
 
+  if (status === "loading") {
+    return <PageLoader />;
+  }
+
+  // ---- Consent gate: shown until the user accepts the current agreement ----
+  if (session?.user && session.user.consentAccepted === false) {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-lg bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm p-6 sm:p-8">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-11 h-11 rounded-xl bg-green-50 dark:bg-green-900/20 flex items-center justify-center text-green-600">
+              <ShieldCheck size={24} />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-foreground">Data &amp; Privacy</h1>
+              <p className="text-xs text-zinc-500">Agreement v{CONSENT_VERSION}</p>
+            </div>
+          </div>
+
+          <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-4">
+            Before you continue, please review and agree to how we handle your personal data.
+          </p>
+
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 p-4 text-sm text-zinc-600 dark:text-zinc-400 max-h-52 overflow-y-auto">
+            {CONSENT_SUMMARY}
+          </div>
+
+          <p className="text-xs text-zinc-500 mt-3">
+            Read the full{" "}
+            <Link href="/data-processing-agreement" target="_blank" className="text-blue-600 underline">
+              Data Processing Agreement
+            </Link>
+            ,{" "}
+            <Link href="/privacy" target="_blank" className="text-blue-600 underline">
+              Privacy Policy
+            </Link>{" "}
+            and{" "}
+            <Link href="/terms" target="_blank" className="text-blue-600 underline">
+              Terms
+            </Link>
+            .
+          </p>
+
+          {error && (
+            <div className="mt-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-xl text-sm border border-red-200 dark:border-red-800">
+              {error}
+            </div>
+          )}
+
+          <label className="flex items-start gap-2 cursor-pointer mt-4">
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              disabled={submitting}
+              className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-green-600 focus:ring-green-500"
+            />
+            <span className="text-sm text-zinc-600 dark:text-zinc-400">
+              I have read and agree to the Data Processing Agreement and Privacy Policy, and I
+              consent to my personal data being processed as described.
+            </span>
+          </label>
+
+          <Button
+            onClick={handleAgree}
+            disabled={!agreed || submitting}
+            className="w-full mt-5 bg-green-600 hover:bg-green-700"
+          >
+            <Check size={18} /> {submitting ? "Saving…" : "Agree & Continue"}
+          </Button>
+
+          <button
+            onClick={() => signOut({ callbackUrl: "/" })}
+            className="w-full mt-3 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Normal management view (already consented) ----
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-2xl">
@@ -78,19 +167,16 @@ export default function AccountDataPage() {
           </div>
         )}
 
-        {/* Export */}
+        {/* Consent status */}
         <Card>
           <CardHeader>
-            <CardTitle>Export your data</CardTitle>
+            <CardTitle>Your consent</CardTitle>
             <CardDescription>
-              Download a copy of the personal data we hold about you as a JSON file.
+              You have agreed to the current Data Processing Agreement (v{CONSENT_VERSION}).
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button onClick={handleExport} disabled={exporting}>
-              <Download size={18} />
-              {exporting ? "Preparing…" : "Download my data"}
-            </Button>
+          <CardContent className="flex items-center gap-2 text-sm text-green-600">
+            <Check size={18} /> Consent on file
           </CardContent>
         </Card>
 

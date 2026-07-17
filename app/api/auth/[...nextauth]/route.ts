@@ -5,6 +5,7 @@ import AppleProvider from "next-auth/providers/apple";
 import { compare } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/activity-log";
+import { CONSENT_VERSION } from "@/lib/legal";
 
 // Helper to generate unique USER + 4-digit ID
 async function generateUserId(): Promise<string> {
@@ -107,6 +108,7 @@ export const authOptions: NextAuthOptions = {
           email: user.email,
           role: user.role,
           profileCompleted: user.profileCompleted,
+          consentAccepted: user.consentVersion === CONSENT_VERSION,
         };
       },
     }),
@@ -191,6 +193,7 @@ export const authOptions: NextAuthOptions = {
           token.userId = user.userId;
           token.role = user.role;
           token.profileCompleted = user.profileCompleted ?? false;
+          token.consentAccepted = user.consentAccepted ?? false;
         } else {
           // For OAuth login, fetch user from database
           const dbUser = await prisma.user.findUnique({
@@ -201,17 +204,19 @@ export const authOptions: NextAuthOptions = {
             token.userId = dbUser.userId;
             token.role = dbUser.role;
             token.profileCompleted = dbUser.profileCompleted;
+            token.consentAccepted = dbUser.consentVersion === CONSENT_VERSION;
           }
         }
       }
 
       // Refresh token from DB when the client calls session.update()
-      // (e.g. after completing onboarding, so the middleware gate reopens).
+      // (e.g. after accepting consent or completing onboarding, so the gates reopen).
       if (trigger === "update" && token.id) {
         const dbUser = await prisma.user.findUnique({ where: { id: token.id as string } });
         if (dbUser) {
           token.role = dbUser.role;
           token.profileCompleted = dbUser.profileCompleted;
+          token.consentAccepted = dbUser.consentVersion === CONSENT_VERSION;
         }
       }
 
@@ -223,6 +228,7 @@ export const authOptions: NextAuthOptions = {
         session.user.userId = token.userId as string;
         session.user.role = token.role as string;
         session.user.profileCompleted = Boolean(token.profileCompleted);
+        session.user.consentAccepted = Boolean(token.consentAccepted);
       }
       return session;
     },

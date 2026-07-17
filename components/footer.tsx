@@ -22,12 +22,6 @@ export function Footer() {
               <Link href="/" className="text-sm hover:text-white transition-colors">
                 Home
               </Link>
-              <Link href="/register" className="text-sm hover:text-white transition-colors">
-                Start Earning
-              </Link>
-              <Link href="/login" className="text-sm hover:text-white transition-colors">
-                View Projects
-              </Link>
               <Link href="/partners" className="text-sm hover:text-white transition-colors">
                 For Companies
               </Link>

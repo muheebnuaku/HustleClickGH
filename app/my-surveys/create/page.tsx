@@ -236,7 +236,7 @@ export default function CreateSurveyPage() {
       <div className="max-w-3xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => router.back()}>
+          <Button variant="ghost" size="sm" onClick={() => router.push("/my-surveys")}>
             <ArrowLeft size={18} />
           </Button>
           <div>
@@ -555,7 +555,7 @@ export default function CreateSurveyPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => router.back()}
+              onClick={() => router.push("/my-surveys")}
               className="flex-1"
             >
               Cancel

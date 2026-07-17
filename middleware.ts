@@ -66,6 +66,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/onboarding", request.url));
   }
 
+  // Consent gate — after login, contributors who have not accepted the current
+  // Data Processing Agreement / Privacy Policy are sent to the Data & Privacy page
+  // to review and agree before they can access anything else.
+  if (
+    token &&
+    token.role === "user" &&
+    token.consentAccepted === false &&
+    path !== "/account/data" &&
+    !path.startsWith("/api")
+  ) {
+    return NextResponse.redirect(new URL("/account/data", request.url));
+  }
+
   // Check admin access — admin can access all, manager can only access call-recordings
   if (isAdminPath) {
     if (token?.role !== "admin" && token?.role !== "manager") {

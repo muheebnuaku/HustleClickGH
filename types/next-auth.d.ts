@@ -11,6 +11,7 @@ declare module "next-auth" {
       image?: string | null;
       role: string;
       profileCompleted: boolean;
+      consentAccepted: boolean;
     };
   }
 
@@ -19,6 +20,7 @@ declare module "next-auth" {
     userId: string;
     role: string;
     profileCompleted?: boolean;
+    consentAccepted?: boolean;
   }
 }
 
@@ -28,5 +30,6 @@ declare module "next-auth/jwt" {
     userId: string;
     role: string;
     profileCompleted: boolean;
+    consentAccepted: boolean;
   }
 }

@@ -286,7 +286,7 @@ export default function SurveyDetailPage({
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div className="flex items-center gap-4 w-full">
-            <Button variant="ghost" size="sm" onClick={() => router.back()}>
+            <Button variant="ghost" size="sm" onClick={() => router.push("/my-surveys")}>
               <ArrowLeft size={18} />
             </Button>
             <div className="flex-1">

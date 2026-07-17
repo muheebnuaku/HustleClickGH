@@ -14,6 +14,8 @@ import {
   Database,
   Languages,
   PhoneCall,
+  Building2,
+  ArrowRight,
 } from "lucide-react";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
@@ -488,6 +490,65 @@ export default function Home() {
                 </CardContent>
               </Card>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* For Companies / Partners Section */}
+      <section className="py-24 bg-white dark:bg-zinc-950">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="rounded-3xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 overflow-hidden">
+            <div className="grid grid-cols-1 lg:grid-cols-2">
+              {/* Left: copy */}
+              <div className="p-8 sm:p-12">
+                <div className="inline-flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 px-3 py-1.5 rounded-full text-sm font-medium mb-5">
+                  <Building2 size={16} />
+                  For companies &amp; AI teams
+                </div>
+                <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
+                  Need data collected for your AI project?
+                </h2>
+                <p className="text-lg text-zinc-600 dark:text-zinc-400 mb-6">
+                  Partner with HustleClickGH to collect voice, image, video and survey data — ethically
+                  and at scale — from a verified network of contributors across Ghana and beyond. Every
+                  contribution is consented and compliant with the Ghana Data Protection Act.
+                </p>
+                <ul className="space-y-3 mb-8">
+                  {["Verified, ID-checked contributors", "Consent-first & GDPR-aligned", "Voice, image, video, survey & language data"].map((item) => (
+                    <li key={item} className="flex items-center gap-3 text-zinc-700 dark:text-zinc-300">
+                      <Check size={18} className="text-green-600 shrink-0" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white text-lg px-8" asChild>
+                  <Link href="/partners">
+                    Partner with us <ArrowRight size={18} />
+                  </Link>
+                </Button>
+              </div>
+
+              {/* Right: data types */}
+              <div className="bg-slate-900 p-8 sm:p-12 flex flex-col justify-center">
+                <h3 className="text-white text-lg font-semibold mb-6">Datasets we collect</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  {[
+                    { icon: Database, label: "Image datasets" },
+                    { icon: Mic, label: "Voice & speech" },
+                    { icon: PhoneCall, label: "Video" },
+                    { icon: Languages, label: "Language & text" },
+                  ].map((d) => (
+                    <div key={d.label} className="rounded-xl bg-white/5 border border-white/10 p-4">
+                      <d.icon size={22} className="text-blue-400 mb-2" />
+                      <p className="text-white text-sm font-medium">{d.label}</p>
+                    </div>
+                  ))}
+                </div>
+                <Link href="/partners" className="mt-6 inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 text-sm font-medium">
+                  See how partnerships work <ArrowRight size={15} />
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </section>
