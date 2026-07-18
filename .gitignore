@@ -51,3 +51,6 @@ next-env.d.ts
 
 # Personal final-year-project writing reference (not part of the codebase)
 PROJECT-DOCUMENTATION.md
+
+# Personal thesis drafts (not part of the codebase)
+thesis/
