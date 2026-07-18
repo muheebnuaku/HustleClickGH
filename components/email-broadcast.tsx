@@ -76,6 +76,7 @@ export function EmailBroadcast() {
       let offset = 0;
       let totalSent = 0;
       let totalFailed = 0;
+      const allErrors: string[] = [];
 
       // Send in chunks so long lists never hit the serverless timeout
       while (true) {
@@ -89,18 +90,27 @@ export function EmailBroadcast() {
 
         totalSent += data.sent || 0;
         totalFailed += data.failed || 0;
+        for (const e of data.errors || []) if (allErrors.length < 5) allErrors.push(e);
         setProgress({ sent: totalSent, total: data.total || count });
 
         if (data.nextOffset === null || data.nextOffset === undefined) break;
         offset = data.nextOffset;
       }
 
-      setResult(
-        `Sent ${totalSent} email${totalSent === 1 ? "" : "s"}.` +
-          (totalFailed ? ` ${totalFailed} failed — check the logs.` : "")
-      );
-      setSubject("");
-      setMessage("");
+      if (totalFailed) {
+        setError(
+          `Sent ${totalSent}, but ${totalFailed} failed:\n` +
+            allErrors.join("\n") +
+            (totalFailed > allErrors.length ? `\n…and ${totalFailed - allErrors.length} more.` : "")
+        );
+      }
+      if (totalSent) {
+        setResult(`Sent ${totalSent} email${totalSent === 1 ? "" : "s"}.`);
+      }
+      if (!totalFailed) {
+        setSubject("");
+        setMessage("");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send.");
     } finally {
@@ -123,7 +133,7 @@ export function EmailBroadcast() {
       <CardContent>
         <form onSubmit={send} className="space-y-4">
           {error && (
-            <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-xl text-sm">{error}</div>
+            <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-xl text-sm whitespace-pre-line break-words">{error}</div>
           )}
           {result && (
             <div className="bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 p-3 rounded-xl text-sm">{result}</div>

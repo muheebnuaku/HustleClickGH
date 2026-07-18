@@ -148,7 +148,13 @@ export function broadcastEmail(subject: string, message: string, fullName?: stri
   };
 }
 
-export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
+export interface SendResult {
+  ok: boolean;
+  /** Human-readable failure reason, surfaced to admins in the UI. */
+  error?: string;
+}
+
+export async function sendEmail(opts: SendEmailOptions): Promise<SendResult> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM || `HustleClickGH <${SITE_CONFIG.contact.email}>`;
 
@@ -175,18 +181,23 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
         html: opts.html,
         ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
       });
-      return true;
+      return { ok: true };
     } catch (err) {
-      console.error("[email] SMTP send failed:", err);
-      return false;
+      // Surface the provider's actual complaint (rate limit, bad login, bad
+      // recipient…) instead of a silent false.
+      const e = err as { responseCode?: number; response?: string; message?: string };
+      const reason = [e.responseCode ? `SMTP ${e.responseCode}` : null, e.response || e.message]
+        .filter(Boolean)
+        .join(": ") || "Unknown SMTP error";
+      console.error("[email] SMTP send failed:", reason);
+      return { ok: false, error: reason };
     }
   }
 
   if (!apiKey) {
-    console.warn(
-      `[email] No SMTP_* or RESEND_API_KEY configured — skipping email to ${opts.to} (subject: "${opts.subject}")`
-    );
-    return false;
+    const reason = "No email transport configured (SMTP_* or RESEND_API_KEY missing)";
+    console.warn(`[email] ${reason} — skipping email to ${opts.to}`);
+    return { ok: false, error: reason };
   }
 
   try {
@@ -207,12 +218,14 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
 
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
-      console.error(`[email] Resend responded ${res.status}: ${detail}`);
-      return false;
+      const reason = `Resend ${res.status}: ${detail}`;
+      console.error(`[email] ${reason}`);
+      return { ok: false, error: reason };
     }
-    return true;
+    return { ok: true };
   } catch (err) {
-    console.error("[email] Failed to send:", err);
-    return false;
+    const reason = err instanceof Error ? err.message : "Unknown error";
+    console.error("[email] Failed to send:", reason);
+    return { ok: false, error: reason };
   }
 }

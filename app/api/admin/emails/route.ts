@@ -113,28 +113,47 @@ export async function POST(request: Request) {
     const chunk = recipients.slice(offset, offset + limit);
     let sent = 0;
     let failed = 0;
+    const errors: string[] = [];
 
     // Sequential: shared SMTP mailboxes rate-limit parallel connections
     for (const r of chunk) {
       const mail = broadcastEmail(subject.trim(), message.trim(), r.fullName || undefined);
-      const ok = await sendEmail({ to: r.email, subject: mail.subject, html: mail.html });
-      ok ? sent++ : failed++;
+      const result = await sendEmail({ to: r.email, subject: mail.subject, html: mail.html });
+      if (result.ok) {
+        sent++;
+      } else {
+        failed++;
+        const reason = `${r.email}: ${result.error || "unknown error"}`;
+        if (errors.length < 5) errors.push(reason);
+      }
     }
 
-    const nextOffset = offset + limit < total ? offset + limit : null;
-
-    if (nextOffset === null) {
+    // Record failures where the admin will actually look for them
+    if (failed > 0) {
       logActivity({
         type: "email_broadcast",
         userId: session.user.id,
         userName: session.user.name,
-        severity: "info",
+        severity: "error",
+        metadata: { subject, target, failed, sent, errors },
+        ip: getIp(request),
+      });
+    }
+
+    const nextOffset = offset + limit < total ? offset + limit : null;
+
+    if (nextOffset === null && failed === 0) {
+      logActivity({
+        type: "email_broadcast",
+        userId: session.user.id,
+        userName: session.user.name,
+        severity: "success",
         metadata: { subject, target, total },
         ip: getIp(request),
       });
     }
 
-    return NextResponse.json({ total, sent, failed, nextOffset });
+    return NextResponse.json({ total, sent, failed, errors, nextOffset });
   } catch (error) {
     console.error("Email broadcast error:", error);
     return NextResponse.json({ message: "An error occurred" }, { status: 500 });
