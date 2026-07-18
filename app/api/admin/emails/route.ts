@@ -115,6 +115,12 @@ export async function POST(request: Request) {
     let failed = 0;
     const errors: string[] = [];
 
+    // A quota/rate-limit error will hit every remaining recipient too, so stop
+    // the whole broadcast rather than burning through the list.
+    const isFatal = (msg = "") =>
+      /429|quota|rate.?limit|too many requests|sending limit/i.test(msg);
+    let aborted: string | null = null;
+
     // Sequential: shared SMTP mailboxes rate-limit parallel connections
     for (const r of chunk) {
       const mail = broadcastEmail(subject.trim(), message.trim(), r.fullName || undefined);
@@ -125,6 +131,10 @@ export async function POST(request: Request) {
         failed++;
         const reason = `${r.email}: ${result.error || "unknown error"}`;
         if (errors.length < 5) errors.push(reason);
+        if (isFatal(result.error)) {
+          aborted = result.error || "Sending limit reached";
+          break;
+        }
       }
     }
 
@@ -140,7 +150,8 @@ export async function POST(request: Request) {
       });
     }
 
-    const nextOffset = offset + limit < total ? offset + limit : null;
+    // Stop the client's chunk loop when the provider cut us off
+    const nextOffset = aborted ? null : offset + limit < total ? offset + limit : null;
 
     if (nextOffset === null && failed === 0) {
       logActivity({
@@ -153,7 +164,7 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json({ total, sent, failed, errors, nextOffset });
+    return NextResponse.json({ total, sent, failed, errors, nextOffset, aborted });
   } catch (error) {
     console.error("Email broadcast error:", error);
     return NextResponse.json({ message: "An error occurred" }, { status: 500 });

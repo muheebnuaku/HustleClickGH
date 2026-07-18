@@ -1,17 +1,18 @@
 import { SITE_CONFIG } from "@/lib/constants";
 
 /**
- * Email sender with two interchangeable transports.
+ * Email sender — SMTP only (Zoho Mail).
  *
- * 1. SMTP (e.g. Zoho Mail) — used when SMTP_HOST/SMTP_USER/SMTP_PASS are set.
- *    Preferred when you host the mailbox yourself, so sent mail lands in the
- *    account's Sent folder and replies come back to the same inbox.
- * 2. Resend HTTP API — used when RESEND_API_KEY is set and SMTP is not.
+ * Sending through the Zoho mailbox means outgoing mail lands in its Sent
+ * folder and replies come back to the same inbox you already work in.
  *
- * If neither is configured it logs and no-ops, so a missing mail setup never
- * breaks an API request (everything here is fire-and-forget by design).
+ * There is deliberately no fallback transport: a silent fallback once masked
+ * an unconfigured mailbox and sent mail through the wrong provider. If SMTP
+ * isn't fully configured, sendEmail returns a specific error naming the
+ * missing variables instead. Callers are fire-and-forget, so a failure here
+ * never breaks the surrounding request.
  *
- * Env (Zoho example):
+ * Env:
  *   SMTP_HOST=smtp.zoho.com     (smtp.zoho.eu / .in depending on your region)
  *   SMTP_PORT=465               (465 = SSL, 587 = STARTTLS)
  *   SMTP_USER=info@hustleclickgh.com
@@ -155,77 +156,52 @@ export interface SendResult {
 }
 
 export async function sendEmail(opts: SendEmailOptions): Promise<SendResult> {
-  const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM || `HustleClickGH <${SITE_CONFIG.contact.email}>`;
 
   const smtpHost = process.env.SMTP_HOST;
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
 
-  // Preferred transport: SMTP (Zoho and friends)
-  if (smtpHost && smtpUser && smtpPass) {
-    try {
-      const nodemailer = (await import("nodemailer")).default;
-      const port = Number(process.env.SMTP_PORT || 465);
-      const transporter = nodemailer.createTransport({
-        host: smtpHost,
-        port,
-        secure: port === 465, // 465 = implicit SSL, 587 = STARTTLS
-        auth: { user: smtpUser, pass: smtpPass },
-      });
-
-      await transporter.sendMail({
-        from,
-        to: opts.to,
-        subject: opts.subject,
-        html: opts.html,
-        ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
-      });
-      return { ok: true };
-    } catch (err) {
-      // Surface the provider's actual complaint (rate limit, bad login, bad
-      // recipient…) instead of a silent false.
-      const e = err as { responseCode?: number; response?: string; message?: string };
-      const reason = [e.responseCode ? `SMTP ${e.responseCode}` : null, e.response || e.message]
-        .filter(Boolean)
-        .join(": ") || "Unknown SMTP error";
-      console.error("[email] SMTP send failed:", reason);
-      return { ok: false, error: reason };
-    }
-  }
-
-  if (!apiKey) {
-    const reason = "No email transport configured (SMTP_* or RESEND_API_KEY missing)";
-    console.warn(`[email] ${reason} — skipping email to ${opts.to}`);
+  // Fail loudly and specifically rather than silently doing nothing — a
+  // half-configured mailbox is the most common cause of "no email arrived".
+  if (!smtpHost || !smtpUser || !smtpPass) {
+    const missing = [
+      !smtpHost && "SMTP_HOST",
+      !smtpUser && "SMTP_USER",
+      !smtpPass && "SMTP_PASS",
+    ].filter(Boolean).join(", ");
+    const reason = `Email not configured — missing ${missing}`;
+    console.warn(`[email] ${reason} (to: ${opts.to})`);
     return { ok: false, error: reason };
   }
 
   try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: opts.to,
-        subject: opts.subject,
-        html: opts.html,
-        ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
-      }),
+    const nodemailer = (await import("nodemailer")).default;
+    const port = Number(process.env.SMTP_PORT || 465);
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port,
+      secure: port === 465, // 465 = implicit SSL, 587 = STARTTLS
+      auth: { user: smtpUser, pass: smtpPass },
     });
 
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      const reason = `Resend ${res.status}: ${detail}`;
-      console.error(`[email] ${reason}`);
-      return { ok: false, error: reason };
-    }
+    await transporter.sendMail({
+      from,
+      to: opts.to,
+      subject: opts.subject,
+      html: opts.html,
+      ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
+    });
     return { ok: true };
   } catch (err) {
-    const reason = err instanceof Error ? err.message : "Unknown error";
-    console.error("[email] Failed to send:", reason);
+    // Surface the provider's actual complaint (rate limit, bad login, bad
+    // recipient…) instead of a silent false.
+    const e = err as { responseCode?: number; response?: string; message?: string };
+    const reason =
+      [e.responseCode ? `SMTP ${e.responseCode}` : null, e.response || e.message]
+        .filter(Boolean)
+        .join(": ") || "Unknown SMTP error";
+    console.error("[email] SMTP send failed:", reason);
     return { ok: false, error: reason };
   }
 }

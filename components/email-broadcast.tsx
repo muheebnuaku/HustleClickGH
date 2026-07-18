@@ -76,6 +76,7 @@ export function EmailBroadcast() {
       let offset = 0;
       let totalSent = 0;
       let totalFailed = 0;
+      let aborted: string | null = null;
       const allErrors: string[] = [];
 
       // Send in chunks so long lists never hit the serverless timeout
@@ -93,11 +94,20 @@ export function EmailBroadcast() {
         for (const e of data.errors || []) if (allErrors.length < 5) allErrors.push(e);
         setProgress({ sent: totalSent, total: data.total || count });
 
+        if (data.aborted) {
+          aborted = data.aborted;
+          break;
+        }
         if (data.nextOffset === null || data.nextOffset === undefined) break;
         offset = data.nextOffset;
       }
 
-      if (totalFailed) {
+      if (aborted) {
+        setError(
+          `Stopped after ${totalSent} sent — your email provider cut us off:\n${aborted}\n\n` +
+            `The rest were not attempted. Wait for the limit to reset (or switch provider), then resend to the remaining recipients.`
+        );
+      } else if (totalFailed) {
         setError(
           `Sent ${totalSent}, but ${totalFailed} failed:\n` +
             allErrors.join("\n") +
@@ -107,7 +117,7 @@ export function EmailBroadcast() {
       if (totalSent) {
         setResult(`Sent ${totalSent} email${totalSent === 1 ? "" : "s"}.`);
       }
-      if (!totalFailed) {
+      if (!totalFailed && !aborted) {
         setSubject("");
         setMessage("");
       }
