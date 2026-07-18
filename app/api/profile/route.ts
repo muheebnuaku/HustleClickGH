@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { encryptField, lastChars, isEncryptionConfigured } from "@/lib/crypto";
 
 export async function GET() {
   try {
@@ -24,6 +25,8 @@ export async function GET() {
         phone: true,
         image: true,
         nationalId: true,
+        idNumberLast4: true,
+        idType: true,
         role: true,
         verified: true,
         balance: true,
@@ -76,16 +79,17 @@ export async function PUT(request: Request) {
     const body = await request.json();
     const { email, phone, nationalId, newPassword, image } = body;
 
-    // Get current user to check if nationalId already exists
+    // Get current user to check whether an ID is already on file
     const currentUser = await prisma.user.findUnique({
       where: { id: userId },
-      select: { nationalId: true },
+      select: { nationalId: true, idNumber: true },
     });
 
     const updateData: {
       email?: string;
       phone?: string;
-      nationalId?: string;
+      idNumber?: string;
+      idNumberLast4?: string;
       password?: string;
       image?: string;
     } = {};
@@ -94,9 +98,19 @@ export async function PUT(request: Request) {
     if (email) updateData.email = email;
     if (phone) updateData.phone = phone;
 
-    // Only update nationalId if user doesn't already have one
-    if (nationalId && !currentUser?.nationalId) {
-      updateData.nationalId = nationalId;
+    // The profile "National ID" is the same value captured at registration.
+    // It is optional, write-once, and encrypted at rest.
+    const rawId = nationalId ? String(nationalId).trim() : "";
+    const alreadyHasId = Boolean(currentUser?.idNumber || currentUser?.nationalId);
+    if (rawId && !alreadyHasId) {
+      if (rawId.length < 4) {
+        return NextResponse.json({ error: "Please enter a valid ID number" }, { status: 400 });
+      }
+      if (!isEncryptionConfigured()) {
+        console.warn("[profile] FIELD_ENCRYPTION_KEY not set — storing ID number WITHOUT encryption.");
+      }
+      updateData.idNumber = isEncryptionConfigured() ? encryptField(rawId) : rawId;
+      updateData.idNumberLast4 = lastChars(rawId, 4);
     }
 
     // If image is provided, update it

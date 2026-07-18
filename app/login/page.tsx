@@ -28,8 +28,11 @@ const registerSchema = z.object({
   country: z.string().min(2, "Country is required"),
   region: z.string().min(2, "Region is required"),
   city: z.string().min(2, "City is required"),
-  idType: z.string().min(2, "ID type is required"),
-  idNumber: z.string().min(4, "Enter a valid ID number"),
+  idType: z.string().optional(),
+  idNumber: z
+    .string()
+    .optional()
+    .refine((v) => !v || v.trim().length >= 4, "Enter a valid ID number, or leave it blank"),
   password: z
     .string()
     .min(8, "Password must be at least 8 characters")
@@ -589,7 +592,9 @@ export default function AuthPage() {
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-foreground">ID Number</label>
+                        <label className="text-xs font-medium text-foreground">
+                          ID Number <span className="text-zinc-400">(Optional)</span>
+                        </label>
                         <Input
                           placeholder="GHA-XXXXXXXXX-X"
                           className="h-10 rounded-xl"

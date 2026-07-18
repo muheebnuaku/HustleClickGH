@@ -94,7 +94,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               <p className="text-lg font-bold text-green-600">{formatCurrency(balance)}</p>
             </div>
             {/* Profile Image */}
-            <Link href="/profile" className="flex items-center gap-2">
+            <Link href="/profile" className="relative flex items-center gap-2">
               <div className="w-9 h-9 rounded-full overflow-hidden bg-zinc-100 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700">
               {profileImage ? (
                   <Image
@@ -111,6 +111,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                   </div>
                 )}
               </div>
+              {verified && (
+                <span className="absolute -bottom-0.5 -right-0.5 bg-white dark:bg-black rounded-full p-[1px] leading-none">
+                  <VerifiedBadge size={14} />
+                </span>
+              )}
             </Link>
             <Button variant="ghost" size="sm" onClick={handleLogout}>
               <LogOut size={18} />
@@ -158,20 +163,27 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             onClick={() => setSidebarOpen(false)}
             className="flex items-center gap-3 p-3 mb-3 rounded-xl bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
           >
-            <div className="w-12 h-12 rounded-full overflow-hidden bg-zinc-200 dark:bg-zinc-700 border-2 border-zinc-300 dark:border-zinc-600">
-              {profileImage ? (
-                <Image
-                  src={profileImage}
-                  alt="Profile"
-                  width={48}
-                  height={48}
-                  className="w-full h-full object-cover"
-                  unoptimized
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <User size={24} className="text-zinc-400" />
-                </div>
+            <div className="relative shrink-0">
+              <div className="w-12 h-12 rounded-full overflow-hidden bg-zinc-200 dark:bg-zinc-700 border-2 border-zinc-300 dark:border-zinc-600">
+                {profileImage ? (
+                  <Image
+                    src={profileImage}
+                    alt="Profile"
+                    width={48}
+                    height={48}
+                    className="w-full h-full object-cover"
+                    unoptimized
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <User size={24} className="text-zinc-400" />
+                  </div>
+                )}
+              </div>
+              {verified && (
+                <span className="absolute -bottom-0.5 -right-0.5 bg-white dark:bg-zinc-950 rounded-full p-[1px] leading-none">
+                  <VerifiedBadge size={16} />
+                </span>
               )}
             </div>
             <div className="flex-1 min-w-0">

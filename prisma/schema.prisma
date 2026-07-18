@@ -39,7 +39,6 @@ model User {
   consentVersion  String?       // version of the agreement the user signed
   role            String        @default("user") // user, admin, or manager
   status          String        @default("active") // active, suspended
-  emailFlagged    Boolean       @default(false) // true if email from free provider
   balance         Float         @default(0)
   totalEarned     Float         @default(0)
   referralCode    String        @unique

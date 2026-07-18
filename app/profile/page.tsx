@@ -33,6 +33,7 @@ interface UserData {
   phone: string;
   image: string | null;
   nationalId: string | null;
+  idNumberLast4?: string | null;
   balance: number;
   totalEarned: number;
   referralCode: string;
@@ -82,11 +83,14 @@ export default function ProfilePage() {
           if (data.user) {
             setUserData(data.user);
             setUserStats(data.stats || { surveysCompleted: 0, referrals: 0 });
-            setHasNationalId(!!data.user.nationalId);
+            // The ID may be stored encrypted (from registration/onboarding) — in
+            // that case we only ever show the masked last 4 characters.
+            const masked = data.user.idNumberLast4 ? `•••••• ${data.user.idNumberLast4}` : "";
+            setHasNationalId(Boolean(data.user.nationalId || data.user.idNumberLast4));
             reset({
               email: data.user.email || "",
               phone: data.user.phone || "",
-              nationalId: data.user.nationalId || "",
+              nationalId: data.user.nationalId || masked,
               newPassword: "",
             });
             if (data.user.image) {
@@ -339,9 +343,11 @@ export default function ProfilePage() {
                     disabled={isLoading || hasNationalId}
                     className={hasNationalId ? "bg-zinc-100 dark:bg-zinc-800 cursor-not-allowed" : ""}
                   />
-                  {hasNationalId && (
-                    <p className="text-xs text-zinc-500">Contact support if you need to update your National ID</p>
-                  )}
+                  <p className="text-xs text-zinc-500">
+                    {hasNationalId
+                      ? "This is the ID you provided when registering. Contact support if you need to change it."
+                      : "Optional for now — you can add it later. It is encrypted and never shown publicly."}
+                  </p>
                 </div>
 
                 <div className="space-y-2 md:col-span-2">

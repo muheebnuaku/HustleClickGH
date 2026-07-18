@@ -40,7 +40,6 @@ export async function GET() {
       totalEarned: user.totalEarned,
       role: user.role,
       status: user.status,
-      emailFlagged: user.emailFlagged,
       verified: user.verified,
       locationRequested: user.locationRequested,
       country: user.country,
@@ -55,7 +54,6 @@ export async function GET() {
     const totalUsers = users.length;
     const activeUsers = users.filter(u => u.status === "active").length;
     const suspendedUsers = users.filter(u => u.status === "suspended").length;
-    const flaggedEmails = users.filter(u => u.emailFlagged).length;
     const verifiedUsers = users.filter(u => u.verified).length;
     const missingLocation = users.filter(u => !u.country?.trim()).length;
     const totalBalance = users.reduce((sum, u) => sum + u.balance, 0);
@@ -70,7 +68,6 @@ export async function GET() {
         totalUsers,
         activeUsers,
         suspendedUsers,
-        flaggedEmails,
         verifiedUsers,
         missingLocation,
         totalPaidOut,

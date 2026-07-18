@@ -7,7 +7,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users, AlertCircle, Lock, Unlock, MapPin, BadgeCheck } from "lucide-react";
+import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users, Lock, Unlock, MapPin, BadgeCheck } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { VerifiedBadge } from "@/components/verified-badge";
 
@@ -24,7 +24,6 @@ interface UserData {
   createdAt: string;
   role: string;
   status: string;
-  emailFlagged: boolean;
   verified: boolean;
   locationRequested: boolean;
   country: string | null;
@@ -36,7 +35,6 @@ interface UserStats {
   totalUsers: number;
   activeUsers: number;
   suspendedUsers: number;
-  flaggedEmails: number;
   verifiedUsers: number;
   missingLocation: number;
   totalPaidOut: number;
@@ -47,7 +45,6 @@ const EMPTY_STATS: UserStats = {
   totalUsers: 0,
   activeUsers: 0,
   suspendedUsers: 0,
-  flaggedEmails: 0,
   verifiedUsers: 0,
   missingLocation: 0,
   totalPaidOut: 0,
@@ -65,7 +62,6 @@ export default function AdminUsersPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCountry, setFilterCountry] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<"all" | "active" | "suspended">("all");
-  const [filterEmail, setFilterEmail] = useState<"all" | "flagged" | "clean">("all");
   const [suspendingId, setSuspendingId] = useState<string | null>(null);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [requestingLocation, setRequestingLocation] = useState(false);
@@ -174,14 +170,9 @@ export default function AdminUsersPage() {
       const country = user.country?.trim() || UNKNOWN;
       const matchesCountry = filterCountry === "all" || country === filterCountry;
       const matchesStatus = filterStatus === "all" || user.status === filterStatus;
-      const matchesEmail =
-        filterEmail === "all" ||
-        (filterEmail === "flagged" && user.emailFlagged) ||
-        (filterEmail === "clean" && !user.emailFlagged);
-
-      return matchesSearch && matchesCountry && matchesStatus && matchesEmail;
+      return matchesSearch && matchesCountry && matchesStatus;
     });
-  }, [users, searchTerm, filterCountry, filterStatus, filterEmail]);
+  }, [users, searchTerm, filterCountry, filterStatus]);
 
   const exportEmails = () => {
     navigator.clipboard.writeText(filteredUsers.map((u) => u.email).join("\n"));
@@ -226,7 +217,6 @@ export default function AdminUsersPage() {
     { label: "Active", value: stats.activeUsers, icon: User, color: "green" },
     { label: "Suspended", value: stats.suspendedUsers, icon: Lock, color: "red" },
     { label: "Verified", value: stats.verifiedUsers, icon: BadgeCheck, color: "sky" },
-    { label: "Flagged Emails", value: stats.flaggedEmails, icon: AlertCircle, color: "yellow" },
     { label: "No Location", value: stats.missingLocation, icon: MapPin, color: "slate" },
     { label: "Total Paid Out", value: formatCurrency(stats.totalPaidOut), icon: TrendingUp, color: "purple" },
     { label: "Total Balance", value: formatCurrency(stats.totalBalance), icon: Wallet, color: "orange" },
@@ -344,15 +334,6 @@ export default function AdminUsersPage() {
                 <option value="suspended">Suspended</option>
               </select>
               <select
-                value={filterEmail}
-                onChange={(e) => setFilterEmail(e.target.value as typeof filterEmail)}
-                className="h-9 rounded-md border border-zinc-200 dark:border-zinc-800 bg-transparent px-3 text-sm"
-              >
-                <option value="all">All emails</option>
-                <option value="flagged">Flagged (free providers)</option>
-                <option value="clean">Not flagged</option>
-              </select>
-              <select
                 value={filterCountry}
                 onChange={(e) => setFilterCountry(e.target.value)}
                 className="h-9 rounded-md border border-zinc-200 dark:border-zinc-800 bg-transparent px-3 text-sm"
@@ -402,15 +383,8 @@ export default function AdminUsersPage() {
                             <p className="text-xs text-zinc-500">{user.userId}</p>
                           </td>
                           <td className="py-3 px-4">
-                            <div className="flex items-center gap-2">
-                              <div>
-                                <p className="text-sm text-foreground">{user.email}</p>
-                                <p className="text-xs text-zinc-500">{user.phone}</p>
-                              </div>
-                              {user.emailFlagged && (
-                                <span className="inline-block px-2 py-1 text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 rounded">Flagged</span>
-                              )}
-                            </div>
+                            <p className="text-sm text-foreground">{user.email}</p>
+                            <p className="text-xs text-zinc-500">{user.phone}</p>
                           </td>
                           <td className="py-3 px-4">
                             <span className="text-sm text-zinc-600 dark:text-zinc-400">{locationLabel(user)}</span>
@@ -448,12 +422,7 @@ export default function AdminUsersPage() {
                         <StatusBadge status={user.status} />
                       </div>
                       <div className="mt-2 space-y-1 text-sm">
-                        <p className="text-foreground break-all flex items-center gap-2">
-                          {user.email}
-                          {user.emailFlagged && (
-                            <span className="inline-block px-1.5 py-0.5 text-[10px] font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 rounded">Flagged</span>
-                          )}
-                        </p>
+                        <p className="text-foreground break-all">{user.email}</p>
                         <p className="text-zinc-500">{user.phone}</p>
                         <p className="text-zinc-500 flex items-center gap-1"><MapPin size={13} /> {locationLabel(user)}</p>
                       </div>

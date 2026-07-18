@@ -23,19 +23,6 @@ function generateReferralCode(): string {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
 
-const FREE_EMAIL_PROVIDERS = new Set([
-  "gmail.com", "yahoo.com", "yahoo.co.uk", "yahoo.com.gh",
-  "outlook.com", "hotmail.com", "hotmail.co.uk",
-  "icloud.com", "me.com", "mac.com",
-  "aol.com", "protonmail.com", "proton.me",
-  "live.com", "msn.com", "ymail.com",
-]);
-
-function isEmailFlagged(email: string): boolean {
-  const domain = email.split("@")[1]?.toLowerCase() ?? "";
-  return FREE_EMAIL_PROVIDERS.has(domain);
-}
-
 function generatePersonalCallCode(): string {
   // Generate a unique 5-character alphanumeric code (letters + digits, easy to share verbally)
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excluding confusing chars: 0, O, I, 1
@@ -80,10 +67,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // Identity verification is required
-    if (!idType || !idNumber || String(idNumber).trim().length < 4) {
+    // ID is optional for now — but if given it must look valid
+    if (idNumber && String(idNumber).trim().length < 4) {
       return NextResponse.json(
-        { message: "A valid ID type and ID number are required" },
+        { message: "Please enter a valid ID number, or leave it blank" },
         { status: 400 }
       );
     }
@@ -127,12 +114,13 @@ export async function POST(request: Request) {
       }
     }
 
-    // Encrypt the ID number at rest (store only last 4 chars in the clear for display).
-    const rawId = String(idNumber).trim();
-    if (!isEncryptionConfigured()) {
+    // ID is optional. When supplied, encrypt it at rest and keep only the last
+    // 4 characters in the clear for display.
+    const rawId = idNumber ? String(idNumber).trim() : "";
+    if (rawId && !isEncryptionConfigured()) {
       console.warn("[register] FIELD_ENCRYPTION_KEY not set — storing ID number WITHOUT encryption.");
     }
-    const storedId = isEncryptionConfigured() ? encryptField(rawId) : rawId;
+    const storedId = rawId ? (isEncryptionConfigured() ? encryptField(rawId) : rawId) : null;
 
     // Create user
     const user = await prisma.user.create({
@@ -145,14 +133,13 @@ export async function POST(request: Request) {
         referralCode,
         personalCallCode,
         referredBy,
-        emailFlagged: isEmailFlagged(email),
         role: "user",
         country: String(country).trim(),
         region: String(region).trim(),
         city: String(city).trim(),
-        idType: String(idType).trim(),
+        idType: rawId && idType ? String(idType).trim() : null,
         idNumber: storedId,
-        idNumberLast4: lastChars(rawId, 4),
+        idNumberLast4: rawId ? lastChars(rawId, 4) : null,
         profileCompleted: true,
         consentSignedAt: new Date(),
         consentVersion: CONSENT_VERSION,

@@ -50,7 +50,9 @@ export default function OnboardingPage() {
 
     if (!form.phone || form.phone.trim().length < 10) return setError("Please enter a valid phone number.");
     if (!form.region || !form.city) return setError("Please select your region and enter your city.");
-    if (!form.idNumber || form.idNumber.trim().length < 4) return setError("Please enter a valid ID number.");
+    if (form.idNumber && form.idNumber.trim().length < 4) {
+      return setError("Please enter a valid ID number, or leave it blank.");
+    }
     if (!consentAgreed || consentName.trim().length < 2) {
       return setError("Please sign and agree to the Data Processing Agreement.");
     }
@@ -158,6 +160,7 @@ export default function OnboardingPage() {
             <div className="flex items-center gap-2 text-foreground mb-2">
               <IdCard size={16} className="text-purple-600" />
               <span className="font-medium text-sm">Identity verification</span>
+              <span className="text-xs text-zinc-400">(Optional)</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">

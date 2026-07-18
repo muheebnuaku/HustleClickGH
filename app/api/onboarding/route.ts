@@ -44,8 +44,9 @@ export async function POST(request: Request) {
     if (!country || !region || !city) {
       return NextResponse.json({ message: "Country, region, and city are required" }, { status: 400 });
     }
-    if (!idType || !idNumber || String(idNumber).trim().length < 4) {
-      return NextResponse.json({ message: "A valid ID type and ID number are required" }, { status: 400 });
+    // ID is optional for now — but if given it must look valid
+    if (idNumber && String(idNumber).trim().length < 4) {
+      return NextResponse.json({ message: "Please enter a valid ID number, or leave it blank" }, { status: 400 });
     }
     if (consentAgreed !== true || !consentName || String(consentName).trim().length < 2) {
       return NextResponse.json(
@@ -54,11 +55,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const rawId = String(idNumber).trim();
-    if (!isEncryptionConfigured()) {
+    const rawId = idNumber ? String(idNumber).trim() : "";
+    if (rawId && !isEncryptionConfigured()) {
       console.warn("[onboarding] FIELD_ENCRYPTION_KEY not set — storing ID number WITHOUT encryption.");
     }
-    const storedId = isEncryptionConfigured() ? encryptField(rawId) : rawId;
+    const storedId = rawId ? (isEncryptionConfigured() ? encryptField(rawId) : rawId) : null;
 
     await prisma.user.update({
       where: { id: session.user.id },
@@ -67,9 +68,9 @@ export async function POST(request: Request) {
         country: String(country).trim(),
         region: String(region).trim(),
         city: String(city).trim(),
-        idType: String(idType).trim(),
+        idType: rawId && idType ? String(idType).trim() : null,
         idNumber: storedId,
-        idNumberLast4: lastChars(rawId, 4),
+        idNumberLast4: rawId ? lastChars(rawId, 4) : null,
         profileCompleted: true,
         consentSignedAt: new Date(),
         consentVersion: CONSENT_VERSION,
