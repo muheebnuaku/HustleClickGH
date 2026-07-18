@@ -41,6 +41,8 @@ export async function GET() {
       role: user.role,
       status: user.status,
       emailFlagged: user.emailFlagged,
+      verified: user.verified,
+      locationRequested: user.locationRequested,
       country: user.country,
       region: user.region,
       city: user.city,
@@ -54,6 +56,8 @@ export async function GET() {
     const activeUsers = users.filter(u => u.status === "active").length;
     const suspendedUsers = users.filter(u => u.status === "suspended").length;
     const flaggedEmails = users.filter(u => u.emailFlagged).length;
+    const verifiedUsers = users.filter(u => u.verified).length;
+    const missingLocation = users.filter(u => !u.country?.trim()).length;
     const totalBalance = users.reduce((sum, u) => sum + u.balance, 0);
     const totalPaidOut = users.reduce((sum, u) => {
       const paidOut = u.withdrawals.reduce((s, w) => s + w.amount, 0);
@@ -67,6 +71,8 @@ export async function GET() {
         activeUsers,
         suspendedUsers,
         flaggedEmails,
+        verifiedUsers,
+        missingLocation,
         totalPaidOut,
         totalBalance,
       },
@@ -92,9 +98,10 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const { userId, action } = body;
 
-    if (!userId || !["suspend", "unsuspend"].includes(action)) {
+    const VALID = ["suspend", "unsuspend", "verify", "unverify", "request_location"];
+    if (!userId || !VALID.includes(action)) {
       return NextResponse.json(
-        { message: "Invalid request: userId and action required" },
+        { message: "Invalid request: userId and a valid action are required" },
         { status: 400 }
       );
     }
@@ -110,23 +117,37 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const newStatus = action === "suspend" ? "suspended" : "active";
+    let data: Record<string, unknown>;
+    switch (action) {
+      case "suspend":
+        data = { status: "suspended" };
+        break;
+      case "unsuspend":
+        data = { status: "active" };
+        break;
+      case "verify":
+        data = { verified: true, verifiedAt: new Date() };
+        break;
+      case "unverify":
+        data = { verified: false, verifiedAt: null };
+        break;
+      default: // request_location
+        data = { locationRequested: true };
+        break;
+    }
 
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: { status: newStatus },
-    });
-
-    console.log(`User ${updated.userId} ${action}ed successfully. New status: ${updated.status}`);
+    const updated = await prisma.user.update({ where: { id: userId }, data });
 
     return NextResponse.json({
-      message: `User ${action === "suspend" ? "suspended" : "unsuspended"} successfully`,
+      message: `User ${action} successful`,
       user: {
         id: updated.id,
         userId: updated.userId,
         fullName: updated.fullName,
         email: updated.email,
         status: updated.status,
+        verified: updated.verified,
+        locationRequested: updated.locationRequested,
       },
     });
   } catch (error) {
@@ -135,5 +156,37 @@ export async function PATCH(request: Request) {
       { message: "An error occurred during update", error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
     );
+  }
+}
+
+// Admin: bulk-prompt every contributor who hasn't provided a location.
+// Those users get a location modal the next time they open their dashboard.
+export async function POST(request: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user || session.user.role !== "admin") {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
+    }
+
+    const { action } = await request.json();
+    if (action !== "request_location_all") {
+      return NextResponse.json({ message: "Invalid action" }, { status: 400 });
+    }
+
+    const result = await prisma.user.updateMany({
+      where: {
+        role: "user",
+        OR: [{ country: null }, { country: "" }],
+      },
+      data: { locationRequested: true },
+    });
+
+    return NextResponse.json({
+      message: `Location requested from ${result.count} user${result.count === 1 ? "" : "s"}.`,
+      count: result.count,
+    });
+  } catch (error) {
+    console.error("Bulk location request error:", error);
+    return NextResponse.json({ message: "An error occurred" }, { status: 500 });
   }
 }

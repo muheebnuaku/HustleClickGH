@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { BiometricReminder } from "@/components/biometric-reminder";
+import { LocationPrompt } from "@/components/location-prompt";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
@@ -242,6 +243,9 @@ export default function DashboardPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        {/* Admin-triggered location request (hidden unless requested & missing) */}
+        <LocationPrompt />
+
         {/* Biometric setup reminder (hidden once enrolled or dismissed) */}
         <BiometricReminder />
 

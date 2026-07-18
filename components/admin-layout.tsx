@@ -89,12 +89,12 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       {/* Mobile Sidebar */}
       <aside
         className={cn(
-          "fixed top-0 left-0 h-full w-72 bg-white dark:bg-zinc-950 z-50 lg:hidden transform transition-transform duration-300 ease-in-out shadow-2xl",
+          "fixed top-0 left-0 h-full w-72 bg-white dark:bg-zinc-950 z-50 lg:hidden transform transition-transform duration-300 ease-in-out shadow-2xl flex flex-col",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
         {/* Sidebar Header */}
-        <div className="flex items-center justify-between p-6 bg-blue-600 text-white">
+        <div className="shrink-0 flex items-center justify-between p-6 bg-blue-600 text-white">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
               <Shield size={24} />
@@ -113,8 +113,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        {/* Sidebar Navigation */}
-        <nav className="p-4 space-y-2">
+        {/* Sidebar Navigation — scrolls so items never sit under the footer */}
+        <nav className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
@@ -138,7 +138,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-zinc-200 dark:border-zinc-800">
+        <div className="shrink-0 p-4 border-t border-zinc-200 dark:border-zinc-800">
           <Link
             href="/"
             onClick={() => setSidebarOpen(false)}

@@ -25,6 +25,7 @@ export async function GET() {
         image: true,
         nationalId: true,
         role: true,
+        verified: true,
         balance: true,
         totalEarned: true,
         referralCode: true,

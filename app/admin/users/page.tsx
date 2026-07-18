@@ -7,8 +7,9 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users, AlertCircle, Lock, Unlock, MapPin } from "lucide-react";
+import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users, AlertCircle, Lock, Unlock, MapPin, BadgeCheck } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { VerifiedBadge } from "@/components/verified-badge";
 
 interface UserData {
   id: string;
@@ -24,6 +25,8 @@ interface UserData {
   role: string;
   status: string;
   emailFlagged: boolean;
+  verified: boolean;
+  locationRequested: boolean;
   country: string | null;
   region: string | null;
   city: string | null;
@@ -34,9 +37,22 @@ interface UserStats {
   activeUsers: number;
   suspendedUsers: number;
   flaggedEmails: number;
+  verifiedUsers: number;
+  missingLocation: number;
   totalPaidOut: number;
   totalBalance: number;
 }
+
+const EMPTY_STATS: UserStats = {
+  totalUsers: 0,
+  activeUsers: 0,
+  suspendedUsers: 0,
+  flaggedEmails: 0,
+  verifiedUsers: 0,
+  missingLocation: 0,
+  totalPaidOut: 0,
+  totalBalance: 0,
+};
 
 const UNKNOWN = "Unknown";
 
@@ -44,20 +60,22 @@ export default function AdminUsersPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const [users, setUsers] = useState<UserData[]>([]);
-  const [stats, setStats] = useState<UserStats>({ totalUsers: 0, activeUsers: 0, suspendedUsers: 0, flaggedEmails: 0, totalPaidOut: 0, totalBalance: 0 });
+  const [stats, setStats] = useState<UserStats>(EMPTY_STATS);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCountry, setFilterCountry] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<"all" | "active" | "suspended">("all");
   const [filterEmail, setFilterEmail] = useState<"all" | "flagged" | "clean">("all");
   const [suspendingId, setSuspendingId] = useState<string | null>(null);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [requestingLocation, setRequestingLocation] = useState(false);
 
   const fetchUsers = async () => {
     try {
       const res = await fetch("/api/admin/users");
       const data = await res.json();
       setUsers(data.users || []);
-      setStats(data.stats || { totalUsers: 0, activeUsers: 0, suspendedUsers: 0, flaggedEmails: 0, totalPaidOut: 0, totalBalance: 0 });
+      setStats(data.stats || EMPTY_STATS);
     } catch (error) {
       console.error("Failed to fetch users:", error);
     } finally {
@@ -79,6 +97,41 @@ export default function AdminUsersPage() {
       console.error("Failed to update user status:", error);
     } finally {
       setSuspendingId(null);
+    }
+  };
+
+  const handleVerifyUser = async (userId: string, currentlyVerified: boolean) => {
+    setVerifyingId(userId);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, action: currentlyVerified ? "unverify" : "verify" }),
+      });
+      if (res.ok) await fetchUsers();
+    } catch (error) {
+      console.error("Failed to update verification:", error);
+    } finally {
+      setVerifyingId(null);
+    }
+  };
+
+  const handleRequestLocation = async () => {
+    if (!confirm(`Ask all users without a location (${stats.missingLocation}) to provide it? They'll see a location prompt on their dashboard.`)) return;
+    setRequestingLocation(true);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "request_location_all" }),
+      });
+      const data = await res.json();
+      alert(data.message || "Done.");
+      await fetchUsers();
+    } catch (error) {
+      console.error("Failed to request location:", error);
+    } finally {
+      setRequestingLocation(false);
     }
   };
 
@@ -172,7 +225,9 @@ export default function AdminUsersPage() {
     { label: "Total Users", value: stats.totalUsers, icon: Users, color: "blue" },
     { label: "Active", value: stats.activeUsers, icon: User, color: "green" },
     { label: "Suspended", value: stats.suspendedUsers, icon: Lock, color: "red" },
+    { label: "Verified", value: stats.verifiedUsers, icon: BadgeCheck, color: "sky" },
     { label: "Flagged Emails", value: stats.flaggedEmails, icon: AlertCircle, color: "yellow" },
+    { label: "No Location", value: stats.missingLocation, icon: MapPin, color: "slate" },
     { label: "Total Paid Out", value: formatCurrency(stats.totalPaidOut), icon: TrendingUp, color: "purple" },
     { label: "Total Balance", value: formatCurrency(stats.totalBalance), icon: Wallet, color: "orange" },
   ] as const;
@@ -184,6 +239,8 @@ export default function AdminUsersPage() {
     yellow: "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600",
     purple: "bg-purple-100 dark:bg-purple-900/30 text-purple-600",
     orange: "bg-orange-100 dark:bg-orange-900/30 text-orange-600",
+    sky: "bg-sky-100 dark:bg-sky-900/30 text-sky-600",
+    slate: "bg-slate-100 dark:bg-slate-800 text-slate-600",
   };
 
   return (
@@ -264,6 +321,16 @@ export default function AdminUsersPage() {
                 <Button variant="outline" size="sm" onClick={exportEmails}><Mail size={16} /> Emails</Button>
                 <Button variant="outline" size="sm" onClick={exportPhones}><Phone size={16} /> Phones</Button>
                 <Button variant="outline" size="sm" onClick={exportCSV}><Download size={16} /> CSV</Button>
+                <Button
+                  size="sm"
+                  onClick={handleRequestLocation}
+                  disabled={requestingLocation || stats.missingLocation === 0}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  title="Show a location prompt to users who haven't set their location"
+                >
+                  <MapPin size={16} />
+                  {requestingLocation ? "Sending…" : `Request location (${stats.missingLocation})`}
+                </Button>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -328,7 +395,10 @@ export default function AdminUsersPage() {
                       {filteredUsers.map((user) => (
                         <tr key={user.id} className="border-b border-zinc-100 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
                           <td className="py-3 px-4">
-                            <p className="font-medium text-foreground">{user.fullName}</p>
+                            <p className="font-medium text-foreground flex items-center gap-1.5">
+                              {user.fullName}
+                              {user.verified && <VerifiedBadge size={15} />}
+                            </p>
                             <p className="text-xs text-zinc-500">{user.userId}</p>
                           </td>
                           <td className="py-3 px-4">
@@ -351,8 +421,11 @@ export default function AdminUsersPage() {
                           <td className="py-3 px-4 text-right font-medium text-green-600">{formatCurrency(user.balance)}</td>
                           <td className="py-3 px-4 text-right text-foreground">{formatCurrency(user.totalEarned)}</td>
                           <td className="py-3 px-4 text-sm text-zinc-500">{formatDate(user.createdAt)}</td>
-                          <td className="py-3 px-4 text-center">
-                            <SuspendButton user={user} busy={suspendingId === user.id} onClick={() => handleSuspendUser(user.id, user.status)} />
+                          <td className="py-3 px-4">
+                            <div className="flex items-center justify-center gap-2">
+                              <VerifyButton user={user} busy={verifyingId === user.id} onClick={() => handleVerifyUser(user.id, user.verified)} />
+                              <SuspendButton user={user} busy={suspendingId === user.id} onClick={() => handleSuspendUser(user.id, user.status)} />
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -366,7 +439,10 @@ export default function AdminUsersPage() {
                     <div key={user.id} className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="font-medium text-foreground truncate">{user.fullName}</p>
+                          <p className="font-medium text-foreground truncate flex items-center gap-1.5">
+                            {user.fullName}
+                            {user.verified && <VerifiedBadge size={15} />}
+                          </p>
                           <p className="text-xs text-zinc-500">{user.userId}</p>
                         </div>
                         <StatusBadge status={user.status} />
@@ -395,9 +471,12 @@ export default function AdminUsersPage() {
                           <p className="text-sm font-semibold text-foreground">{user.referralCount}</p>
                         </div>
                       </div>
-                      <div className="mt-3 flex items-center justify-between">
+                      <div className="mt-3 flex items-center justify-between gap-2 flex-wrap">
                         <span className="text-xs text-zinc-500">Joined {formatDate(user.createdAt)}</span>
-                        <SuspendButton user={user} busy={suspendingId === user.id} onClick={() => handleSuspendUser(user.id, user.status)} />
+                        <div className="flex items-center gap-2">
+                          <VerifyButton user={user} busy={verifyingId === user.id} onClick={() => handleVerifyUser(user.id, user.verified)} />
+                          <SuspendButton user={user} busy={suspendingId === user.id} onClick={() => handleSuspendUser(user.id, user.status)} />
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -422,6 +501,30 @@ function StatusBadge({ status }: { status: string }) {
     >
       {status === "active" ? "Active" : "Suspended"}
     </span>
+  );
+}
+
+function VerifyButton({ user, busy, onClick }: { user: { verified: boolean }; busy: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      title={user.verified ? "Remove verification badge" : "Give this user a verified badge"}
+      className={`px-3 py-1 text-sm font-medium rounded border transition ${
+        user.verified
+          ? "border-zinc-300 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          : "border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-900/20"
+      } ${busy ? "opacity-50 cursor-not-allowed" : ""}`}
+    >
+      {busy ? (
+        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+      ) : (
+        <span className="flex items-center gap-1">
+          <BadgeCheck size={14} />
+          {user.verified ? "Unverify" : "Verify"}
+        </span>
+      )}
+    </button>
   );
 }
 

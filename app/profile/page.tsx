@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ImageCropper } from "@/components/image-cropper";
 import { BiometricSettings } from "@/components/biometric-settings";
+import { VerifiedBadge } from "@/components/verified-badge";
 import { Save, Camera, User, Copy, Check, Pencil, ShieldCheck, ChevronRight } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -27,6 +28,7 @@ type ProfileFormData = z.infer<typeof profileSchema>;
 interface UserData {
   userId: string;
   fullName: string;
+  verified?: boolean;
   email: string;
   phone: string;
   image: string | null;
@@ -266,7 +268,11 @@ export default function ProfilePage() {
                     className="hidden"
                   />
                 </div>
-                <p className="text-sm text-zinc-500">
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold text-foreground">{userData?.fullName}</p>
+                  {userData?.verified && <VerifiedBadge withLabel />}
+                </div>
+                <p className="text-sm text-zinc-500 text-center">
                   {profileImage
                     ? "Camera to upload a new photo · pencil to reposition the current one"
                     : "Click the camera to upload a profile picture"}

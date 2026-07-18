@@ -28,6 +28,11 @@ model User {
   country         String?
   region          String?
   city            String?
+  // Verification (admin-granted badge shown next to the user's name)
+  verified        Boolean       @default(false)
+  verifiedAt      DateTime?
+  // Set by an admin to prompt users who haven't provided their location
+  locationRequested Boolean     @default(false)
   // Onboarding / consent
   profileCompleted Boolean      @default(false) // true once location + ID + consent captured
   consentSignedAt DateTime?     // when the data processing agreement was signed

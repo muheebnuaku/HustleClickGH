@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { IncomingCallListener } from "@/components/incoming-call";
+import { VerifiedBadge } from "@/components/verified-badge";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -18,6 +19,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [userName, setUserName] = useState("");
+  const [verified, setVerified] = useState(false);
 
   useEffect(() => {
     if (session) {
@@ -32,6 +34,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         .then((data) => {
           if (data.user?.image) setProfileImage(data.user.image);
           if (data.user?.fullName) setUserName(data.user.fullName);
+          setVerified(Boolean(data.user?.verified));
         })
         .catch(() => {});
     }
@@ -129,12 +132,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       {/* Mobile Sidebar */}
       <aside
         className={cn(
-          "fixed top-0 left-0 h-full w-72 bg-white dark:bg-zinc-950 z-50 lg:hidden transform transition-transform duration-300 ease-in-out shadow-2xl",
+          "fixed top-0 left-0 h-full w-72 bg-white dark:bg-zinc-950 z-50 lg:hidden transform transition-transform duration-300 ease-in-out shadow-2xl flex flex-col",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
         {/* Sidebar Header */}
-        <div className="flex items-center justify-between p-6 border-b border-zinc-200 dark:border-zinc-800">
+        <div className="shrink-0 flex items-center justify-between p-6 border-b border-zinc-200 dark:border-zinc-800">
           <Link href="/dashboard" className="text-xl font-bold text-foreground" onClick={() => setSidebarOpen(false)}>
             HustleClickGH
           </Link>
@@ -148,7 +151,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Balance Card */}
-        <div className="p-4">
+        <div className="shrink-0 p-4">
           {/* User Profile in Sidebar */}
           <Link 
             href="/profile" 
@@ -172,14 +175,17 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               )}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-foreground truncate">{userName || "User"}</p>
+              <p className="font-semibold text-foreground truncate flex items-center gap-1.5">
+                <span className="truncate">{userName || "User"}</span>
+                {verified && <VerifiedBadge size={15} />}
+              </p>
               <p className="text-sm text-zinc-500">View Profile</p>
             </div>
           </Link>
         </div>
 
-        {/* Sidebar Navigation */}
-        <nav className="p-4 space-y-2">
+        {/* Sidebar Navigation — scrolls so items never sit under the footer */}
+        <nav className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
@@ -203,7 +209,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-zinc-200 dark:border-zinc-800">
+        <div className="shrink-0 p-4 border-t border-zinc-200 dark:border-zinc-800">
           <Link
             href="/"
             onClick={() => setSidebarOpen(false)}
