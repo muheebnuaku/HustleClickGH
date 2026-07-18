@@ -21,7 +21,7 @@ interface Withdrawal {
   mobileNumber: string;
   accountName?: string;
   status: "pending" | "approved" | "rejected";
-  createdAt: string;
+  requestedAt: string;
   processedAt?: string;
 }
 
@@ -198,7 +198,7 @@ export default function AdminPaymentsPage() {
                         </p>
                       )}
                       <p className="text-xs text-zinc-500 mt-2">
-                        Requested: {formatDate(payment.createdAt)}
+                        Requested: {formatDate(payment.requestedAt)}
                         {payment.processedAt && ` • Processed: ${formatDate(payment.processedAt)}`}
                       </p>
                     </div>
