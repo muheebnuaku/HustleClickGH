@@ -6,6 +6,7 @@ import { compare } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/activity-log";
 import { CONSENT_VERSION } from "@/lib/legal";
+import { verifyAuthToken } from "@/lib/webauthn";
 
 // Helper to generate unique USER + 4-digit ID
 async function generateUserId(): Promise<string> {
@@ -112,6 +113,41 @@ export const authOptions: NextAuthOptions = {
         };
       },
     }),
+    // Biometric / passkey sign-in. The passkey is verified in
+    // /api/webauthn/auth/verify, which returns a short-lived signed token; here
+    // we only validate that token and establish the session.
+    CredentialsProvider({
+      id: "webauthn",
+      name: "Biometric",
+      credentials: { token: { label: "Token", type: "text" } },
+      async authorize(credentials) {
+        if (!credentials?.token) throw new Error("Invalid biometric token");
+        const userDbId = verifyAuthToken(credentials.token);
+        if (!userDbId) throw new Error("Biometric verification failed or expired");
+
+        const user = await prisma.user.findUnique({ where: { id: userDbId } });
+        if (!user) throw new Error("User not found");
+        if (user.status !== "active") throw new Error("Account suspended");
+
+        await logActivity({
+          type: "login",
+          userId: user.id,
+          userName: user.fullName,
+          severity: "success",
+          metadata: { userId: user.userId, role: user.role, method: "biometric" },
+        });
+
+        return {
+          id: user.id,
+          userId: user.userId,
+          name: user.fullName,
+          email: user.email,
+          role: user.role,
+          profileCompleted: user.profileCompleted,
+          consentAccepted: user.consentVersion === CONSENT_VERSION,
+        };
+      },
+    }),
   ],
   callbacks: {
     async signIn({ user, account }) {
@@ -187,8 +223,8 @@ export const authOptions: NextAuthOptions = {
     },
     async jwt({ token, user, account, trigger }) {
       if (user) {
-        // For credentials login
-        if (!account || account.provider === "credentials") {
+        // For credentials / biometric login (all fields returned by authorize)
+        if (!account || account.provider === "credentials" || account.provider === "webauthn") {
           token.id = user.id;
           token.userId = user.userId;
           token.role = user.role;

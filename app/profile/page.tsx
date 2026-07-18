@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ImageCropper } from "@/components/image-cropper";
+import { BiometricSettings } from "@/components/biometric-settings";
 import { Save, Camera, User, Copy, Check, Pencil, ShieldCheck, ChevronRight } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -423,6 +424,9 @@ export default function ProfilePage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Biometric login */}
+        <BiometricSettings />
 
         {/* Data & Privacy */}
         <Card>

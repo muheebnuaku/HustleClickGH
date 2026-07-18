@@ -12,7 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConsentAgreement } from "@/components/consent-agreement";
 import { GHANA_REGIONS, ID_TYPES } from "@/lib/constants";
-import { LogIn, Eye, EyeOff, Sparkles, ArrowLeft, ArrowRight, CheckCircle2, UserPlus, Gift, Wallet, TrendingUp, Users, Home, Copy, PartyPopper } from "lucide-react";
+import { startAuthentication } from "@simplewebauthn/browser";
+import { LogIn, Eye, EyeOff, Sparkles, ArrowLeft, ArrowRight, CheckCircle2, UserPlus, Gift, Wallet, TrendingUp, Users, Home, Copy, PartyPopper, Fingerprint } from "lucide-react";
 
 const loginSchema = z.object({
   userId: z.string().min(1, "User ID is required"),
@@ -56,6 +57,7 @@ export default function AuthPage() {
   const [copied, setCopied] = useState(false);
   const [consentAgreed, setConsentAgreed] = useState(false);
   const [consentName, setConsentName] = useState("");
+  const [bioLoading, setBioLoading] = useState(false);
 
   const loginForm = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -103,6 +105,44 @@ export default function AuthPage() {
       setError("Login failed. Please try again.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleBiometricLogin = async () => {
+    setBioLoading(true);
+    setError("");
+    try {
+      const optRes = await fetch("/api/webauthn/auth/options", { method: "POST" });
+      if (!optRes.ok) throw new Error("Could not start biometric sign-in.");
+      const options = await optRes.json();
+
+      const asserted = await startAuthentication({ optionsJSON: options });
+
+      const vRes = await fetch("/api/webauthn/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(asserted),
+      });
+      const data = await vRes.json();
+      if (!vRes.ok || !data.verified) throw new Error(data.message || "Biometric sign-in failed.");
+
+      const result = await signIn("webauthn", { token: data.token, redirect: false });
+      if (result?.error) throw new Error(result.error);
+
+      const sessionRes = await fetch("/api/auth/session");
+      const sessionData = await sessionRes.json();
+      if (sessionData?.user?.role === "admin") router.push("/admin");
+      else if (sessionData?.user?.role === "manager") router.push("/admin/call-recordings");
+      else router.push("/dashboard");
+      router.refresh();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Biometric sign-in failed.";
+      // Ignore user cancellation / no-credential dismissals
+      if (!/NotAllowed|abort|cancel|timed out|The operation either timed/i.test(msg)) {
+        setError(msg);
+      }
+    } finally {
+      setBioLoading(false);
     }
   };
 
@@ -376,6 +416,23 @@ export default function AuthPage() {
                         <span className="text-sm font-medium text-white">Apple</span>
                       </button>
                     </div>
+
+                    {/* Biometric sign-in */}
+                    <button
+                      type="button"
+                      onClick={handleBiometricLogin}
+                      disabled={isLoading || bioLoading}
+                      className="w-full mt-3 flex items-center justify-center gap-2 h-11 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-900/10 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors disabled:opacity-50"
+                    >
+                      {bioLoading ? (
+                        <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <Fingerprint size={18} className="text-blue-600" />
+                          <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Sign in with Face ID / fingerprint</span>
+                        </>
+                      )}
+                    </button>
                   </form>
                 </div>
               </div>

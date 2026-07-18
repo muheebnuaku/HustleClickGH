@@ -51,6 +51,25 @@ model User {
   dataSubmissions  DataSubmission[]
   callRecordings   CallRecording[]
   consentRecords   ConsentRecord[]
+  webauthnCredentials WebAuthnCredential[]
+}
+
+// Biometric / passkey (WebAuthn) credentials — Face ID, Touch ID, Windows Hello,
+// Android fingerprint. Each row is one enrolled authenticator for a user.
+model WebAuthnCredential {
+  id           String    @id @default(cuid())
+  userId       String
+  credentialId String    @unique          // base64url credential ID
+  publicKey    Bytes                        // COSE public key
+  counter      Int       @default(0)        // signature counter (clone detection)
+  transports   String?                      // JSON array e.g. ["internal","hybrid"]
+  deviceName   String?                      // friendly label
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // Auditable record of consent to the Data Processing Agreement / Privacy Policy.

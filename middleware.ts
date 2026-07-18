@@ -30,7 +30,10 @@ export async function middleware(request: NextRequest) {
     publicPaths.includes(path) ||
     path.startsWith("/s/") ||
     path.startsWith("/api/s/") ||
-    path === "/api/partners";
+    path === "/api/partners" ||
+    // Biometric sign-in happens before authentication, so these must be public
+    path === "/api/webauthn/auth/options" ||
+    path === "/api/webauthn/auth/verify";
 
   // Allow public paths without authentication
   if (isPublicPath) {
