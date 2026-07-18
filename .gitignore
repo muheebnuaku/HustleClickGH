@@ -48,3 +48,6 @@ next-env.d.ts
 
 # local dataset uploads (dev only - production uses Vercel Blob)
 /public/uploads/
+
+# Personal final-year-project writing reference (not part of the codebase)
+PROJECT-DOCUMENTATION.md
