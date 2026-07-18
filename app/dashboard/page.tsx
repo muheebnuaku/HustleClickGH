@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/dashboard-layout";
+import { BiometricReminder } from "@/components/biometric-reminder";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
@@ -241,6 +242,9 @@ export default function DashboardPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        {/* Biometric setup reminder (hidden once enrolled or dismissed) */}
+        <BiometricReminder />
+
         {/* Welcome Header */}
         <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-lg">
           <div className="flex items-center justify-between">
