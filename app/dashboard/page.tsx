@@ -7,6 +7,7 @@ import Link from "next/link";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { BiometricReminder } from "@/components/biometric-reminder";
 import { LocationPrompt } from "@/components/location-prompt";
+import { PushManager } from "@/components/push-manager";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
@@ -245,6 +246,9 @@ export default function DashboardPage() {
       <div className="space-y-6">
         {/* Admin-triggered location request (hidden unless requested & missing) */}
         <LocationPrompt />
+
+        {/* Browser notification opt-in (hidden once granted or dismissed) */}
+        <PushManager />
 
         {/* Biometric setup reminder (hidden once enrolled or dismissed) */}
         <BiometricReminder />

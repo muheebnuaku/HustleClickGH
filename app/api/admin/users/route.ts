@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { sendEmail, accountVerifiedEmail, locationRequestEmail } from "@/lib/email";
 
 // Admin: Get all users
 export async function GET() {
@@ -135,6 +136,16 @@ export async function PATCH(request: Request) {
 
     const updated = await prisma.user.update({ where: { id: userId }, data });
 
+    // Keep the user informed by email (fire-and-forget)
+    if (action === "verify" && updated.email) {
+      const mail = accountVerifiedEmail(updated.fullName);
+      sendEmail({ to: updated.email, subject: mail.subject, html: mail.html }).catch(() => {});
+    }
+    if (action === "request_location" && updated.email) {
+      const mail = locationRequestEmail(updated.fullName);
+      sendEmail({ to: updated.email, subject: mail.subject, html: mail.html }).catch(() => {});
+    }
+
     return NextResponse.json({
       message: `User ${action} successful`,
       user: {
@@ -170,16 +181,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Invalid action" }, { status: 400 });
     }
 
+    const targetWhere = {
+      role: "user",
+      OR: [{ country: null }, { country: "" }],
+    };
+
+    // Capture who we're about to prompt so we can email them too
+    const targets = await prisma.user.findMany({
+      where: targetWhere,
+      select: { email: true, fullName: true },
+    });
+
     const result = await prisma.user.updateMany({
-      where: {
-        role: "user",
-        OR: [{ country: null }, { country: "" }],
-      },
+      where: targetWhere,
       data: { locationRequested: true },
     });
 
+    // Email each of them a reminder (fire-and-forget, sent sequentially so we
+    // don't hammer the SMTP connection limit)
+    (async () => {
+      for (const u of targets) {
+        if (!u.email) continue;
+        const mail = locationRequestEmail(u.fullName);
+        await sendEmail({ to: u.email, subject: mail.subject, html: mail.html }).catch(() => {});
+      }
+    })().catch(() => {});
+
     return NextResponse.json({
-      message: `Location requested from ${result.count} user${result.count === 1 ? "" : "s"}.`,
+      message: `Location requested from ${result.count} user${result.count === 1 ? "" : "s"} (reminder emails sent).`,
       count: result.count,
     });
   } catch (error) {

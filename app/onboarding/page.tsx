@@ -69,7 +69,9 @@ export default function OnboardingPage() {
 
       // Refresh the session token so the middleware onboarding gate reopens.
       await update();
-      router.replace("/dashboard");
+      // Offer biometric setup next (the page forwards on if already enrolled or
+      // unsupported), so Google/Apple users get the full first-run flow.
+      router.replace("/setup-biometrics");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");

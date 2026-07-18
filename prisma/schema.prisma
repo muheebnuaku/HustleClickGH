@@ -56,6 +56,23 @@ model User {
   callRecordings   CallRecording[]
   consentRecords   ConsentRecord[]
   webauthnCredentials WebAuthnCredential[]
+  pushSubscriptions PushSubscription[]
+}
+
+// Browser push subscription (Web Push API). One row per device/browser that
+// has granted notification permission.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String   // client public key
+  auth      String   // client auth secret
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // Biometric / passkey (WebAuthn) credentials — Face ID, Touch ID, Windows Hello,

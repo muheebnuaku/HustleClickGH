@@ -77,6 +77,54 @@ export function welcomeEmail(fullName: string, userId: string) {
   };
 }
 
+/** Sent when an admin asks a user to provide their location. */
+export function locationRequestEmail(fullName: string) {
+  const firstName = fullName.split(" ")[0] || "there";
+  return {
+    subject: "Please add your location to HustleClickGH",
+    html: emailLayout(`Hi ${firstName},`, `
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        We still don&rsquo;t have your location on file. Adding it lets us match you with
+        projects available in your area — some projects are limited to specific regions.
+      </p>
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        It takes a few seconds: sign in and you&rsquo;ll see a short prompt asking for your
+        country, region and city.
+      </p>
+      <p style="margin:24px 0 0;">
+        <a href="https://hustleclickgh.com/dashboard"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
+          Add my location
+        </a>
+      </p>
+    `),
+  };
+}
+
+/** Sent when an admin verifies a user's account. */
+export function accountVerifiedEmail(fullName: string) {
+  const firstName = fullName.split(" ")[0] || "there";
+  return {
+    subject: "Your HustleClickGH account is verified ✅",
+    html: emailLayout(`You&rsquo;re verified, ${firstName}!`, `
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        Your account has been reviewed and verified by our team. A blue verification badge
+        now appears next to your name across the platform.
+      </p>
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        Verified contributors are trusted for a wider range of projects — keep contributing
+        quality data to stay verified.
+      </p>
+      <p style="margin:24px 0 0;">
+        <a href="https://hustleclickgh.com/dashboard"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
+          Go to my dashboard
+        </a>
+      </p>
+    `),
+  };
+}
+
 export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM || `HustleClickGH <${SITE_CONFIG.contact.email}>`;

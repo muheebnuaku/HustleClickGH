@@ -27,7 +27,8 @@ export type LogType =
   | "consent_signed"
   | "profile_completed"
   | "account_export"
-  | "account_delete_request";
+  | "account_delete_request"
+  | "notification_broadcast";
 
 export type LogSeverity = "info" | "success" | "warning" | "error";
 
