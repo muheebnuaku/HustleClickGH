@@ -5,6 +5,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { EmailBroadcast } from "@/components/email-broadcast";
 import { Bell, Send, Smartphone, Users } from "lucide-react";
 
 export default function AdminNotificationsPage() {
@@ -67,7 +68,7 @@ export default function AdminNotificationsPage() {
             <Bell size={26} /> Notifications
           </h1>
           <p className="text-zinc-600 dark:text-zinc-400 mt-1">
-            Push a message to every user who has enabled browser notifications.
+            Reach your users by browser push or email.
           </p>
         </div>
 
@@ -169,6 +170,9 @@ export default function AdminNotificationsPage() {
             </form>
           </CardContent>
         </Card>
+
+        {/* Email broadcast */}
+        <EmailBroadcast />
       </div>
     </AdminLayout>
   );

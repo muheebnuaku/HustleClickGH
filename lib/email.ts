@@ -125,6 +125,29 @@ export function accountVerifiedEmail(fullName: string) {
   };
 }
 
+/** Admin-composed broadcast. Plain text is converted to paragraphs. */
+export function broadcastEmail(subject: string, message: string, fullName?: string) {
+  const firstName = fullName?.split(" ")[0];
+  const paragraphs = message
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map(
+      (p) =>
+        `<p style="color:#3f3f46;font-size:14px;line-height:1.6;">${p
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\n/g, "<br/>")}</p>`
+    )
+    .join("");
+
+  return {
+    subject,
+    html: emailLayout(firstName ? `Hi ${firstName},` : subject, paragraphs),
+  };
+}
+
 export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM || `HustleClickGH <${SITE_CONFIG.contact.email}>`;
