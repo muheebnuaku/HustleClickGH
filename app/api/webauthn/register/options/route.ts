@@ -31,6 +31,9 @@ export async function POST(request: NextRequest) {
       transports: c.transports ? JSON.parse(c.transports) : undefined,
     })),
     authenticatorSelection: {
+      // "platform" = the device's own biometric (Face ID / Touch ID / Windows
+      // Hello / Android fingerprint) rather than an external security key.
+      authenticatorAttachment: "platform",
       residentKey: "preferred",
       userVerification: "preferred",
     },

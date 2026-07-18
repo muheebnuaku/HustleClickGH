@@ -97,7 +97,8 @@ export default function AuthPage() {
         } else if (sessionData?.user?.role === "manager") {
           router.push("/admin/call-recordings");
         } else {
-          router.push("/dashboard");
+          // Contributors: offer biometric setup (the page forwards on if already set up)
+          router.push("/setup-biometrics");
         }
         router.refresh();
       }
@@ -392,7 +393,7 @@ export default function AuthPage() {
                     <div className="grid grid-cols-2 gap-3">
                       <button
                         type="button"
-                        onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+                        onClick={() => signIn("google", { callbackUrl: "/setup-biometrics" })}
                         disabled={isLoading}
                         className="flex items-center justify-center gap-2 h-11 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
                       >
@@ -406,7 +407,7 @@ export default function AuthPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => signIn("apple", { callbackUrl: "/dashboard" })}
+                        onClick={() => signIn("apple", { callbackUrl: "/setup-biometrics" })}
                         disabled={isLoading}
                         className="flex items-center justify-center gap-2 h-11 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-black hover:bg-zinc-900 transition-colors disabled:opacity-50"
                       >
@@ -695,7 +696,7 @@ export default function AuthPage() {
                     <div className="grid grid-cols-2 gap-3">
                       <button
                         type="button"
-                        onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+                        onClick={() => signIn("google", { callbackUrl: "/setup-biometrics" })}
                         disabled={isLoading}
                         className="flex items-center justify-center gap-2 h-10 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
                       >
@@ -709,7 +710,7 @@ export default function AuthPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => signIn("apple", { callbackUrl: "/dashboard" })}
+                        onClick={() => signIn("apple", { callbackUrl: "/setup-biometrics" })}
                         disabled={isLoading}
                         className="flex items-center justify-center gap-2 h-10 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-black hover:bg-zinc-900 transition-colors disabled:opacity-50"
                       >
