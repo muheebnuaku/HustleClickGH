@@ -1,15 +1,22 @@
 import { SITE_CONFIG } from "@/lib/constants";
 
 /**
- * Minimal, dependency-free email sender.
+ * Email sender with two interchangeable transports.
  *
- * Uses the Resend HTTP API (https://resend.com) when RESEND_API_KEY is set — no npm
- * package required, just a fetch call. If no key is configured, it logs and no-ops so
- * that a missing mail setup never breaks an API request (fire-and-forget by design).
+ * 1. SMTP (e.g. Zoho Mail) — used when SMTP_HOST/SMTP_USER/SMTP_PASS are set.
+ *    Preferred when you host the mailbox yourself, so sent mail lands in the
+ *    account's Sent folder and replies come back to the same inbox.
+ * 2. Resend HTTP API — used when RESEND_API_KEY is set and SMTP is not.
  *
- * Env:
- *   RESEND_API_KEY   API key from resend.com
- *   EMAIL_FROM       verified sender, e.g. "HustleClickGH <info@hustleclickgh.com>"
+ * If neither is configured it logs and no-ops, so a missing mail setup never
+ * breaks an API request (everything here is fire-and-forget by design).
+ *
+ * Env (Zoho example):
+ *   SMTP_HOST=smtp.zoho.com     (smtp.zoho.eu / .in depending on your region)
+ *   SMTP_PORT=465               (465 = SSL, 587 = STARTTLS)
+ *   SMTP_USER=info@hustleclickgh.com
+ *   SMTP_PASS=<app-specific password>
+ *   EMAIL_FROM=HustleClickGH <info@hustleclickgh.com>
  */
 
 interface SendEmailOptions {
@@ -74,9 +81,39 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM || `HustleClickGH <${SITE_CONFIG.contact.email}>`;
 
+  const smtpHost = process.env.SMTP_HOST;
+  const smtpUser = process.env.SMTP_USER;
+  const smtpPass = process.env.SMTP_PASS;
+
+  // Preferred transport: SMTP (Zoho and friends)
+  if (smtpHost && smtpUser && smtpPass) {
+    try {
+      const nodemailer = (await import("nodemailer")).default;
+      const port = Number(process.env.SMTP_PORT || 465);
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port,
+        secure: port === 465, // 465 = implicit SSL, 587 = STARTTLS
+        auth: { user: smtpUser, pass: smtpPass },
+      });
+
+      await transporter.sendMail({
+        from,
+        to: opts.to,
+        subject: opts.subject,
+        html: opts.html,
+        ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
+      });
+      return true;
+    } catch (err) {
+      console.error("[email] SMTP send failed:", err);
+      return false;
+    }
+  }
+
   if (!apiKey) {
     console.warn(
-      `[email] RESEND_API_KEY not set — skipping email to ${opts.to} (subject: "${opts.subject}")`
+      `[email] No SMTP_* or RESEND_API_KEY configured — skipping email to ${opts.to} (subject: "${opts.subject}")`
     );
     return false;
   }
