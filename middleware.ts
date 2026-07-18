@@ -69,12 +69,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/onboarding", request.url));
   }
 
-  // Consent gate — after login, contributors who have not accepted the current
-  // Data Processing Agreement / Privacy Policy are sent to the Data & Privacy page
-  // to review and agree before they can access anything else.
+  // Consent gate — contributors who haven't accepted the current Data Processing
+  // Agreement are sent to the Data & Privacy page to review and agree.
+  //
+  // Only applies once onboarding is complete: onboarding captures consent itself,
+  // and gating both at once would bounce users between /onboarding and
+  // /account/data forever (ERR_TOO_MANY_REDIRECTS).
   if (
     token &&
     token.role === "user" &&
+    token.profileCompleted === true &&
     token.consentAccepted === false &&
     path !== "/account/data" &&
     !path.startsWith("/api")
