@@ -148,7 +148,7 @@ function LogRow({ log }: { log: LogEntry }) {
       {expanded && log.metadata && (
         <div className="px-4 pb-4 pt-1 border-t border-current/10">
           <p className="text-xs text-zinc-500 mb-2 font-semibold uppercase tracking-wide">Details</p>
-          <div className="bg-white/60 rounded-lg p-3 font-mono text-xs text-zinc-700 space-y-1">
+          <div className="bg-white/60 rounded-lg p-3 font-mono text-xs text-zinc-700 space-y-1 break-all">
             <p className="text-zinc-400">Timestamp: {formatDateTime(log.createdAt)}</p>
             {log.userId && <p>User ID: {log.userId}</p>}
             {Object.entries(log.metadata).map(([k, v]) => (
@@ -258,7 +258,7 @@ export default function ActivityLogPage() {
               Live system events — {total.toLocaleString()} total entries
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setAutoRefresh(r => !r)}
               className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${

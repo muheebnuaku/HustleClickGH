@@ -147,7 +147,7 @@ export default function AdminPaymentsPage() {
         {/* Filter */}
         <Card>
           <CardContent className="pt-6">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {["all", "pending", "approved", "rejected"].map((status) => (
                 <Button
                   key={status}
@@ -175,8 +175,8 @@ export default function AdminPaymentsPage() {
                   className="p-4 rounded-lg border border-zinc-200 dark:border-zinc-800"
                 >
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
                         <p className="text-2xl font-bold text-green-600">{formatCurrency(payment.amount)}</p>
                         {payment.status === "pending" && (
                           <Clock size={20} className="text-yellow-600" />
@@ -188,12 +188,12 @@ export default function AdminPaymentsPage() {
                           <X size={20} className="text-red-600" />
                         )}
                       </div>
-                      <p className="font-medium text-foreground mb-1">{payment.user.fullName || payment.user.userId} ({payment.userId})</p>
-                      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                      <p className="font-medium text-foreground mb-1 break-words">{payment.user.fullName || payment.user.userId} ({payment.userId})</p>
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400 break-words">
                         {payment.paymentMethod} • {payment.mobileNumber}
                       </p>
                       {payment.accountName && (
-                        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                        <p className="text-sm text-zinc-600 dark:text-zinc-400 break-words">
                           Account: {payment.accountName}
                         </p>
                       )}
@@ -204,7 +204,7 @@ export default function AdminPaymentsPage() {
                     </div>
 
                     {payment.status === "pending" && (
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2 shrink-0">
                         <Button
                           onClick={() => handleApprove(payment.id)}
                           className="bg-green-600 hover:bg-green-700"

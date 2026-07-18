@@ -155,7 +155,7 @@ export default function AdminBlogPage() {
   return (
     <AdminLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Blog Management</h1>
             <p className="text-zinc-600 dark:text-zinc-400 mt-1">Create and manage blog posts</p>
@@ -242,7 +242,7 @@ export default function AdminBlogPage() {
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Cover Image URL</label>
                 <div className="flex gap-2">
-                  <Input placeholder="https://images.unsplash.com/..." value={formData.coverImage} onChange={(e) => setFormData({ ...formData, coverImage: e.target.value })} />
+                  <Input className="min-w-0" placeholder="https://images.unsplash.com/..." value={formData.coverImage} onChange={(e) => setFormData({ ...formData, coverImage: e.target.value })} />
                   {formData.coverImage && <div className="w-12 h-10 bg-zinc-200 rounded overflow-hidden flex-shrink-0"><img src={formData.coverImage} alt="" className="w-full h-full object-cover" /></div>}
                 </div>
               </div>
@@ -281,15 +281,15 @@ export default function AdminBlogPage() {
                     {post.coverImage && <div className="w-full sm:w-32 h-24 bg-zinc-200 rounded-lg overflow-hidden flex-shrink-0"><img src={post.coverImage} alt={post.title} className="w-full h-full object-cover" /></div>}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h3 className="font-semibold text-foreground">{post.title}</h3>
-                          <p className="text-sm text-zinc-500 line-clamp-2">{post.excerpt || post.content.slice(0, 100)}...</p>
+                        <div className="min-w-0">
+                          <h3 className="font-semibold text-foreground break-words">{post.title}</h3>
+                          <p className="text-sm text-zinc-500 line-clamp-2 break-words">{post.excerpt || post.content.slice(0, 100)}...</p>
                         </div>
                         <span className={`px-2 py-1 text-xs rounded-full flex-shrink-0 ${post.published ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"}`}>
                           {post.published ? "Published" : "Draft"}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between mt-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3 mt-3">
                         <div className="flex items-center gap-4 text-xs text-zinc-500">
                           <span>{formatDate(post.createdAt)}</span>
                           <span className="flex items-center gap-1"><Eye size={12} />{post.views} views</span>

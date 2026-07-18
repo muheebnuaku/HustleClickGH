@@ -524,7 +524,7 @@ export default function AdminDataProjectsPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
                     <button onClick={() => openEdit(p)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit project">
                       <Pencil size={18} />
                     </button>

@@ -376,14 +376,14 @@ export default function AdminUsersPage() {
                       {filteredUsers.map((user) => (
                         <tr key={user.id} className="border-b border-zinc-100 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
                           <td className="py-3 px-4">
-                            <p className="font-medium text-foreground flex items-center gap-1.5">
+                            <p className="font-medium text-foreground flex items-center gap-1.5 break-words">
                               {user.fullName}
                               {user.verified && <VerifiedBadge size={15} />}
                             </p>
                             <p className="text-xs text-zinc-500">{user.userId}</p>
                           </td>
                           <td className="py-3 px-4">
-                            <p className="text-sm text-foreground">{user.email}</p>
+                            <p className="text-sm text-foreground break-all">{user.email}</p>
                             <p className="text-xs text-zinc-500">{user.phone}</p>
                           </td>
                           <td className="py-3 px-4">

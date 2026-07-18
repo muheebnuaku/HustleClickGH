@@ -170,12 +170,13 @@ export default function AdminQRCodePage() {
                   </label>
                   <div className="flex gap-2">
                     <Input
+                      className="min-w-0"
                       placeholder="https://example.com or any text..."
                       value={presetLinks.custom}
                       onChange={(e) => setPresetLinks({ ...presetLinks, custom: e.target.value })}
                       onKeyDown={(e) => e.key === "Enter" && generateQR(presetLinks.custom)}
                     />
-                    <Button onClick={() => generateQR(presetLinks.custom)}>
+                    <Button className="shrink-0" onClick={() => generateQR(presetLinks.custom)}>
                       <RefreshCw size={16} />
                       Generate
                     </Button>
@@ -237,9 +238,9 @@ export default function AdminQRCodePage() {
                           setConfig({ ...config, fgColor: e.target.value });
                           if (config.content) setTimeout(() => generateQR(config.content), 100);
                         }}
-                        className="w-12 h-10 rounded border border-zinc-300 cursor-pointer"
+                        className="w-12 h-10 shrink-0 rounded border border-zinc-300 cursor-pointer"
                       />
-                      <Input value={config.fgColor} onChange={(e) => setConfig({ ...config, fgColor: e.target.value })} />
+                      <Input className="min-w-0" value={config.fgColor} onChange={(e) => setConfig({ ...config, fgColor: e.target.value })} />
                     </div>
                   </div>
                   <div>
@@ -254,9 +255,9 @@ export default function AdminQRCodePage() {
                           setConfig({ ...config, bgColor: e.target.value });
                           if (config.content) setTimeout(() => generateQR(config.content), 100);
                         }}
-                        className="w-12 h-10 rounded border border-zinc-300 cursor-pointer"
+                        className="w-12 h-10 shrink-0 rounded border border-zinc-300 cursor-pointer"
                       />
-                      <Input value={config.bgColor} onChange={(e) => setConfig({ ...config, bgColor: e.target.value })} />
+                      <Input className="min-w-0" value={config.bgColor} onChange={(e) => setConfig({ ...config, bgColor: e.target.value })} />
                     </div>
                   </div>
                 </div>

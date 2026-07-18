@@ -185,8 +185,9 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             </nav>
           </aside>
 
-          {/* Main Content */}
-          <main className="flex-1">{children}</main>
+          {/* Main Content — min-w-0 stops wide children (tables, charts) from
+              blowing the flex row past the container width on desktop */}
+          <main className="flex-1 min-w-0">{children}</main>
         </div>
       </div>
     </div>

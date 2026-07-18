@@ -146,9 +146,9 @@ export default function AdminCallRecordingsPage() {
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && applySearch()}
-              className="w-64 h-9 text-sm"
+              className="w-full sm:w-64 h-9 text-sm min-w-0"
             />
-            <Button size="sm" onClick={applySearch} className="h-9">
+            <Button size="sm" onClick={applySearch} className="h-9 shrink-0">
               <Search size={14} />
             </Button>
           </div>

@@ -168,7 +168,7 @@ export default function AdminPage() {
     <AdminLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Survey Management</h1>
             <p className="text-zinc-600 dark:text-zinc-400 mt-1">
@@ -300,7 +300,7 @@ export default function AdminPage() {
                         value={question.text}
                         onChange={(e) => updateQuestion(index, "text", e.target.value)}
                       />
-                      <div className="flex gap-4">
+                      <div className="flex flex-wrap items-center gap-4">
                         <select
                           className="flex h-10 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
                           value={question.type}
@@ -330,7 +330,7 @@ export default function AdminPage() {
                   ))}
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button type="submit" disabled={isSubmitting}>
                     {isSubmitting ? "Creating..." : "Publish Survey"}
                   </Button>
@@ -360,12 +360,12 @@ export default function AdminPage() {
                     key={survey.id}
                     className="p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:shadow-md transition-shadow"
                   >
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-lg text-foreground">{survey.title}</h3>
-                        <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">{survey.description}</p>
+                    <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-lg text-foreground break-words">{survey.title}</h3>
+                        <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1 break-words">{survey.description}</p>
                       </div>
-                      <div className="text-right ml-4">
+                      <div className="text-right shrink-0">
                         <p className="text-xl font-bold text-green-600">{formatCurrency(survey.reward)}</p>
                         <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
                           survey.status === "active" 
@@ -402,7 +402,7 @@ export default function AdminPage() {
                       </div>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button size="sm" variant="outline" onClick={() => router.push(`/admin/responses?surveyId=${survey.id}`)}>
                         <Eye size={16} />
                         View Responses

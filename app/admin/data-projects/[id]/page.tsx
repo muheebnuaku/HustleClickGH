@@ -144,9 +144,9 @@ export default function AdminProjectSubmissionsPage() {
           {project && (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 min-w-0">
                   {getTypeIcon(project.projectType)}
-                  <h1 className="text-xl font-bold text-foreground">{project.title}</h1>
+                  <h1 className="text-xl font-bold text-foreground break-words">{project.title}</h1>
                 </div>
                 <p className="text-sm text-zinc-500">
                   Reward: <strong className="text-green-600">{formatCurrency(project.reward)}</strong> per approval &nbsp;·&nbsp;
@@ -193,7 +193,7 @@ export default function AdminProjectSubmissionsPage() {
               <Card key={sub.id} className="p-5">
                 <div className="flex flex-col lg:flex-row lg:items-start gap-4">
                   {/* User Info */}
-                  <div className="flex-1 space-y-3">
+                  <div className="flex-1 min-w-0 space-y-3">
                     <div className="flex flex-wrap items-center gap-3">
                       <div>
                         <p className="font-semibold text-foreground">{sub.user.fullName}</p>
@@ -209,8 +209,8 @@ export default function AdminProjectSubmissionsPage() {
                     </div>
 
                     {/* File details */}
-                    <div className="text-sm text-zinc-500 space-y-1">
-                      <p><span className="font-medium">File:</span> {sub.fileName} · {sub.fileSizeMB.toFixed(1)}MB · {sub.fileType}</p>
+                    <div className="text-sm text-zinc-500 space-y-1 break-words">
+                      <p><span className="font-medium">File:</span> <span className="break-all">{sub.fileName}</span> · {sub.fileSizeMB.toFixed(1)}MB · {sub.fileType}</p>
                       {sub.language && <p><span className="font-medium">Language:</span> {sub.language}</p>}
                       {sub.promptUsed && <p><span className="font-medium">Prompt recorded:</span> &ldquo;{sub.promptUsed}&rdquo;</p>}
                       <p><span className="font-medium">Submitted:</span> {formatDate(sub.submittedAt)}</p>
@@ -237,7 +237,7 @@ export default function AdminProjectSubmissionsPage() {
 
                   {/* Actions (only for pending) */}
                   {sub.status === "pending" && (
-                    <div className="rounded-2xl bg-slate-800 p-4 flex flex-col gap-3 min-w-[210px]">
+                    <div className="rounded-2xl bg-slate-800 p-4 flex flex-col gap-3 w-full lg:w-[210px] lg:shrink-0">
                       {/* Approve */}
                       <div className="flex flex-col items-center gap-1.5">
                         <button

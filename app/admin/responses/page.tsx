@@ -300,7 +300,7 @@ function AdminResponsesPageContent() {
   return (
     <AdminLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Survey Analytics</h1>
             <p className="text-zinc-600 dark:text-zinc-400 mt-1">
@@ -534,7 +534,7 @@ function AdminResponsesPageContent() {
                 {/* Question Analytics */}
                 <Card>
                   <CardHeader>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <CardTitle className="flex items-center gap-2">
                         <BarChart3 className="text-green-600" size={20} />
                         Question Breakdown
@@ -585,12 +585,13 @@ function AdminResponsesPageContent() {
                       ))}
                     </div>
 
-                    {/* Charts Grid */}
+                    {/* Charts Grid — min-w-0 on the cells keeps ResponsiveContainer
+                        from growing the grid instead of fitting inside it */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       {analyticsData
                         .filter(a => selectedQuestion === null || a.questionId === selectedQuestion)
                         .map((analytics, idx) => (
-                        <div key={analytics.questionId} className="border border-zinc-200 dark:border-zinc-700 rounded-xl p-4">
+                        <div key={analytics.questionId} className="min-w-0 border border-zinc-200 dark:border-zinc-700 rounded-xl p-4">
                           <h4 className="font-medium text-foreground mb-4 line-clamp-2">
                             Q{questions.findIndex(q => q.id === analytics.questionId) + 1}: {analytics.questionText}
                           </h4>
@@ -701,7 +702,7 @@ function AdminResponsesPageContent() {
                         .map((item, idx) => (
                           <div
                             key={idx}
-                            className="px-4 py-2 rounded-full border border-zinc-200 dark:border-zinc-700 hover:border-blue-500 transition-colors cursor-default"
+                            className="max-w-full break-words px-4 py-2 rounded-full border border-zinc-200 dark:border-zinc-700 hover:border-blue-500 transition-colors cursor-default"
                             style={{
                               fontSize: `${Math.max(12, Math.min(18, 10 + item.value * 2))}px`,
                               backgroundColor: `${CHART_COLORS[idx % CHART_COLORS.length]}15`,
@@ -732,14 +733,14 @@ function AdminResponsesPageContent() {
                       >
                         {/* Response Header */}
                         <div className="bg-blue-500 text-white p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-lg font-bold">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="w-10 h-10 shrink-0 rounded-full bg-white/20 flex items-center justify-center text-lg font-bold">
                                 {response.user.fullName.charAt(0).toUpperCase()}
                               </div>
-                              <div>
-                                <p className="font-semibold">{response.user.fullName}</p>
-                                <p className="text-sm text-white/80">{response.user.email}</p>
+                              <div className="min-w-0">
+                                <p className="font-semibold break-words">{response.user.fullName}</p>
+                                <p className="text-sm text-white/80 break-all">{response.user.email}</p>
                               </div>
                             </div>
                             <div className="text-right">
@@ -763,11 +764,11 @@ function AdminResponsesPageContent() {
                                   <span className="flex-shrink-0 w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center text-xs font-bold">
                                     {qIdx + 1}
                                   </span>
-                                  <div className="flex-1">
-                                    <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400 mb-1">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400 mb-1 break-words">
                                       {q.text}
                                     </p>
-                                    <p className="text-foreground font-semibold bg-zinc-50 dark:bg-zinc-800 px-3 py-2 rounded-lg">
+                                    <p className="text-foreground font-semibold bg-zinc-50 dark:bg-zinc-800 px-3 py-2 rounded-lg break-words">
                                       {displayAnswer}
                                     </p>
                                   </div>
@@ -807,8 +808,8 @@ function AdminResponsesPageContent() {
                             <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">User</th>
                             <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">Submitted</th>
                             {questions.slice(0, 3).map((q) => (
-                              <th key={q.id} className="text-left py-3 px-4 text-sm font-medium text-zinc-500 max-w-[200px] truncate">
-                                {q.text}
+                              <th key={q.id} className="text-left py-3 px-4 text-sm font-medium text-zinc-500">
+                                <div className="max-w-[200px] truncate" title={q.text}>{q.text}</div>
                               </th>
                             ))}
                             {questions.length > 3 && (
@@ -823,12 +824,12 @@ function AdminResponsesPageContent() {
                             <tr key={r.id} className="border-b border-zinc-100 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
                               <td className="py-3 px-4">
                                 <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold">
+                                  <div className="w-8 h-8 shrink-0 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold">
                                     {r.user.fullName.charAt(0).toUpperCase()}
                                   </div>
-                                  <div>
+                                  <div className="min-w-0">
                                     <p className="font-medium text-foreground">{r.user.fullName}</p>
-                                    <p className="text-xs text-zinc-500">{r.user.email}</p>
+                                    <p className="text-xs text-zinc-500 break-all">{r.user.email}</p>
                                   </div>
                                 </div>
                               </td>
@@ -836,10 +837,13 @@ function AdminResponsesPageContent() {
                                 {formatDate(r.completedAt)}
                               </td>
                               {questions.slice(0, 3).map((q) => (
-                                <td key={q.id} className="py-3 px-4 text-sm text-foreground max-w-[200px] truncate">
-                                  {Array.isArray(r.answers[q.id]) 
-                                    ? (r.answers[q.id] as string[]).join(", ") 
-                                    : (r.answers[q.id] || "-")}
+                                <td key={q.id} className="py-3 px-4 text-sm text-foreground">
+                                  {(() => {
+                                    const cell = Array.isArray(r.answers[q.id])
+                                      ? (r.answers[q.id] as string[]).join(", ")
+                                      : String(r.answers[q.id] || "-");
+                                    return <div className="max-w-[200px] truncate" title={cell}>{cell}</div>;
+                                  })()}
                                 </td>
                               ))}
                               {questions.length > 3 && (
@@ -879,17 +883,17 @@ function AdminResponsesPageContent() {
                     {filteredResponses.map((r) => (
                       <Card key={r.id} className="overflow-hidden">
                         <CardHeader className="bg-blue-500 text-white">
-                          <div className="flex justify-between items-start">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-lg font-bold">
+                          <div className="flex flex-wrap justify-between items-start gap-2">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="w-10 h-10 shrink-0 rounded-full bg-white/20 flex items-center justify-center text-lg font-bold">
                                 {r.user.fullName.charAt(0).toUpperCase()}
                               </div>
-                              <div>
-                                <CardTitle className="text-lg text-white">{r.user.fullName}</CardTitle>
-                                <p className="text-sm text-white/80">{r.user.email}</p>
+                              <div className="min-w-0">
+                                <CardTitle className="text-lg text-white break-words">{r.user.fullName}</CardTitle>
+                                <p className="text-sm text-white/80 break-all">{r.user.email}</p>
                               </div>
                             </div>
-                            <span className="text-xs text-white/80 bg-white/20 px-2 py-1 rounded">
+                            <span className="text-xs text-white/80 bg-white/20 px-2 py-1 rounded shrink-0">
                               {formatDate(r.completedAt)}
                             </span>
                           </div>
@@ -897,8 +901,8 @@ function AdminResponsesPageContent() {
                         <CardContent className="pt-4 space-y-3">
                           {questions.map((q, idx) => (
                             <div key={q.id} className="p-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg">
-                              <p className="text-xs font-medium text-zinc-500 mb-1">Q{idx + 1}: {q.text}</p>
-                              <p className="text-foreground font-medium">
+                              <p className="text-xs font-medium text-zinc-500 mb-1 break-words">Q{idx + 1}: {q.text}</p>
+                              <p className="text-foreground font-medium break-words">
                                 {Array.isArray(r.answers[q.id]) 
                                   ? (r.answers[q.id] as string[]).join(", ") 
                                   : (r.answers[q.id] || "-")}
