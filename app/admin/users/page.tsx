@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users, AlertCircle, Lock, Unlock } from "lucide-react";
+import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users, AlertCircle, Lock, Unlock, MapPin } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 interface UserData {
@@ -24,6 +24,9 @@ interface UserData {
   role: string;
   status: string;
   emailFlagged: boolean;
+  country: string | null;
+  region: string | null;
+  city: string | null;
 }
 
 interface UserStats {
@@ -35,6 +38,8 @@ interface UserStats {
   totalBalance: number;
 }
 
+const UNKNOWN = "Unknown";
+
 export default function AdminUsersPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -42,7 +47,9 @@ export default function AdminUsersPage() {
   const [stats, setStats] = useState<UserStats>({ totalUsers: 0, activeUsers: 0, suspendedUsers: 0, flaggedEmails: 0, totalPaidOut: 0, totalBalance: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterFlagged, setFilterFlagged] = useState(false);
+  const [filterCountry, setFilterCountry] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "active" | "suspended">("all");
+  const [filterEmail, setFilterEmail] = useState<"all" | "flagged" | "clean">("all");
   const [suspendingId, setSuspendingId] = useState<string | null>(null);
 
   const fetchUsers = async () => {
@@ -67,10 +74,7 @@ export default function AdminUsersPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, action }),
       });
-
-      if (res.ok) {
-        await fetchUsers();
-      }
+      if (res.ok) await fetchUsers();
     } catch (error) {
       console.error("Failed to update user status:", error);
     } finally {
@@ -83,7 +87,6 @@ export default function AdminUsersPage() {
       router.push("/login");
       return;
     }
-
     if (status === "authenticated") {
       if (session?.user?.role !== "admin") {
         router.push("/dashboard");
@@ -93,43 +96,66 @@ export default function AdminUsersPage() {
     }
   }, [status, router, session]);
 
-  const filteredUsers = users.filter((user) => {
-    const matchesSearch =
-      user.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.userId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.phone.includes(searchTerm);
+  // Country groups with counts, sorted by size (largest first)
+  const countryGroups = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const u of users) {
+      const c = u.country?.trim() || UNKNOWN;
+      counts.set(c, (counts.get(c) || 0) + 1);
+    }
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }, [users]);
 
-    const matchesFilter = !filterFlagged || user.emailFlagged;
+  const filteredUsers = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+    return users.filter((user) => {
+      const matchesSearch =
+        !q ||
+        user.fullName.toLowerCase().includes(q) ||
+        user.email.toLowerCase().includes(q) ||
+        user.userId.toLowerCase().includes(q) ||
+        user.phone.includes(searchTerm) ||
+        (user.city?.toLowerCase().includes(q) ?? false) ||
+        (user.region?.toLowerCase().includes(q) ?? false);
 
-    return matchesSearch && matchesFilter;
-  });
+      const country = user.country?.trim() || UNKNOWN;
+      const matchesCountry = filterCountry === "all" || country === filterCountry;
+      const matchesStatus = filterStatus === "all" || user.status === filterStatus;
+      const matchesEmail =
+        filterEmail === "all" ||
+        (filterEmail === "flagged" && user.emailFlagged) ||
+        (filterEmail === "clean" && !user.emailFlagged);
+
+      return matchesSearch && matchesCountry && matchesStatus && matchesEmail;
+    });
+  }, [users, searchTerm, filterCountry, filterStatus, filterEmail]);
 
   const exportEmails = () => {
-    const emails = filteredUsers.map(u => u.email).join("\n");
-    navigator.clipboard.writeText(emails);
+    navigator.clipboard.writeText(filteredUsers.map((u) => u.email).join("\n"));
     alert(`${filteredUsers.length} emails copied to clipboard!`);
   };
-
   const exportPhones = () => {
-    const phones = filteredUsers.map(u => u.phone).join("\n");
-    navigator.clipboard.writeText(phones);
+    navigator.clipboard.writeText(filteredUsers.map((u) => u.phone).join("\n"));
     alert(`${filteredUsers.length} phone numbers copied to clipboard!`);
   };
-
   const exportCSV = () => {
-    const headers = ["User ID", "Name", "Email", "Phone", "Balance", "Total Earned", "Surveys", "Referrals", "Joined"];
-    const rows = filteredUsers.map(u => [
-      u.userId, u.fullName, u.email, u.phone, u.balance, u.totalEarned, u.surveysCompleted, u.referralCount, formatDate(u.createdAt)
+    const headers = ["User ID", "Name", "Email", "Phone", "Country", "Region", "City", "Balance", "Total Earned", "Surveys", "Referrals", "Joined"];
+    const rows = filteredUsers.map((u) => [
+      u.userId, u.fullName, u.email, u.phone, u.country ?? "", u.region ?? "", u.city ?? "",
+      u.balance, u.totalEarned, u.surveysCompleted, u.referralCount, formatDate(u.createdAt),
     ]);
-    const csv = [headers, ...rows].map(row => row.join(",")).join("\n");
-    
+    const csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `users_${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
+  };
+
+  const locationLabel = (u: UserData) => {
+    const parts = [u.city, u.region, u.country].filter(Boolean);
+    return parts.length ? parts.join(", ") : "—";
   };
 
   if (status === "loading" || isLoading) {
@@ -142,251 +168,281 @@ export default function AdminUsersPage() {
     );
   }
 
+  const statCards = [
+    { label: "Total Users", value: stats.totalUsers, icon: Users, color: "blue" },
+    { label: "Active", value: stats.activeUsers, icon: User, color: "green" },
+    { label: "Suspended", value: stats.suspendedUsers, icon: Lock, color: "red" },
+    { label: "Flagged Emails", value: stats.flaggedEmails, icon: AlertCircle, color: "yellow" },
+    { label: "Total Paid Out", value: formatCurrency(stats.totalPaidOut), icon: TrendingUp, color: "purple" },
+    { label: "Total Balance", value: formatCurrency(stats.totalBalance), icon: Wallet, color: "orange" },
+  ] as const;
+
+  const colorMap: Record<string, string> = {
+    blue: "bg-blue-100 dark:bg-blue-900/30 text-blue-600",
+    green: "bg-green-100 dark:bg-green-900/30 text-green-600",
+    red: "bg-red-100 dark:bg-red-900/30 text-red-600",
+    yellow: "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600",
+    purple: "bg-purple-100 dark:bg-purple-900/30 text-purple-600",
+    orange: "bg-orange-100 dark:bg-orange-900/30 text-orange-600",
+  };
+
   return (
     <AdminLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">User Management</h1>
-            <p className="text-zinc-600 dark:text-zinc-400 mt-1">
-              Manage all registered users
-            </p>
-          </div>
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">User Management</h1>
+          <p className="text-zinc-600 dark:text-zinc-400 mt-1">Manage all registered users</p>
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-6 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
-                  <Users className="text-blue-600" size={24} />
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
+          {statCards.map((s) => (
+            <Card key={s.label}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0 ${colorMap[s.color]}`}>
+                    <s.icon size={22} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs sm:text-sm text-zinc-500 truncate">{s.label}</p>
+                    <p className="text-lg sm:text-2xl font-bold text-foreground truncate">{s.value}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm text-zinc-500">Total Users</p>
-                  <p className="text-2xl font-bold text-foreground">{stats.totalUsers}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
-                  <User className="text-green-600" size={24} />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-500">Active</p>
-                  <p className="text-2xl font-bold text-foreground">{stats.activeUsers}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center">
-                  <Lock className="text-red-600" size={24} />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-500">Suspended</p>
-                  <p className="text-2xl font-bold text-foreground">{stats.suspendedUsers}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-yellow-100 dark:bg-yellow-900/30 rounded-xl flex items-center justify-center">
-                  <AlertCircle className="text-yellow-600" size={24} />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-500">Flagged Emails</p>
-                  <p className="text-2xl font-bold text-foreground">{stats.flaggedEmails}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
-                  <TrendingUp className="text-purple-600" size={24} />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-500">Total Paid Out</p>
-                  <p className="text-2xl font-bold text-foreground">{formatCurrency(stats.totalPaidOut)}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center">
-                  <Wallet className="text-orange-600" size={24} />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-500">Total Balance</p>
-                  <p className="text-2xl font-bold text-foreground">{formatCurrency(stats.totalBalance)}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ))}
         </div>
 
-        {/* Search & Export */}
+        {/* Country groups */}
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col sm:flex-row gap-4 justify-between">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={20} />
-                  <Input
-                    placeholder="Search by name, email, user ID, or phone..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-                <div className="flex gap-2 flex-wrap">
-                  <Button variant="outline" onClick={exportEmails}>
-                    <Mail size={18} />
-                    Emails
-                  </Button>
-                  <Button variant="outline" onClick={exportPhones}>
-                    <Phone size={18} />
-                    Phones
-                  </Button>
-                  <Button variant="outline" onClick={exportCSV}>
-                    <Download size={18} />
-                    CSV
-                  </Button>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="flaggedFilter"
-                  checked={filterFlagged}
-                  onChange={(e) => setFilterFlagged(e.target.checked)}
-                  className="w-4 h-4 rounded border-zinc-300"
-                />
-                <label htmlFor="flaggedFilter" className="text-sm text-zinc-600 dark:text-zinc-400 cursor-pointer">
-                  Show only flagged emails (free providers)
-                </label>
-              </div>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              <MapPin size={16} /> Groups by country
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setFilterCountry("all")}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium border transition ${
+                  filterCountry === "all"
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                }`}
+              >
+                All ({users.length})
+              </button>
+              {countryGroups.map(([country, count]) => (
+                <button
+                  key={country}
+                  onClick={() => setFilterCountry(country)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium border transition ${
+                    filterCountry === country
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {country} ({count})
+                </button>
+              ))}
             </div>
           </CardContent>
         </Card>
 
-        {/* Users Table */}
+        {/* Search & filters */}
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
+              <div className="relative flex-1 lg:max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={20} />
+                <Input
+                  placeholder="Search name, email, ID, phone, city…"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <Button variant="outline" size="sm" onClick={exportEmails}><Mail size={16} /> Emails</Button>
+                <Button variant="outline" size="sm" onClick={exportPhones}><Phone size={16} /> Phones</Button>
+                <Button variant="outline" size="sm" onClick={exportCSV}><Download size={16} /> CSV</Button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
+                className="h-9 rounded-md border border-zinc-200 dark:border-zinc-800 bg-transparent px-3 text-sm"
+              >
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="suspended">Suspended</option>
+              </select>
+              <select
+                value={filterEmail}
+                onChange={(e) => setFilterEmail(e.target.value as typeof filterEmail)}
+                className="h-9 rounded-md border border-zinc-200 dark:border-zinc-800 bg-transparent px-3 text-sm"
+              >
+                <option value="all">All emails</option>
+                <option value="flagged">Flagged (free providers)</option>
+                <option value="clean">Not flagged</option>
+              </select>
+              <select
+                value={filterCountry}
+                onChange={(e) => setFilterCountry(e.target.value)}
+                className="h-9 rounded-md border border-zinc-200 dark:border-zinc-800 bg-transparent px-3 text-sm"
+              >
+                <option value="all">All countries</option>
+                {countryGroups.map(([country, count]) => (
+                  <option key={country} value={country}>{country} ({count})</option>
+                ))}
+              </select>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Users */}
         <Card>
           <CardHeader>
-            <CardTitle>All Users ({filteredUsers.length})</CardTitle>
+            <CardTitle>Users ({filteredUsers.length})</CardTitle>
           </CardHeader>
           <CardContent>
             {filteredUsers.length === 0 ? (
-              <div className="text-center py-8 text-zinc-500">
-                {searchTerm ? "No users match your search" : "No users registered yet"}
-              </div>
+              <div className="text-center py-8 text-zinc-500">No users match your filters</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-zinc-200 dark:border-zinc-800">
-                      <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">User</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">Email</th>
-                      <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Status</th>
-                      <th className="text-right py-3 px-4 text-sm font-medium text-zinc-500">Balance</th>
-                      <th className="text-right py-3 px-4 text-sm font-medium text-zinc-500">Earned</th>
-                      <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Surveys</th>
-                      <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Referrals</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">Joined</th>
-                      <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredUsers.map((user) => (
-                      <tr key={user.id} className="border-b border-zinc-100 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
-                        <td className="py-3 px-4">
-                          <div>
+              <>
+                {/* Desktop table */}
+                <div className="hidden lg:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-zinc-200 dark:border-zinc-800">
+                        <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">User</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">Email</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">Location</th>
+                        <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Status</th>
+                        <th className="text-right py-3 px-4 text-sm font-medium text-zinc-500">Balance</th>
+                        <th className="text-right py-3 px-4 text-sm font-medium text-zinc-500">Earned</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-zinc-500">Joined</th>
+                        <th className="text-center py-3 px-4 text-sm font-medium text-zinc-500">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredUsers.map((user) => (
+                        <tr key={user.id} className="border-b border-zinc-100 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
+                          <td className="py-3 px-4">
                             <p className="font-medium text-foreground">{user.fullName}</p>
                             <p className="text-xs text-zinc-500">{user.userId}</p>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            <div>
-                              <p className="text-sm text-foreground">{user.email}</p>
-                              <p className="text-xs text-zinc-500">{user.phone}</p>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <div>
+                                <p className="text-sm text-foreground">{user.email}</p>
+                                <p className="text-xs text-zinc-500">{user.phone}</p>
+                              </div>
+                              {user.emailFlagged && (
+                                <span className="inline-block px-2 py-1 text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 rounded">Flagged</span>
+                              )}
                             </div>
-                            {user.emailFlagged && (
-                              <span className="inline-block px-2 py-1 text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 rounded">
-                                Flagged
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span className={`inline-block px-3 py-1 text-xs font-medium rounded ${
-                            user.status === "active"
-                              ? "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400"
-                              : "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400"
-                          }`}>
-                            {user.status === "active" ? "Active" : "Suspended"}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <span className="font-medium text-green-600">{formatCurrency(user.balance)}</span>
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <span className="text-foreground">{formatCurrency(user.totalEarned)}</span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span className="text-foreground">{user.surveysCompleted}</span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span className="text-foreground">{user.referralCount}</span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="text-sm text-zinc-500">{formatDate(user.createdAt)}</span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <button
-                            onClick={() => handleSuspendUser(user.id, user.status)}
-                            disabled={suspendingId === user.id}
-                            className={`px-3 py-1 text-sm font-medium rounded border transition ${
-                              user.status === "active"
-                                ? "border-red-300 text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
-                                : "border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-900/20"
-                            } ${suspendingId === user.id ? "opacity-50 cursor-not-allowed" : ""}`}
-                          >
-                            {suspendingId === user.id ? (
-                              <div className="flex items-center gap-1">
-                                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-                              </div>
-                            ) : user.status === "active" ? (
-                              <div className="flex items-center gap-1">
-                                <Lock size={14} />Suspend
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1">
-                                <Unlock size={14} />Unsuspend
-                              </div>
-                            )}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="text-sm text-zinc-600 dark:text-zinc-400">{locationLabel(user)}</span>
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <StatusBadge status={user.status} />
+                          </td>
+                          <td className="py-3 px-4 text-right font-medium text-green-600">{formatCurrency(user.balance)}</td>
+                          <td className="py-3 px-4 text-right text-foreground">{formatCurrency(user.totalEarned)}</td>
+                          <td className="py-3 px-4 text-sm text-zinc-500">{formatDate(user.createdAt)}</td>
+                          <td className="py-3 px-4 text-center">
+                            <SuspendButton user={user} busy={suspendingId === user.id} onClick={() => handleSuspendUser(user.id, user.status)} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile cards */}
+                <div className="lg:hidden space-y-3">
+                  {filteredUsers.map((user) => (
+                    <div key={user.id} className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground truncate">{user.fullName}</p>
+                          <p className="text-xs text-zinc-500">{user.userId}</p>
+                        </div>
+                        <StatusBadge status={user.status} />
+                      </div>
+                      <div className="mt-2 space-y-1 text-sm">
+                        <p className="text-foreground break-all flex items-center gap-2">
+                          {user.email}
+                          {user.emailFlagged && (
+                            <span className="inline-block px-1.5 py-0.5 text-[10px] font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 rounded">Flagged</span>
+                          )}
+                        </p>
+                        <p className="text-zinc-500">{user.phone}</p>
+                        <p className="text-zinc-500 flex items-center gap-1"><MapPin size={13} /> {locationLabel(user)}</p>
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900 py-2">
+                          <p className="text-xs text-zinc-500">Balance</p>
+                          <p className="text-sm font-semibold text-green-600">{formatCurrency(user.balance)}</p>
+                        </div>
+                        <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900 py-2">
+                          <p className="text-xs text-zinc-500">Earned</p>
+                          <p className="text-sm font-semibold text-foreground">{formatCurrency(user.totalEarned)}</p>
+                        </div>
+                        <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900 py-2">
+                          <p className="text-xs text-zinc-500">Referrals</p>
+                          <p className="text-sm font-semibold text-foreground">{user.referralCount}</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between">
+                        <span className="text-xs text-zinc-500">Joined {formatDate(user.createdAt)}</span>
+                        <SuspendButton user={user} busy={suspendingId === user.id} onClick={() => handleSuspendUser(user.id, user.status)} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
       </div>
     </AdminLayout>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  return (
+    <span
+      className={`inline-block px-3 py-1 text-xs font-medium rounded shrink-0 ${
+        status === "active"
+          ? "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400"
+          : "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400"
+      }`}
+    >
+      {status === "active" ? "Active" : "Suspended"}
+    </span>
+  );
+}
+
+function SuspendButton({ user, busy, onClick }: { user: { status: string }; busy: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      className={`px-3 py-1 text-sm font-medium rounded border transition ${
+        user.status === "active"
+          ? "border-red-300 text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+          : "border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-900/20"
+      } ${busy ? "opacity-50 cursor-not-allowed" : ""}`}
+    >
+      {busy ? (
+        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+      ) : user.status === "active" ? (
+        <span className="flex items-center gap-1"><Lock size={14} />Suspend</span>
+      ) : (
+        <span className="flex items-center gap-1"><Unlock size={14} />Unsuspend</span>
+      )}
+    </button>
   );
 }
