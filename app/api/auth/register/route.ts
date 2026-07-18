@@ -6,6 +6,7 @@ import { SITE_CONFIG } from "@/lib/constants";
 import { logActivity, getIp } from "@/lib/activity-log";
 import { encryptField, lastChars, isEncryptionConfigured } from "@/lib/crypto";
 import { CONSENT_VERSION } from "@/lib/legal";
+import { sendEmail, welcomeEmail } from "@/lib/email";
 
 async function generateUserId(): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -184,6 +185,10 @@ export async function POST(request: Request) {
         ]);
       }
     }
+
+    // Welcome email with their User ID (fire-and-forget — never blocks signup)
+    const welcome = welcomeEmail(user.fullName, user.userId);
+    sendEmail({ to: user.email, subject: welcome.subject, html: welcome.html }).catch(() => {});
 
     logActivity({
       type: "register",
