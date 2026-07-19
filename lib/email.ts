@@ -1,4 +1,5 @@
 import { SITE_CONFIG } from "@/lib/constants";
+import { formatCurrency } from "@/lib/utils";
 
 /**
  * Email sender — SMTP only (Zoho Mail).
@@ -120,6 +121,93 @@ export function accountVerifiedEmail(fullName: string) {
         <a href="https://hustleclickgh.com/dashboard"
            style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
           Go to my dashboard
+        </a>
+      </p>
+    `),
+  };
+}
+
+/** Escapes text that an admin typed before it goes into an HTML email. */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Sent when an admin approves a withdrawal and the money is on its way. */
+export function withdrawalApprovedEmail(
+  fullName: string,
+  amount: number,
+  paymentMethod: string,
+  mobileNumber: string
+) {
+  const firstName = fullName.split(" ")[0] || "there";
+  const formatted = formatCurrency(amount);
+  return {
+    subject: `Your withdrawal of ${formatted} has been approved`,
+    html: emailLayout(`Payment approved, ${firstName}`, `
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        Good news — your withdrawal request has been approved and the money is being sent
+        to your Mobile Money account.
+      </p>
+      <div style="margin:20px 0;padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;">
+        <p style="margin:0 0 6px;color:#71717a;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Amount</p>
+        <p style="margin:0 0 14px;color:#16a34a;font-size:26px;font-weight:700;">${formatted}</p>
+        <p style="margin:0;color:#3f3f46;font-size:13px;">
+          <strong>Sent to:</strong> ${escapeHtml(paymentMethod)} &middot; ${escapeHtml(mobileNumber)}
+        </p>
+      </div>
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        Mobile Money transfers usually arrive within a few minutes, but can take longer at
+        busy times. If it hasn&rsquo;t landed within 24 hours, reply to this email and we&rsquo;ll
+        look into it.
+      </p>
+      <p style="margin:24px 0 0;">
+        <a href="https://hustleclickgh.com/income"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
+          View my earnings
+        </a>
+      </p>
+    `),
+  };
+}
+
+/** Sent when an admin rejects a withdrawal, carrying the reason they gave. */
+export function withdrawalRejectedEmail(
+  fullName: string,
+  amount: number,
+  reason: string
+) {
+  const firstName = fullName.split(" ")[0] || "there";
+  const formatted = formatCurrency(amount);
+  const reasonBlock = reason.trim()
+    ? `<div style="margin:20px 0;padding:16px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;">
+         <p style="margin:0 0 6px;color:#71717a;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Reason</p>
+         <p style="margin:0;color:#3f3f46;font-size:14px;line-height:1.6;">${escapeHtml(reason.trim()).replace(/\n/g, "<br/>")}</p>
+       </div>`
+    : "";
+
+  return {
+    subject: `Your withdrawal of ${formatted} could not be processed`,
+    html: emailLayout(`Withdrawal not approved, ${firstName}`, `
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        We couldn&rsquo;t process your withdrawal request for <strong>${formatted}</strong>.
+      </p>
+      ${reasonBlock}
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        <strong>Your money is safe.</strong> Nothing has been deducted — the full amount is
+        still in your HustleClickGH balance, and you can request it again once the issue
+        above is sorted out.
+      </p>
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        If you think this was a mistake, just reply to this email and we&rsquo;ll take another look.
+      </p>
+      <p style="margin:24px 0 0;">
+        <a href="https://hustleclickgh.com/income"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
+          Request again
         </a>
       </p>
     `),

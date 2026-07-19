@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { sendEmail, withdrawalApprovedEmail } from "@/lib/email";
 
 export async function PUT(
   request: NextRequest,
@@ -64,6 +65,18 @@ export async function PUT(
         },
       }),
     ]);
+
+    // Let the user know the money is on its way (fire-and-forget)
+    if (withdrawal.user?.email) {
+      const mail = withdrawalApprovedEmail(
+        withdrawal.user.fullName,
+        withdrawal.amount,
+        withdrawal.paymentMethod,
+        withdrawal.mobileNumber
+      );
+      sendEmail({ to: withdrawal.user.email, subject: mail.subject, html: mail.html })
+        .catch(() => {});
+    }
 
     return NextResponse.json({
       message: "Withdrawal approved successfully",

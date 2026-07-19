@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { sendEmail, withdrawalRejectedEmail } from "@/lib/email";
 
 export async function PUT(
   request: NextRequest,
@@ -26,9 +27,10 @@ export async function PUT(
       // Body is empty, that's okay
     }
 
-    // Get withdrawal details
+    // Get withdrawal details (user included so we can email them the reason)
     const withdrawal = await prisma.withdrawal.findUnique({
       where: { id },
+      include: { user: true },
     });
 
     if (!withdrawal) {
@@ -55,6 +57,17 @@ export async function PUT(
         notes,
       },
     });
+
+    // Tell the user why, and that their balance is untouched (fire-and-forget)
+    if (withdrawal.user?.email) {
+      const mail = withdrawalRejectedEmail(
+        withdrawal.user.fullName,
+        withdrawal.amount,
+        notes
+      );
+      sendEmail({ to: withdrawal.user.email, subject: mail.subject, html: mail.html })
+        .catch(() => {});
+    }
 
     return NextResponse.json({
       message: "Withdrawal rejected",

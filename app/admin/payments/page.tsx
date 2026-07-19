@@ -23,6 +23,7 @@ interface Withdrawal {
   status: "pending" | "approved" | "rejected";
   requestedAt: string;
   processedAt?: string;
+  notes?: string;
 }
 
 export default function AdminPaymentsPage() {
@@ -32,6 +33,9 @@ export default function AdminPaymentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [processingId, setProcessingId] = useState<string | null>(null);
+  // Which request is having its rejection reason written, and the text so far
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const fetchPayments = async () => {
     try {
@@ -75,10 +79,19 @@ export default function AdminPaymentsPage() {
   };
 
   const handleReject = async (id: string) => {
+    const reason = rejectReason.trim();
+    if (!reason) return; // the reason is what the user receives — don't send an empty one
+
     setProcessingId(id);
     try {
-      const res = await fetch(`/api/withdrawals/${id}/reject`, { method: "POST" });
+      const res = await fetch(`/api/withdrawals/${id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: reason }),
+      });
       if (res.ok) {
+        setRejectingId(null);
+        setRejectReason("");
         await fetchPayments();
       }
     } catch (error) {
@@ -214,10 +227,10 @@ export default function AdminPaymentsPage() {
                           {processingId === payment.id ? "Processing..." : "Approve"}
                         </Button>
                         <Button
-                          onClick={() => handleReject(payment.id)}
+                          onClick={() => { setRejectingId(payment.id); setRejectReason(""); }}
                           variant="outline"
                           className="text-red-600 border-red-600"
-                          disabled={processingId === payment.id}
+                          disabled={processingId === payment.id || rejectingId === payment.id}
                         >
                           <X size={18} />
                           Reject
@@ -239,6 +252,59 @@ export default function AdminPaymentsPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* Rejection reason — this text is emailed to the user verbatim */}
+                  {rejectingId === payment.id && (
+                    <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+                      <label
+                        htmlFor={`reject-reason-${payment.id}`}
+                        className="block text-sm font-medium text-foreground mb-1"
+                      >
+                        Why is this being rejected?
+                      </label>
+                      <p className="text-xs text-zinc-500 mb-2">
+                        {payment.user.fullName || payment.user.userId} will receive this word for word by email.
+                      </p>
+                      <textarea
+                        id={`reject-reason-${payment.id}`}
+                        value={rejectReason}
+                        onChange={(e) => setRejectReason(e.target.value)}
+                        rows={3}
+                        autoFocus
+                        maxLength={500}
+                        placeholder="e.g. The Mobile Money number you entered doesn't match the name on your account. Please update it and request again."
+                        className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Button
+                          onClick={() => handleReject(payment.id)}
+                          className="bg-red-600 hover:bg-red-700"
+                          disabled={!rejectReason.trim() || processingId === payment.id}
+                        >
+                          <X size={18} />
+                          {processingId === payment.id ? "Rejecting..." : "Confirm rejection"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => { setRejectingId(null); setRejectReason(""); }}
+                          disabled={processingId === payment.id}
+                        >
+                          Cancel
+                        </Button>
+                        <span className="text-xs text-zinc-400">{rejectReason.length}/500</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Reason given when this was rejected earlier */}
+                  {payment.status === "rejected" && payment.notes && (
+                    <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-800">
+                      <p className="text-xs font-medium text-zinc-500 mb-1">Rejection reason</p>
+                      <p className="text-sm text-zinc-700 dark:text-zinc-300 break-words whitespace-pre-wrap">
+                        {payment.notes}
+                      </p>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
