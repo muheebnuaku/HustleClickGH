@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { uploadFile } from "@/lib/upload-file";
+import { createCallSignaling, type CallSignaling, type CallRole } from "@/lib/call-signaling";
 import {
   PhoneOff,
   Mic,
@@ -75,7 +76,9 @@ function VideoCallInner() {
   const callingPollRef = useRef<NodeJS.Timeout | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const callCodeRef = useRef("");
-  const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
+  const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);        // local candidates buffered before signaling exists
+  const pendingRemoteIceRef = useRef<RTCIceCandidateInit[]>([]);  // remote candidates buffered before remoteDescription is set
+  const signalingRef = useRef<CallSignaling | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const isInitiatorRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -115,12 +118,51 @@ function VideoCallInner() {
       if (r.current) clearInterval(r.current);
     });
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    closeSignaling();
     peerRef.current?.close();
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
   }
 
+  // ── Realtime signaling helpers (mirror data-project call page) ──────────────
+  function addRemoteIce(pc: RTCPeerConnection, cand: RTCIceCandidateInit) {
+    if (!pc.remoteDescription) { pendingRemoteIceRef.current.push(cand); return; }
+    if (pendingRemoteIceRef.current.length) {
+      const held = pendingRemoteIceRef.current.splice(0);
+      held.forEach((c) => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+    }
+    pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+  }
+  function drainPendingIce(pc: RTCPeerConnection) {
+    if (!pc.remoteDescription || !pendingRemoteIceRef.current.length) return;
+    const held = pendingRemoteIceRef.current.splice(0);
+    held.forEach((c) => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+  }
+  function startSignaling(code: string, token: string | null, role: CallRole) {
+    signalingRef.current?.close();
+    signalingRef.current = createCallSignaling({
+      callCode: code, signalToken: token, role,
+      callbacks: { onCandidate: (cand) => { const pc = peerRef.current; if (pc) addRemoteIce(pc, cand); } },
+    });
+  }
+  function closeSignaling() {
+    signalingRef.current?.close();
+    signalingRef.current = null;
+    pendingRemoteIceRef.current = [];
+  }
+  function sendLocalIce(candidate: RTCIceCandidate) {
+    const sig = signalingRef.current;
+    if (sig) { sig.sendCandidate(candidate.toJSON()); return; }
+    pendingIceRef.current.push(candidate.toJSON());
+  }
+  function flushLocalIce() {
+    const sig = signalingRef.current;
+    if (!sig || !pendingIceRef.current.length) return;
+    const batch = pendingIceRef.current.splice(0);
+    batch.forEach((c) => sig.sendCandidate(c));
+  }
+
   // ── Create peer ───────────────────────────────────────────────────────────
-  function createPeer(code: string, asInitiator: boolean): RTCPeerConnection {
+  function createPeer(code: string): RTCPeerConnection {
     peerRef.current?.close();
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerRef.current = pc;
@@ -146,20 +188,8 @@ function VideoCallInner() {
       }
     };
 
-    pc.onicecandidate = async ({ candidate }) => {
-      if (!candidate) return;
-      if (!callCodeRef.current) {
-        pendingIceRef.current.push(candidate.toJSON());
-        return;
-      }
-      await fetch(`/api/calls/${callCodeRef.current}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: asInitiator ? "ice-initiator" : "ice-receiver",
-          candidate,
-        }),
-      });
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) sendLocalIce(candidate);
     };
 
     pc.onconnectionstatechange = () => {
@@ -189,7 +219,7 @@ function VideoCallInner() {
     await ctx.resume();
     try {
       await initCamera(isFrontCamera ? "user" : "environment");
-      const pc = createPeer("", true);
+      const pc = createPeer("");
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       setPhase("calling");
@@ -210,29 +240,14 @@ function VideoCallInner() {
         throw new Error(e.message || "Could not start call");
       }
 
-      const { callCode, targetUserName } = await res.json();
+      const { callCode, targetUserName, signalToken } = await res.json();
       callCodeRef.current = callCode;
       setRemoteUserName(targetUserName || "");
 
-      // Re-wire ICE handler now that we have a real callCode
-      pc.onicecandidate = async ({ candidate }) => {
-        if (!candidate) return;
-        await fetch(`/api/calls/${callCode}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "ice-initiator", candidate }),
-        });
-      };
-
-      // Flush buffered ICE candidates
-      for (const candidate of pendingIceRef.current) {
-        await fetch(`/api/calls/${callCode}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "ice-initiator", candidate }),
-        });
-      }
-      pendingIceRef.current = [];
+      // Open the signaling channel now that we have the call code + token, then
+      // flush any candidates gathered while the offer was being created/posted.
+      startSignaling(callCode, signalToken ?? null, "initiator");
+      flushLocalIce();
 
       startCallingPoll(callCode);
     } catch (err) {
@@ -269,6 +284,7 @@ function VideoCallInner() {
           await peerRef.current.setRemoteDescription(
             new RTCSessionDescription(answer)
           );
+          drainPendingIce(peerRef.current);
           setPhase("connecting");
           startIcePolling(code, true);
         }
@@ -294,8 +310,10 @@ function VideoCallInner() {
 
       const offer =
         typeof data.offer === "string" ? JSON.parse(data.offer) : data.offer;
-      const pc = createPeer(code, false);
+      const pc = createPeer(code);
+      startSignaling(code, data.signalToken ?? null, "receiver");
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      drainPendingIce(pc);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
@@ -309,6 +327,7 @@ function VideoCallInner() {
         }),
       });
 
+      flushLocalIce();
       startIcePolling(code, false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to join call");
@@ -329,6 +348,7 @@ function VideoCallInner() {
           typeof raw === "string" ? JSON.parse(raw) : raw || [];
         const pc = peerRef.current;
         if (!pc || pc.signalingState === "closed") return;
+        drainPendingIce(pc);
         for (let i = processed; i < candidates.length; i++) {
           await pc.addIceCandidate(new RTCIceCandidate(candidates[i]));
         }

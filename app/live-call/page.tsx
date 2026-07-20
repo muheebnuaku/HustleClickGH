@@ -8,6 +8,7 @@ import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { createCallSignaling, type CallSignaling, type CallRole } from "@/lib/call-signaling";
 import {
   Mic, MicOff, PhoneOff, PhoneCall, Copy, CheckCircle2,
   Loader2, AlertCircle, User, Video, VideoOff, RefreshCw,
@@ -120,6 +121,11 @@ function LiveCallInner() {
 
   // ── Signaling refs ─────────────────────────────────────────────────────────
   const pollRef        = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Realtime signaling transport for the ICE-candidate trickle (Supabase
+  // broadcast, DB-poll fallback). See lib/call-signaling.ts.
+  const signalingRef   = useRef<CallSignaling | null>(null);
+  const pendingIceRef  = useRef<RTCIceCandidateInit[]>([]);
+  const iceBufRef      = useRef<RTCIceCandidate[]>([]);
   const alreadyAnswered = useRef(false);
   const seenInitIce    = useRef(0);
   const seenRecvIce    = useRef(0);
@@ -221,6 +227,9 @@ function LiveCallInner() {
 
   const cleanup = useCallback(() => {
     stopPoll(); stopTimer(); clearConnectTO(); clearReconnectTO();
+    signalingRef.current?.close();
+    signalingRef.current = null;
+    pendingIceRef.current = [];
     alreadyAnswered.current = false;
     seenInitIce.current = 0;
     seenRecvIce.current = 0;
@@ -258,6 +267,44 @@ function LiveCallInner() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => cleanup(), [cleanup]);
+
+  // ── Realtime signaling helpers (mirror data-project call page) ──────────────
+  const addRemoteIce = (pc: RTCPeerConnection, cand: RTCIceCandidateInit) => {
+    if (!pc.remoteDescription) { pendingIceRef.current.push(cand); return; }
+    if (pendingIceRef.current.length) {
+      const held = pendingIceRef.current.splice(0);
+      held.forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+    }
+    pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+  };
+  const drainPendingIce = (pc: RTCPeerConnection) => {
+    if (!pc.remoteDescription || !pendingIceRef.current.length) return;
+    const held = pendingIceRef.current.splice(0);
+    held.forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+  };
+  const startSignaling = (code: string, token: string | null, role: CallRole) => {
+    signalingRef.current?.close();
+    signalingRef.current = createCallSignaling({
+      callCode: code, signalToken: token, role,
+      callbacks: { onCandidate: (cand) => { const pc = pcRef.current; if (pc) addRemoteIce(pc, cand); } },
+    });
+  };
+  const closeSignaling = () => {
+    signalingRef.current?.close();
+    signalingRef.current = null;
+    pendingIceRef.current = [];
+  };
+  const sendLocalIce = (candidate: RTCIceCandidate) => {
+    const sig = signalingRef.current;
+    if (sig) { sig.sendCandidate(candidate.toJSON()); return; }
+    iceBufRef.current.push(candidate);
+  };
+  const flushLocalIce = () => {
+    const sig = signalingRef.current;
+    if (!sig || !iceBufRef.current.length) return;
+    const batch = iceBufRef.current.splice(0);
+    batch.forEach(c => sig.sendCandidate(c.toJSON()));
+  };
 
   // ── beforeunload guard ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -517,6 +564,7 @@ function LiveCallInner() {
             const data = await res.json();
             if (data.answer && pcRef.current) {
               await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+              drainPendingIce(pcRef.current);
               startIcePoll(code, true);
               return;
             }
@@ -537,6 +585,7 @@ function LiveCallInner() {
               const p = pcRef.current;
               if (!p) return;
               await p.setRemoteDescription(new RTCSessionDescription(data.offer));
+              drainPendingIce(p);
               const answer = await p.createAnswer();
               await p.setLocalDescription(answer);
               await fetch(`/api/calls/${code}`, {
@@ -667,6 +716,7 @@ function LiveCallInner() {
         }
         const pc = pcRef.current;
         if (!pc || !pc.remoteDescription) return;
+        drainPendingIce(pc);
         if (asInitiator) {
           const fresh: RTCIceCandidateInit[] = data.receiverIce.slice(seenRecvIce.current);
           for (const c of fresh) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
@@ -697,6 +747,7 @@ function LiveCallInner() {
           const pc = pcRef.current;
           if (!pc) return;
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+          drainPendingIce(pc);
           setPhase("connecting");
           startIcePoll(code, true);
         }
@@ -733,13 +784,7 @@ function LiveCallInner() {
       setPhase("creating-offer");
       isInitiatorRef.current = true;
       const iceServers = await fetchIceServers();
-      const pc = createPC(iceServers, async candidate => {
-        if (!callCodeRef.current) return;
-        await fetch(`/api/calls/${callCodeRef.current}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "ice-initiator", candidate }),
-        }).catch(() => {});
-      });
+      const pc = createPC(iceServers, sendLocalIce);
 
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
       const offer = await pc.createOffer();
@@ -753,6 +798,8 @@ function LiveCallInner() {
       if (!res.ok) throw new Error(data.message);
 
       callCodeRef.current = data.callCode;
+      startSignaling(data.callCode, data.signalToken ?? null, "initiator");
+      flushLocalIce();
       setOtherName(data.targetUserName || "");
       otherCodeRef.current = targetCode; // save for potential redial
       setPhase("calling");
@@ -814,19 +861,18 @@ function LiveCallInner() {
       setLastCallTarget(null);
 
       const iceServers = await fetchIceServers();
-      const pc = createPC(iceServers, async candidate => {
-        await fetch(`/api/calls/${code}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "ice-receiver", candidate }),
-        }).catch(() => {});
-      });
+      const pc = createPC(iceServers, sendLocalIce);
+
+      startSignaling(code, session.signalToken ?? null, "receiver");
 
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
       await pc.setRemoteDescription(new RTCSessionDescription(session.offer));
+      drainPendingIce(pc);
 
       const initIce: RTCIceCandidateInit[] = session.initiatorIce || [];
       for (const c of initIce) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
       seenInitIce.current = initIce.length;
+      flushLocalIce();
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -884,13 +930,9 @@ function LiveCallInner() {
       if (resolvedType === "video") attachLocalVideo(stream);
 
       const iceServers = await fetchIceServers();
-      const pc = createPC(iceServers, async candidate => {
-        const iceType = wasInitiator ? "ice-initiator" : "ice-receiver";
-        await fetch(`/api/calls/${code}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: iceType, candidate }),
-        }).catch(() => {});
-      });
+      const pc = createPC(iceServers, sendLocalIce);
+
+      startSignaling(code, session.signalToken ?? null, wasInitiator ? "initiator" : "receiver");
 
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
@@ -902,11 +944,13 @@ function LiveCallInner() {
           body: JSON.stringify({ type: "restart-offer", offer }),
         }).catch(() => {});
 
+        flushLocalIce();
         setPhase("connecting");
         startIcePoll(code, true);
       } else {
         if (session.offer) {
           await pc.setRemoteDescription(new RTCSessionDescription(session.offer));
+          drainPendingIce(pc);
           const initIce: RTCIceCandidateInit[] = session.initiatorIce || [];
           for (const c of initIce) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
           seenInitIce.current = initIce.length;
@@ -919,6 +963,7 @@ function LiveCallInner() {
           }).catch(() => {});
         }
 
+        flushLocalIce();
         setPhase("connecting");
         startIcePoll(code, false);
       }
@@ -943,6 +988,7 @@ function LiveCallInner() {
       setRejoinWasInitiator(isInitiatorRef.current);
     }
     // Reset signaling state so the next call starts clean
+    closeSignaling();
     alreadyAnswered.current = false;
     seenInitIce.current     = 0;
     seenRecvIce.current     = 0;

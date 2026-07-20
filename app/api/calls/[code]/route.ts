@@ -54,6 +54,7 @@ export async function GET(
     const callSession = await prisma.callSession.findUnique({
       where: { callCode: code },
       select: {
+        id:           true,
         callCode:     true,
         projectId:    true,
         initiatorId:  true,
@@ -94,6 +95,10 @@ export async function GET(
 
     return NextResponse.json({
       callCode:       callSession.callCode,
+      // The call's own id doubles as the Realtime signaling channel name: it's an
+      // unguessable cuid and only reaches participants through this authenticated
+      // route, so it gates channel access the same way the DB path is gated.
+      signalToken:    callSession.id,
       projectId:      callSession.projectId,
       initiatorId:    callSession.initiatorId,
       initiatorName,

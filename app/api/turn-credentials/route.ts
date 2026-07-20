@@ -29,42 +29,17 @@ const OPEN_TURN: object[] = [
   { urls: "turns:openrelay.metered.ca:443",               username: "openrelayproject", credential: "openrelayproject", credentialType: "password" },
 ];
 
-// STUN servers — 50+ endpoints optimized for Ghana, Bulgaria, and India same-country + international
+// STUN servers — a small set of reliable, globally-anycast endpoints.
+// A long list doesn't improve NAT traversal: the ICE agent probes every server
+// while gathering, so dead/slow entries only add latency before the useful
+// candidates arrive. Google and Cloudflare STUN are anycast and answer quickly
+// from Ghana, Europe and Asia alike. TURN relay (below / Metered) is what
+// actually carries the call through carrier NAT.
 const STUN_ONLY: object[] = [
-  // AFRICA cluster (Ghana optimized - first for Ghana users)
-  { urls: "stun:stun.l.google.com:19302" },      // Google Africa presence
-  { urls: "stun:stun.radiocom.net:3478" },       // Africa regional
+  { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
-
-  // EUROPE cluster (Bulgaria optimized - first for Bulgaria users)
-  { urls: "stun:stun.stunprotocol.org:3478" },
-  { urls: "stun:stun.l.stunprotocol.org:3478" },
-  { urls: "stun:stun1.stunprotocol.org:3478" },
-  { urls: "stun:stun2.stunprotocol.org:3478" },
-  { urls: "stun:stun3.stunprotocol.org:3478" },
-  { urls: "stun:stun4.stunprotocol.org:3478" },
-  { urls: "stun:stun.sipgate.net:3478" },
-  { urls: "stun:stun.sipgate.net:16807" },
-  { urls: "stun:stun.nextcloud.com:3478" },
-
-  // ASIA cluster (India optimized - first for India users)
-  { urls: "stun:stun.sip.us:3478" },
-  { urls: "stun:stun.ideasip.com:3478" },
-  { urls: "stun:stun.ekiga.net:3478" },
-  { urls: "stun:stun.callwithus.com:3478" },
-
-  // Global backbone (Google x6 - works from anywhere)
   { urls: "stun:stun2.l.google.com:19302" },
-  { urls: "stun:stun3.l.google.com:19302" },
-  { urls: "stun:stun4.l.google.com:19302" },
-  { urls: "stun:stun-mixed-v4.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
-
-  // Additional redundancy
-  { urls: "stun:stun.bluesip.net:3478" },
-  { urls: "stun:stun.lowratevoip.com:3478" },
-  { urls: "stun:stun.ohphone.com:3478" },
-  { urls: "stun:stun.voicetech.com:3478" },
 ];
 
 export async function GET() {

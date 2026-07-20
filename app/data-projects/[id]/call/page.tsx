@@ -7,6 +7,7 @@ import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { createCallSignaling, type CallSignaling, type CallRole } from "@/lib/call-signaling";
 import {
   Mic, MicOff, PhoneOff, PhoneCall, Copy, CheckCircle2,
   Loader2, AlertCircle, ArrowLeft, Radio, User,
@@ -148,19 +149,6 @@ class BandwidthProber {
   }
 }
 
-// ICE candidate filtering: Region-specific optimization
-function filterRegionOptimalCandidates(
-  candidates: RTCIceCandidate[],
-  preferredTypes: string[] = ['srflx', 'relay'],
-): RTCIceCandidate[] {
-  const typeOrder: Record<string, number> = { relay: 0, srflx: 1, host: 2 };
-  return candidates.sort((a, b) => {
-    const aType = a.type || 'host';
-    const bType = b.type || 'host';
-    return ((typeOrder[aType] ?? 3) - (typeOrder[bType] ?? 3));
-  });
-}
-
 // Connection strategy selector: Region-aware optimization (Ghana + Bulgaria + India)
 function selectRegionConnectionStrategy(detectedRegion: { latency: number; region: string; continent: string }): {
   useRelay: boolean;
@@ -253,7 +241,6 @@ function CallPageInner() {
   const audioCtxRef       = useRef<AudioContext | null>(null);
   const recordingStartRef = useRef(0);
   const iceBufRef       = useRef<RTCIceCandidate[]>([]);
-  const iceFlushRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animFrameRef      = useRef<number | null>(null);
   const callCardRef       = useRef<HTMLDivElement | null>(null);
 
@@ -262,6 +249,14 @@ function CallPageInner() {
   const alreadyAnswered  = useRef(false);
   const seenInitIce      = useRef(0);
   const seenRecvIce      = useRef(0);
+  // Realtime signaling transport for the ICE-candidate trickle (Supabase
+  // broadcast, with automatic DB-poll fallback). Offers/answers/status stay on
+  // the DB path; only candidates move here — that's the latency-critical hot
+  // path that was causing calls to drop.
+  const signalingRef     = useRef<CallSignaling | null>(null);
+  // Remote candidates that arrive before the peer connection has a remote
+  // description are buffered here and drained once it's set.
+  const pendingIceRef    = useRef<RTCIceCandidateInit[]>([]);
 
   // ── Refs — Timers ─────────────────────────────────────────────────────────
   const timerRef         = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -278,8 +273,6 @@ function CallPageInner() {
   // ── Refs — Advanced Multi-Region Connectivity ────────────────────────────────
   const connStrategyRef  = useRef<{ useRelay: boolean; iceRestartThreshold: number; pollInterval: number; region: string } | null>(null);
   const detectedRegionRef = useRef<{ region: string; continent: string; latency: number } | null>(null);
-  const probeCompleteRef = useRef(false);
-  const multiPathAttempts = useRef<Array<{ pc: RTCPeerConnection; type: string }>>([]);
 
   // Keep phaseRef in sync with phase state
   useEffect(() => { phaseRef.current = phase; }, [phase]);
@@ -346,6 +339,9 @@ function CallPageInner() {
     clearStats();
     clearDisconnectGrace();
 
+    signalingRef.current?.close();
+    signalingRef.current    = null;
+    pendingIceRef.current   = [];
     alreadyAnswered.current = false;
     seenInitIce.current     = 0;
     seenRecvIce.current     = 0;
@@ -373,6 +369,64 @@ function CallPageInner() {
   }, []);
 
   useEffect(() => () => cleanup(), [cleanup]);
+
+  // ── Realtime signaling helpers ──────────────────────────────────────────────
+  // Add a remote ICE candidate, buffering until the peer connection has a remote
+  // description (addIceCandidate throws otherwise). Draining also happens here so
+  // a late-arriving candidate flushes anything held.
+  const addRemoteIce = (pc: RTCPeerConnection, cand: RTCIceCandidateInit) => {
+    if (!pc.remoteDescription) { pendingIceRef.current.push(cand); return; }
+    if (pendingIceRef.current.length) {
+      const held = pendingIceRef.current.splice(0);
+      held.forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+    }
+    pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+  };
+
+  const drainPendingIce = (pc: RTCPeerConnection) => {
+    if (!pc.remoteDescription || !pendingIceRef.current.length) return;
+    const held = pendingIceRef.current.splice(0);
+    held.forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+  };
+
+  // Open (or reopen) the Realtime signaling channel for this call. Only ICE
+  // candidates travel over it; offers/answers/status remain on the DB path.
+  const startSignaling = (code: string, token: string | null, role: CallRole) => {
+    signalingRef.current?.close();
+    signalingRef.current = createCallSignaling({
+      callCode: code,
+      signalToken: token,
+      role,
+      callbacks: {
+        onCandidate: (cand) => { const pc = pcRef.current; if (pc) addRemoteIce(pc, cand); },
+      },
+    });
+    signalingRef.current.ready.then((live) => {
+      clientLog("signaling_ready", { callCode: code, transport: live ? "realtime" : "db-poll" }, "info");
+    }).catch(() => {});
+  };
+
+  const closeSignaling = () => {
+    signalingRef.current?.close();
+    signalingRef.current = null;
+    pendingIceRef.current = [];
+  };
+
+  // Send a locally-gathered ICE candidate to the peer via the signaling
+  // transport. Buffers in iceBufRef until the channel exists (candidates can be
+  // produced before the call code is known), then flushes.
+  const sendLocalIce = (candidate: RTCIceCandidate) => {
+    const sig = signalingRef.current;
+    if (sig) { sig.sendCandidate(candidate.toJSON()); return; }
+    iceBufRef.current.push(candidate);
+  };
+
+  const flushLocalIce = () => {
+    const sig = signalingRef.current;
+    if (!sig || !iceBufRef.current.length) return;
+    const batch = iceBufRef.current.splice(0);
+    batch.forEach(c => sig.sendCandidate(c.toJSON()));
+  };
 
   // ── Clear localStorage when call ends or succeeds ───────────────────────────
   useEffect(() => {
@@ -609,20 +663,16 @@ function CallPageInner() {
   ): RTCPeerConnection => {
     const pc = new RTCPeerConnection({
       iceServers,
-      iceCandidatePoolSize: 50,  // Increased from 16 for more candidates on high-latency routes
+      // A small pre-gather pool; a large one just probes every STUN/TURN server
+      // up front and slows the initial gather it's meant to speed up.
+      iceCandidatePoolSize: 4,
       bundlePolicy: "max-bundle",
       rtcpMuxPolicy: "require",
     });
     pcRef.current = pc;
 
     pc.onicecandidate = e => {
-      if (e.candidate) {
-        // ── Advanced: Filter candidates for region optimization ────────────────
-        // Prefer relay/srflx candidates for better connectivity through NAT/firewalls
-        const allCandidates = [e.candidate];
-        const filtered = filterRegionOptimalCandidates(allCandidates);
-        if (filtered.length > 0) onIce(filtered[0]);
-      }
+      if (e.candidate) onIce(e.candidate);
     };
 
     const remoteStream = new MediaStream();
@@ -789,6 +839,7 @@ function CallPageInner() {
 
         const pc = pcRef.current;
         if (!pc || !pc.remoteDescription) return;
+        drainPendingIce(pc); // flush any realtime candidates buffered pre-remote-description
 
         // Only enter reconnect flow if local connection is actually failing
         // (Don't force it just because server status is "reconnecting")
@@ -829,6 +880,7 @@ function CallPageInner() {
             seenInitIce.current = 0;
             try {
               await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+              drainPendingIce(pc);
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
               await fetch(`/api/calls/${code}`, {
@@ -847,6 +899,7 @@ function CallPageInner() {
           iceRestartPendingRef.current = false;
           seenRecvIce.current = 0;
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(() => {});
+          drainPendingIce(pc);
         }
 
         // Batch add ICE candidates (more efficient than one-by-one)
@@ -888,6 +941,7 @@ function CallPageInner() {
           const pc = pcRef.current;
           if (!pc) return;
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+          drainPendingIce(pc);
           setPhase("connecting");
           startIcePoll(code, true, false, "connecting");
         }
@@ -929,19 +983,7 @@ function CallPageInner() {
 
       const iceServers = await fetchIceServers();
 
-      const pc = createPC(iceServers, (candidate) => {
-        iceBufRef.current.push(candidate);
-        if (iceFlushRef.current) clearTimeout(iceFlushRef.current);
-        iceFlushRef.current = setTimeout(() => {
-          if (!callCodeRef.current || !iceBufRef.current.length) return;
-          const batch = iceBufRef.current.splice(0);
-          fetch(`/api/calls/${callCodeRef.current}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "ice-initiator", candidates: batch }),
-          }).catch(() => {});
-        }, 50);  // Faster flushing for quick candidate delivery
-      });
+      const pc = createPC(iceServers, sendLocalIce);
 
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
@@ -957,14 +999,10 @@ function CallPageInner() {
       if (!res.ok) throw new Error(data.message);
 
       callCodeRef.current = data.callCode;
-      if (iceBufRef.current.length) {
-        const batch = iceBufRef.current.splice(0);
-        fetch(`/api/calls/${data.callCode}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "ice-initiator", candidates: batch }),
-        }).catch(() => {});
-      }
+      // Open the signaling channel now that we have the call code + token, then
+      // flush any candidates gathered while the offer was being created/posted.
+      startSignaling(data.callCode, data.signalToken ?? null, "initiator");
+      flushLocalIce();
       setOtherName(data.targetUserName || "");
       setPhase("calling");
       startCallingPoll(data.callCode);
@@ -1003,20 +1041,7 @@ function CallPageInner() {
       localStreamRef.current = stream;
 
       const iceServers = await fetchIceServers();
-      const pc = createPC(iceServers, (candidate) => {
-        iceBufRef.current.push(candidate);
-        if (iceFlushRef.current) clearTimeout(iceFlushRef.current);
-        iceFlushRef.current = setTimeout(() => {
-          const batch = iceBufRef.current.splice(0);
-          if (!batch.length) return;
-          const iceType = wasInitiator ? "ice-initiator" : "ice-receiver";
-          fetch(`/api/calls/${code}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: iceType, candidates: batch }),
-          }).catch(() => {});
-        }, 50);
-      });
+      const pc = createPC(iceServers, sendLocalIce);
 
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
@@ -1028,6 +1053,8 @@ function CallPageInner() {
         throw new Error("This call has ended.");
       }
 
+      startSignaling(code, session.signalToken ?? null, wasInitiator ? "initiator" : "receiver");
+      flushLocalIce();
       setOtherName(session.initiatorName || session.receiverName || "");
 
       if (wasInitiator) {
@@ -1050,6 +1077,7 @@ function CallPageInner() {
         // Receiver: fetch current offer and respond
         if (session.offer) {
           await pc.setRemoteDescription(new RTCSessionDescription(session.offer));
+          drainPendingIce(pc);
           const initIce: RTCIceCandidateInit[] = session.initiatorIce || [];
           for (const c of initIce) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
           seenInitIce.current = initIce.length;
@@ -1147,27 +1175,19 @@ function CallPageInner() {
 
       const iceServers = await fetchIceServers();
 
-      const pc = createPC(iceServers, (candidate) => {
-        iceBufRef.current.push(candidate);
-        if (iceFlushRef.current) clearTimeout(iceFlushRef.current);
-        iceFlushRef.current = setTimeout(() => {
-          const batch = iceBufRef.current.splice(0);
-          if (!batch.length) return;
-          fetch(`/api/calls/${code}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "ice-receiver", candidates: batch }),
-          }).catch(() => {});
-        }, 50);  // Faster flushing for quick candidate delivery
-      });
+      const pc = createPC(iceServers, sendLocalIce);
+
+      startSignaling(code, session.signalToken ?? null, "receiver");
 
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
       await pc.setRemoteDescription(new RTCSessionDescription(session.offer));
+      drainPendingIce(pc);
 
       const initIce: RTCIceCandidateInit[] = session.initiatorIce || [];
       for (const c of initIce) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
       seenInitIce.current = initIce.length;
+      flushLocalIce();
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -1234,6 +1254,7 @@ function CallPageInner() {
       mediaRecorderRef.current.stop();
     }
 
+    closeSignaling();
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     if (pcRef.current) {

@@ -91,6 +91,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       callCode: callSession.callCode,
+      signalToken: callSession.id, // Realtime signaling channel name (see GET route)
       targetUserName: targetUser.fullName,
     });
   } catch (error) {
