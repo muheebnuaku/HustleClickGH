@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { isOnline } from "@/lib/presence";
 
 // GET /api/users/[id] — public profile of a user, from the viewer's perspective.
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -17,7 +18,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     where: { id },
     select: {
       id: true, userId: true, fullName: true, image: true, verified: true,
-      city: true, country: true, createdAt: true,
+      city: true, country: true, createdAt: true, lastSeenAt: true,
     },
   });
   if (!user) return NextResponse.json({ message: "User not found" }, { status: 404 });
@@ -36,9 +37,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     }),
   ]);
 
+  const { lastSeenAt, ...publicUser } = user;
   return NextResponse.json({
     user: {
-      ...user,
+      ...publicUser,
+      online: isOnline(lastSeenAt),
       followersCount,
       followingCount,
       isFollowing: Boolean(iFollow),

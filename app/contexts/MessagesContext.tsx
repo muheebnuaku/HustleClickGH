@@ -49,6 +49,20 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     return () => { window.removeEventListener("focus", onFocus); clearInterval(iv); };
   }, [status, refreshUnread]);
 
+  // Heartbeat so others can see me as "online" (every 45s while the tab is visible).
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const beat = () => {
+      if (document.visibilityState === "visible") {
+        fetch("/api/presence/heartbeat", { method: "POST" }).catch(() => {});
+      }
+    };
+    beat();
+    const iv = setInterval(beat, 45000);
+    window.addEventListener("focus", beat);
+    return () => { clearInterval(iv); window.removeEventListener("focus", beat); };
+  }, [status]);
+
   // Subscribe to my personal channel for instant new-message pings.
   useEffect(() => {
     if (!myId) return;

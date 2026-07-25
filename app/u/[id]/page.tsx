@@ -11,7 +11,7 @@ import { Loader2, MessageCircle, UserPlus, UserCheck, MapPin, Ban, MoreVertical 
 
 interface Profile {
   id: string; userId: string; fullName: string; image?: string | null; verified: boolean;
-  city?: string | null; country?: string | null; createdAt: string;
+  city?: string | null; country?: string | null; createdAt: string; online: boolean;
   followersCount: number; followingCount: number;
   isFollowing: boolean; isBlocked: boolean; hasBlockedMe: boolean; isSelf: boolean;
 }
@@ -73,20 +73,24 @@ export default function PublicProfilePage() {
       <div className="max-w-2xl mx-auto space-y-4">
         <Card className="p-6">
           <div className="flex items-start gap-4">
-            {p.image ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={p.image} alt={p.fullName} className="w-20 h-20 rounded-full object-cover shrink-0" />
-            ) : (
-              <div className="w-20 h-20 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 flex items-center justify-center text-2xl font-bold shrink-0">
-                {p.fullName.charAt(0).toUpperCase()}
-              </div>
-            )}
+            <div className="relative w-20 h-20 shrink-0">
+              {p.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={p.image} alt={p.fullName} className="w-20 h-20 rounded-full object-cover" />
+              ) : (
+                <div className="w-20 h-20 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 flex items-center justify-center text-2xl font-bold">
+                  {p.fullName.charAt(0).toUpperCase()}
+                </div>
+              )}
+              {p.online && <span className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-green-500 ring-2 ring-white dark:ring-zinc-950" title="Online" />}
+            </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-bold text-foreground truncate">{p.fullName}</h1>
                 {p.verified && <VerifiedBadge size={18} />}
               </div>
               <p className="text-sm text-zinc-500">{p.userId}</p>
+              {p.online && <p className="text-xs text-green-600 flex items-center gap-1 mt-0.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />Online now</p>}
               {(p.city || p.country) && (
                 <p className="text-sm text-zinc-500 flex items-center gap-1 mt-1">
                   <MapPin size={13} /> {[p.city, p.country].filter(Boolean).join(", ")}

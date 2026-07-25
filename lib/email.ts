@@ -214,6 +214,32 @@ export function withdrawalRejectedEmail(
   };
 }
 
+/** Sent to a user when an admin sends them a direct message in the app. */
+export function adminMessageEmail(fullName: string, body: string) {
+  const firstName = fullName.split(" ")[0] || "there";
+  const safe = escapeHtml(body.trim()).replace(/\n/g, "<br/>");
+  return {
+    subject: "You have a new message from HustleClickGH",
+    html: emailLayout(`Hi ${firstName},`, `
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        The HustleClickGH team sent you a direct message:
+      </p>
+      <div style="margin:16px 0;padding:16px;background:#f4f4f5;border-left:3px solid #2563eb;border-radius:6px;color:#3f3f46;font-size:14px;line-height:1.6;">
+        ${safe}
+      </div>
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        Sign in and open your messages to reply.
+      </p>
+      <p style="margin:24px 0 0;">
+        <a href="https://hustleclickgh.com/messages"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
+          Open my messages
+        </a>
+      </p>
+    `),
+  };
+}
+
 /** Admin-composed broadcast. Plain text is converted to paragraphs. */
 export function broadcastEmail(subject: string, message: string, fullName?: string) {
   const firstName = fullName?.split(" ")[0];

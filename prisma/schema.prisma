@@ -44,6 +44,7 @@ model User {
   referralCode    String        @unique
   referredBy      String?
   personalCallCode String?      @unique // Permanent 5-char code for voice calls
+  lastSeenAt      DateTime?     // heartbeat timestamp; "online" = within the last ~90s
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

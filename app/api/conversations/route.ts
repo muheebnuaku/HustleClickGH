@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateConversation, otherParticipant, isBlockedBetween } from "@/lib/messaging";
+import { isOnline } from "@/lib/presence";
 
 // GET /api/conversations — my threads, newest activity first.
 export async function GET() {
@@ -25,7 +26,7 @@ export async function GET() {
   const [users, unreadGroups] = await Promise.all([
     prisma.user.findMany({
       where: { id: { in: otherIds } },
-      select: { id: true, userId: true, fullName: true, image: true, verified: true },
+      select: { id: true, userId: true, fullName: true, image: true, verified: true, lastSeenAt: true },
     }),
     prisma.message.groupBy({
       by: ["conversationId"],
@@ -37,7 +38,8 @@ export async function GET() {
   const unreadByConv = new Map(unreadGroups.map((g) => [g.conversationId, g._count._all]));
 
   const conversations = convs.map((c) => {
-    const other = userById.get(otherParticipant(c, me)) || null;
+    const raw = userById.get(otherParticipant(c, me)) || null;
+    const other = raw ? { ...raw, online: isOnline(raw.lastSeenAt) } : null;
     const last = c.messages[0] || null;
     return {
       id: c.id,

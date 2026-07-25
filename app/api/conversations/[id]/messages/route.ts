@@ -4,7 +4,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { isParticipant, otherParticipant, isBlockedBetween } from "@/lib/messaging";
+import { isOnline } from "@/lib/presence";
 import { sendPushToAll } from "@/lib/push";
+import { sendEmail, adminMessageEmail } from "@/lib/email";
 
 const PAGE = 40;
 
@@ -38,10 +40,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   });
 
   const otherId = otherParticipant(conv, me);
-  const other = await prisma.user.findUnique({
+  const otherRaw = await prisma.user.findUnique({
     where: { id: otherId },
-    select: { id: true, userId: true, fullName: true, image: true, verified: true },
+    select: { id: true, userId: true, fullName: true, image: true, verified: true, lastSeenAt: true },
   });
+  const other = otherRaw ? { ...otherRaw, online: isOnline(otherRaw.lastSeenAt) } : null;
 
   return NextResponse.json({
     messages: page.reverse().map((m) => ({
@@ -83,15 +86,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // Notify the recipient's devices (offline delivery). Fire-and-forget.
   const senderName = session.user.name || "Someone";
+  const fromAdmin = session.user.role === "admin";
   sendPushToAll(
     {
-      title: conv.isAdmin && me !== recipientId ? "Message from HustleClickGH" : senderName,
+      title: fromAdmin ? "Message from HustleClickGH" : senderName,
       body: text.length > 120 ? text.slice(0, 117) + "…" : text,
       url: `/messages?c=${id}`,
       tag: `dm-${id}`,
     },
     [recipientId]
   ).catch(() => {});
+
+  // Only admin → user messages are emailed; user → user are not.
+  if (fromAdmin) {
+    const recipient = await prisma.user.findUnique({
+      where: { id: recipientId },
+      select: { email: true, fullName: true, role: true },
+    });
+    if (recipient?.email && recipient.role === "user") {
+      const mail = adminMessageEmail(recipient.fullName, text);
+      sendEmail({ to: recipient.email, subject: mail.subject, html: mail.html }).catch(() => {});
+    }
+  }
 
   return NextResponse.json({
     message: { id: message.id, senderId: me, body: text, createdAt: message.createdAt, readAt: null },

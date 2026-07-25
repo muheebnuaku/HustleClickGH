@@ -10,10 +10,10 @@ import { Button } from "@/components/ui/button";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { useMessages } from "@/app/contexts/MessagesContext";
 import { pingNewMessage } from "@/lib/message-realtime";
-import { Loader2, Send, Search, ArrowLeft, MessageCircle, Shield, PenSquare } from "lucide-react";
+import { Loader2, Send, Search, ArrowLeft, MessageCircle, Shield, PenSquare, Check, CheckCheck } from "lucide-react";
 
 interface UserCard {
-  id: string; userId: string; fullName: string; image?: string | null; verified?: boolean;
+  id: string; userId: string; fullName: string; image?: string | null; verified?: boolean; online?: boolean;
 }
 interface ConversationRow {
   id: string; isAdmin: boolean; other: UserCard | null;
@@ -24,14 +24,25 @@ interface ChatMessage {
   id: string; senderId: string; body: string; createdAt: string; readAt?: string | null;
 }
 
-function Avatar({ user, size = 40 }: { user: UserCard | null; size?: number }) {
+function Avatar({ user, size = 40, showPresence = false }: { user: UserCard | null; size?: number; showPresence?: boolean }) {
   const initial = (user?.fullName || "?").charAt(0).toUpperCase();
-  return user?.image ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={user.image} alt={user.fullName} className="rounded-full object-cover shrink-0" style={{ width: size, height: size }} />
-  ) : (
-    <div className="rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 flex items-center justify-center shrink-0 font-semibold"
-      style={{ width: size, height: size }}>{initial}</div>
+  const dot = Math.max(9, Math.round(size * 0.28));
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      {user?.image ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={user.image} alt={user.fullName} className="rounded-full object-cover w-full h-full" />
+      ) : (
+        <div className="rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 flex items-center justify-center w-full h-full font-semibold">{initial}</div>
+      )}
+      {showPresence && user?.online && (
+        <span
+          className="absolute bottom-0 right-0 rounded-full bg-green-500 ring-2 ring-white dark:ring-zinc-950"
+          style={{ width: dot, height: dot }}
+          title="Online"
+        />
+      )}
+    </div>
   );
 }
 
@@ -163,7 +174,7 @@ function MessagesContent() {
             ) : conversations.map((c) => (
               <button key={c.id} onClick={() => router.push(`/messages?c=${c.id}`)}
                 className={`w-full text-left px-4 py-3 flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${activeId === c.id ? "bg-zinc-100 dark:bg-zinc-900" : ""}`}>
-                <Avatar user={c.other} />
+                <Avatar user={c.other} showPresence />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="font-medium text-foreground truncate">{c.other?.fullName || "Unknown"}</span>
@@ -195,10 +206,15 @@ function MessagesContent() {
               <div className="p-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-3">
                 <button className="md:hidden p-1" onClick={() => router.push("/messages")}><ArrowLeft size={20} /></button>
                 <Link href={other ? `/u/${other.id}` : "#"} className="flex items-center gap-2 min-w-0">
-                  <Avatar user={other} size={36} />
-                  <span className="font-semibold truncate">{other?.fullName || "Unknown"}</span>
-                  {other?.verified && <VerifiedBadge size={14} />}
-                  {threadIsAdmin && <span className="text-[11px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">Admin</span>}
+                  <Avatar user={other} size={36} showPresence />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-semibold truncate">{other?.fullName || "Unknown"}</span>
+                      {other?.verified && <VerifiedBadge size={14} />}
+                      {threadIsAdmin && <span className="text-[11px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">Admin</span>}
+                    </div>
+                    {other?.online && <span className="text-[11px] text-green-600 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />Online</span>}
+                  </div>
                 </Link>
               </div>
 
@@ -211,7 +227,12 @@ function MessagesContent() {
                     <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                       <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm break-words whitespace-pre-wrap ${mine ? "bg-blue-600 text-white rounded-br-sm" : "bg-white dark:bg-zinc-800 text-foreground rounded-bl-sm border border-zinc-200 dark:border-zinc-700"}`}>
                         {m.body}
-                        <span className={`block text-[10px] mt-1 ${mine ? "text-blue-100" : "text-zinc-400"}`}>{timeAgo(m.createdAt)}</span>
+                        <span className={`flex items-center gap-1 text-[10px] mt-1 ${mine ? "text-blue-100 justify-end" : "text-zinc-400"}`}>
+                          {timeAgo(m.createdAt)}
+                          {mine && (m.readAt
+                            ? <CheckCheck size={13} className="text-sky-200" aria-label="Read" />
+                            : <Check size={13} className="text-blue-200" aria-label="Sent" />)}
+                        </span>
                       </div>
                     </div>
                   );

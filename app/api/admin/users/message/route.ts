@@ -5,6 +5,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateConversation } from "@/lib/messaging";
 import { sendPushToAll } from "@/lib/push";
+import { sendEmail, adminMessageEmail } from "@/lib/email";
 import { logActivity, getIp } from "@/lib/activity-log";
 
 // POST /api/admin/users/message { userId, body } — admin DMs an individual user.
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   if (text.length > 4000) return NextResponse.json({ message: "Message too long" }, { status: 400 });
   if (userId === me) return NextResponse.json({ message: "Pick a different user" }, { status: 400 });
 
-  const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, fullName: true } });
   if (!target) return NextResponse.json({ message: "User not found" }, { status: 404 });
 
   const conv = await getOrCreateConversation(me, userId, { isAdmin: true });
@@ -38,6 +39,12 @@ export async function POST(request: Request) {
     { title: "Message from HustleClickGH", body: text.length > 120 ? text.slice(0, 117) + "…" : text, url: `/messages?c=${conv.id}`, tag: `dm-${conv.id}` },
     [userId]
   ).catch(() => {});
+
+  // Admin → user messages are also emailed (user → user are not).
+  if (target.email) {
+    const mail = adminMessageEmail(target.fullName, text);
+    sendEmail({ to: target.email, subject: mail.subject, html: mail.html }).catch(() => {});
+  }
 
   logActivity({
     type: "admin_message",
