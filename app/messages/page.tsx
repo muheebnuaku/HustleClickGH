@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { useMessages } from "@/app/contexts/MessagesContext";
 import { pingNewMessage } from "@/lib/message-realtime";
+import { getSupabaseBrowser } from "@/lib/supabase-browser";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Loader2, Send, Search, ArrowLeft, MessageCircle, Shield, PenSquare, Check, CheckCheck } from "lucide-react";
 
 interface UserCard {
@@ -71,7 +73,11 @@ function MessagesContent() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [peerTyping, setPeerTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const typingChannelRef = useRef<RealtimeChannel | null>(null);
+  const peerTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingSentRef = useRef(0);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -117,6 +123,40 @@ function MessagesContent() {
     const iv = setInterval(() => loadThread(activeId), 5000);
     return () => clearInterval(iv);
   }, [activeId, loadThread]);
+
+  // Typing indicator: both participants join a per-conversation broadcast channel
+  // while the thread is open. Typing events auto-expire after 4s.
+  useEffect(() => {
+    setPeerTyping(false);
+    if (!activeId) return;
+    const client = getSupabaseBrowser();
+    if (!client) return; // no Realtime — typing indicator simply doesn't show
+    const ch = client.channel(`dm:${activeId}`, { config: { broadcast: { self: false } } });
+    ch.on("broadcast", { event: "typing" }, ({ payload }) => {
+      if (payload?.senderId && payload.senderId !== myId) {
+        setPeerTyping(true);
+        if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
+        peerTypingTimeoutRef.current = setTimeout(() => setPeerTyping(false), 4000);
+      }
+    }).subscribe();
+    typingChannelRef.current = ch;
+    return () => {
+      ch.unsubscribe().catch(() => {});
+      client.removeChannel(ch);
+      typingChannelRef.current = null;
+      if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
+    };
+  }, [activeId, myId]);
+
+  // Tell the other participant I'm typing (throttled to ~once per 2s).
+  const notifyTyping = () => {
+    const ch = typingChannelRef.current;
+    if (!ch) return;
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 1800) return;
+    lastTypingSentRef.current = now;
+    ch.send({ type: "broadcast", event: "typing", payload: { senderId: myId } });
+  };
 
   // Keep the thread scrolled to the newest message.
   useEffect(() => {
@@ -213,7 +253,18 @@ function MessagesContent() {
                       {other?.verified && <VerifiedBadge size={14} />}
                       {threadIsAdmin && <span className="text-[11px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">Admin</span>}
                     </div>
-                    {other?.online && <span className="text-[11px] text-green-600 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />Online</span>}
+                    {peerTyping ? (
+                      <span className="text-[11px] text-blue-600 flex items-center gap-1">
+                        typing
+                        <span className="inline-flex gap-0.5">
+                          <span className="w-1 h-1 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: "0ms" }} />
+                          <span className="w-1 h-1 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: "150ms" }} />
+                          <span className="w-1 h-1 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: "300ms" }} />
+                        </span>
+                      </span>
+                    ) : other?.online ? (
+                      <span className="text-[11px] text-green-600 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />Online</span>
+                    ) : null}
                   </div>
                 </Link>
               </div>
@@ -242,7 +293,7 @@ function MessagesContent() {
               <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 flex items-end gap-2">
                 <textarea
                   value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={(e) => { setDraft(e.target.value); notifyTyping(); }}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                   rows={1}
                   placeholder="Write a message…"
