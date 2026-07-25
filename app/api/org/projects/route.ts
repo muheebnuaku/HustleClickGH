@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { currentOrg } from "@/lib/org-auth";
 import { allocateToProject } from "@/lib/org";
+import { LICENSES, DEFAULT_LICENSE } from "@/lib/licenses";
 
 // GET /api/org/projects — the org's own projects with collection progress.
 export async function GET() {
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
 
   const languages = Array.isArray(b.languages) ? b.languages : (b.languages ? String(b.languages).split(",").map((s: string) => s.trim()).filter(Boolean) : []);
   const acceptedFormats = projectType === "voice" ? ["wav", "mp3", "m4a"] : ["mp4", "mov", "webm"];
+  const license = LICENSES[b.license] ? b.license : DEFAULT_LICENSE;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const project = await (prisma.dataProject.create as any)({
@@ -85,6 +87,8 @@ export async function POST(request: Request) {
       createdBy: session.user.id,
       orgId: org.id,
       budget: 0, // funded via allocateToProject below
+      license,
+      usageTerms: b.usageTerms ? String(b.usageTerms).slice(0, 2000) : null,
     },
   });
 

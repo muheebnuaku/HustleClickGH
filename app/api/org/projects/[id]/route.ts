@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { currentOrg } from "@/lib/org-auth";
+import { getLicense } from "@/lib/licenses";
 
 // GET /api/org/projects/[id] — detail + submission summary (org must own it).
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -25,6 +26,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     // @ts-expect-error status ∈ counts
     counts[g.status] = g._count._all;
   }
+  const withdrawnCount = await prisma.erasureTombstone.count({ where: { projectId: id, orgId: org.id } });
+  const lic = getLicense(project.license);
 
   return NextResponse.json({
     project: {
@@ -34,8 +37,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       currentSubmissions: project.currentSubmissions,
       budget: project.budget, spent: project.spent, createdAt: project.createdAt,
       languages: project.languages ? JSON.parse(project.languages) : [],
+      license: { key: lic.key, label: lic.label, description: lic.description },
+      usageTerms: project.usageTerms ?? null,
     },
     counts,
     approvedReady: counts.approved, // downloadable
+    withdrawnCount,
   });
 }

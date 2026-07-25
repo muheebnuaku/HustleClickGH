@@ -7,12 +7,13 @@ import { OrgLayout } from "@/components/org-layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
-import { Loader2, ArrowLeft, Download, Database } from "lucide-react";
+import { Loader2, ArrowLeft, Download, Database, ShieldCheck, AlertTriangle } from "lucide-react";
 
 interface Detail {
-  project: { id: string; title: string; description: string; projectType: string; status: string; reward: number; maxSubmissions: number; currentSubmissions: number; budget: number; spent: number; languages: string[] };
+  project: { id: string; title: string; description: string; projectType: string; status: string; reward: number; maxSubmissions: number; currentSubmissions: number; budget: number; spent: number; languages: string[]; license?: { key: string; label: string; description: string }; usageTerms?: string | null };
   counts: { pending: number; approved: number; rejected: number };
   approvedReady: number;
+  withdrawnCount: number;
 }
 
 export default function OrgProjectDetail() {
@@ -70,10 +71,22 @@ export default function OrgProjectDetail() {
           </CardContent>
         </Card>
 
+        {p.license && (
+          <Card>
+            <CardContent className="p-5">
+              <div className="flex items-center gap-2 mb-1"><ShieldCheck size={18} className="text-emerald-600" /><h2 className="font-semibold text-foreground">Usage licence</h2></div>
+              <p className="text-sm font-medium text-foreground">{p.license.label}</p>
+              <p className="text-sm text-zinc-500 mt-0.5">{p.license.description}</p>
+              {p.usageTerms && <p className="text-xs text-zinc-500 mt-2 whitespace-pre-wrap">{p.usageTerms}</p>}
+              <p className="text-xs text-zinc-400 mt-2">This licence is recorded in every export and is what contributors consented to.</p>
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardContent className="p-5">
             <h2 className="font-semibold text-foreground flex items-center gap-2 mb-1"><Database size={18} /> Download dataset</h2>
-            <p className="text-sm text-zinc-500 mb-4">{d.approvedReady} approved item{d.approvedReady === 1 ? "" : "s"} ready. Includes file links, metadata and consent provenance per row.</p>
+            <p className="text-sm text-zinc-500 mb-4">{d.approvedReady} approved item{d.approvedReady === 1 ? "" : "s"} ready. Includes file links, metadata, the usage licence and consent provenance per row.</p>
             <div className="flex flex-wrap gap-2">
               <a href={`/api/org/projects/${id}/export?format=json`}>
                 <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={d.approvedReady === 0}><Download size={16} className="mr-1" />JSON manifest</Button>
@@ -84,6 +97,19 @@ export default function OrgProjectDetail() {
             </div>
           </CardContent>
         </Card>
+
+        {d.withdrawnCount > 0 && (
+          <Card className="border-amber-300 dark:border-amber-800">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-2 mb-1"><AlertTriangle size={18} className="text-amber-600" /><h2 className="font-semibold text-foreground">Erased items to purge</h2></div>
+              <p className="text-sm text-zinc-500 mb-3"><strong>{d.withdrawnCount}</strong> contributor{d.withdrawnCount === 1 ? " has" : "s have"} exercised their right to erasure since delivery. Download the list and delete matching rows from any dataset you already have.</p>
+              <div className="flex flex-wrap gap-2">
+                <a href={`/api/org/projects/${id}/withdrawn?format=csv`}><Button variant="outline"><Download size={16} className="mr-1" />Purge list (CSV)</Button></a>
+                <a href={`/api/org/projects/${id}/withdrawn`}><Button variant="outline"><Download size={16} className="mr-1" />JSON</Button></a>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </OrgLayout>
   );

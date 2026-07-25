@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { currentOrg } from "@/lib/org-auth";
+import { getLicense } from "@/lib/licenses";
 
 // GET /api/org/projects/[id]/export?format=json|csv
 // Dataset manifest of APPROVED submissions with consent provenance. Org must own the project.
@@ -59,12 +60,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     };
   });
 
+  const lic = getLicense(project.license);
+  const withdrawnCount = await prisma.erasureTombstone.count({ where: { projectId: id, orgId: org.id } });
   const summary = {
     project: { id: project.id, title: project.title, type: project.projectType },
     exportedAt: new Date().toISOString(),
     approvedCount: rows.length,
     consentCoverage: rows.length ? rows.filter((r) => r.consentGiven).length / rows.length : 0,
-    note: "Contributor identity is pseudonymous (ref id only). Consent provenance included per row.",
+    license: { key: lic.key, label: lic.label, rights: lic.description },
+    usageTerms: project.usageTerms ?? null,
+    withdrawnSinceCount: withdrawnCount,
+    note: "Contributor identity is pseudonymous (ref id only). Consent provenance included per row. Use of this data is bound by the licence above. Check the project's withdrawn list and purge any erased items.",
   };
 
   const filename = `dataset-${project.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${id.slice(0, 6)}`;

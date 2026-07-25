@@ -38,6 +38,26 @@ export async function POST(request: Request) {
       ip: getIp(request),
     });
 
+    // Erasure propagation: this user's approved data in *organization* projects has
+    // likely been delivered to a buyer. Write a PII-free tombstone per item so the
+    // buyer can purge it from any dataset they already downloaded — then the cascade
+    // delete removes the live submission rows.
+    const delivered = await prisma.dataSubmission.findMany({
+      where: { userId: user.id, status: "approved", project: { orgId: { not: null } } },
+      select: { id: true, projectId: true, fileHash: true, project: { select: { orgId: true } } },
+    });
+    if (delivered.length) {
+      await prisma.erasureTombstone.createMany({
+        data: delivered.map((s) => ({
+          orgId: s.project.orgId as string,
+          projectId: s.projectId,
+          submissionRef: s.id,
+          fileHash: s.fileHash,
+          reason: "account_deletion",
+        })),
+      });
+    }
+
     await prisma.user.delete({ where: { id: user.id } });
 
     return NextResponse.json({ message: "Your account and data have been deleted." });

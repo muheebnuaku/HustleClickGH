@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
+import { LICENSES, DEFAULT_LICENSE } from "@/lib/licenses";
 import { Loader2, Plus, X, Mic, Video, ArrowRight } from "lucide-react";
 
 interface P { id: string; title: string; projectType: string; status: string; reward: number; maxSubmissions: number; currentSubmissions: number; budget: number; spent: number; counts: { pending: number; approved: number; rejected: number }; }
@@ -20,7 +21,7 @@ export default function OrgProjects() {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [form, setForm] = useState({ title: "", description: "", instructions: "", projectType: "voice", reward: "", maxSubmissions: "", languages: "", samplePrompts: "" });
+  const [form, setForm] = useState({ title: "", description: "", instructions: "", projectType: "voice", reward: "", maxSubmissions: "", languages: "", samplePrompts: "", license: DEFAULT_LICENSE });
 
   const load = () => fetch("/api/org/projects").then((r) => r.ok ? r.json() : null).then((d) => {
     if (d) { setWallet(d.walletBalance ?? 0); setProjects(d.projects ?? []); }
@@ -79,6 +80,13 @@ export default function OrgProjects() {
                 <div><label className="text-sm font-medium">Target submissions *</label><Input type="number" value={form.maxSubmissions} onChange={(e) => setForm({ ...form, maxSubmissions: e.target.value })} placeholder="500" /></div>
               </div>
               <div><label className="text-sm font-medium">Sample prompts (one per line)</label><textarea className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm resize-y" rows={2} value={form.samplePrompts} onChange={(e) => setForm({ ...form, samplePrompts: e.target.value })} /></div>
+              <div>
+                <label className="text-sm font-medium">Usage licence</label>
+                <select value={form.license} onChange={(e) => setForm({ ...form, license: e.target.value })} className="w-full h-12 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 text-sm">
+                  {Object.values(LICENSES).map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
+                </select>
+                <p className="text-xs text-zinc-500 mt-1">{LICENSES[form.license]?.description}. Contributors see this before consenting; it&rsquo;s recorded in every export.</p>
+              </div>
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                 <p className="text-sm text-zinc-500">Funds this project: <strong className={cost > wallet ? "text-red-600" : "text-emerald-600"}>{formatCurrency(cost)}</strong> (from wallet)</p>
                 <Button onClick={create} disabled={busy} className="bg-emerald-600 hover:bg-emerald-700">{busy ? <><Loader2 size={16} className="mr-1 animate-spin" />Creating…</> : "Create & fund project"}</Button>

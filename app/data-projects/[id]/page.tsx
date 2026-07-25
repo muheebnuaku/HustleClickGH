@@ -12,12 +12,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { uploadFile } from "@/lib/upload-file";
+import { getLicense } from "@/lib/licenses";
 
 interface DataProject {
   id: string;
   title: string;
   description: string;
   projectType: string;
+  license?: string;
   instructions: string;
   samplePrompts: string[];
   reward: number;
@@ -515,6 +517,9 @@ export default function DataProjectDetailPage() {
 
                   {/* Consent */}
                   <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
+                    <p className="text-xs text-zinc-600 mb-3 pb-3 border-b border-zinc-200">
+                      <strong>How your recording will be used:</strong> {getLicense(project.license).contributorNote}
+                    </p>
                     <label className="flex items-start gap-3 cursor-pointer">
                       <input
                         type="checkbox"

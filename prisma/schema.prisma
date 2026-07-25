@@ -253,6 +253,8 @@ model DataProject {
   orgId              String?          // owning Organization id
   budget             Float            @default(0) // funded reward pool (GH₵)
   spent              Float            @default(0) // rewards already paid out of budget
+  license            String           @default("commercial_ai") // usage licence key (see lib/licenses.ts)
+  usageTerms         String?          // optional extra buyer-specified usage terms
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
@@ -276,6 +278,23 @@ model Organization {
   updatedAt     DateTime @updatedAt
 
   @@index([ownerUserId])
+}
+
+// Erasure propagation (Ghana DPA / GDPR right to erasure). When a contributor
+// deletes their data, their approved submissions to org projects vanish from the
+// live tables — this tombstone survives so buyers who already downloaded a
+// dataset can be told exactly which items to purge from their copy. Holds no PII.
+model ErasureTombstone {
+  id            String   @id @default(cuid())
+  orgId         String
+  projectId     String
+  submissionRef String   // the (now-deleted) submission id
+  fileHash      String?  // SHA-256 to match the row in an already-downloaded dataset
+  reason        String   @default("account_deletion") // account_deletion | data_withdrawal
+  withdrawnAt   DateTime @default(now())
+
+  @@index([projectId, withdrawnAt])
+  @@index([orgId])
 }
 
 // Money movements for an org: Paystack top-ups and project allocations.
