@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { ImageCropper } from "@/components/image-cropper";
 import { BiometricSettings } from "@/components/biometric-settings";
 import { VerifiedBadge } from "@/components/verified-badge";
-import { Save, Camera, User, Copy, Check, Pencil, ShieldCheck, ChevronRight } from "lucide-react";
+import { Save, Camera, User, Copy, Check, Pencil, ShieldCheck, ChevronRight, MapPin, Eye, UserRound, Settings } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -48,7 +48,10 @@ interface UserStats {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { status } = useSession();
+  const { data: session, status } = useSession();
+  const myId = session?.user?.id;
+  const [tab, setTab] = useState<"public" | "account">("public");
+  const [publicData, setPublicData] = useState<{ followersCount: number; followingCount: number; city?: string | null; country?: string | null } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
   const [message, setMessage] = useState("");
@@ -107,6 +110,15 @@ export default function ProfilePage() {
         });
     }
   }, [status, router, reset]);
+
+  // Public-profile stats (followers/following/location) — what other users see.
+  useEffect(() => {
+    if (status !== "authenticated" || !myId) return;
+    fetch(`/api/users/${myId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => { if (d?.user) setPublicData(d.user); })
+      .catch(() => {});
+  }, [status, myId]);
 
   const onSubmit = async (data: ProfileFormData) => {
     setIsLoading(true);
@@ -197,12 +209,80 @@ export default function ProfilePage() {
     <DashboardLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Edit Profile</h1>
+          <h1 className="text-3xl font-bold text-foreground">My Profile</h1>
           <p className="text-zinc-600 dark:text-zinc-400 mt-1">
-            Update your account information
+            Your public profile and private account settings
           </p>
         </div>
 
+        {/* Tabs */}
+        <div className="flex gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-900 w-full sm:w-fit">
+          <button
+            onClick={() => setTab("public")}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === "public" ? "bg-white dark:bg-zinc-800 text-foreground shadow-sm" : "text-zinc-500 hover:text-foreground"}`}
+          >
+            <UserRound size={16} /> Public profile
+          </button>
+          <button
+            onClick={() => setTab("account")}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === "account" ? "bg-white dark:bg-zinc-800 text-foreground shadow-sm" : "text-zinc-500 hover:text-foreground"}`}
+          >
+            <Settings size={16} /> Account
+          </button>
+        </div>
+
+        {/* ── Public tab: how others see you ─────────────────────────────────── */}
+        {tab === "public" && (
+          <div className="space-y-4">
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-start gap-4">
+                  {profileImage ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={profileImage} alt={userData?.fullName || ""} className="w-20 h-20 rounded-full object-cover shrink-0" />
+                  ) : (
+                    <div className="w-20 h-20 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 flex items-center justify-center text-2xl font-bold shrink-0">
+                      {(userData?.fullName || "?").charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl font-bold text-foreground truncate">{userData?.fullName}</h2>
+                      {userData?.verified && <VerifiedBadge size={18} />}
+                    </div>
+                    <p className="text-sm text-zinc-500">{userData?.userId}</p>
+                    {(publicData?.city || publicData?.country) && (
+                      <p className="text-sm text-zinc-500 flex items-center gap-1 mt-1">
+                        <MapPin size={13} /> {[publicData?.city, publicData?.country].filter(Boolean).join(", ")}
+                      </p>
+                    )}
+                    <div className="flex gap-4 mt-3 text-sm">
+                      <Link href={myId ? `/u/${myId}/followers` : "#"} className="hover:underline">
+                        <strong className="text-foreground">{publicData?.followersCount ?? 0}</strong> <span className="text-zinc-500">followers</span>
+                      </Link>
+                      <Link href={myId ? `/u/${myId}/following` : "#"} className="hover:underline">
+                        <strong className="text-foreground">{publicData?.followingCount ?? 0}</strong> <span className="text-zinc-500">following</span>
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-5 flex flex-col sm:flex-row gap-2">
+                  <Link href={myId ? `/u/${myId}` : "#"} className="flex-1">
+                    <Button className="w-full bg-blue-600 hover:bg-blue-700"><Eye size={16} className="mr-1" /> View my public profile</Button>
+                  </Link>
+                  <Button variant="outline" className="flex-1" onClick={() => setTab("account")}>
+                    <Settings size={16} className="mr-1" /> Edit account
+                  </Button>
+                </div>
+                <p className="text-xs text-zinc-500 mt-3">This is what other users see when they open your profile. Update your photo and details in the Account tab.</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* ── Account tab: private settings ──────────────────────────────────── */}
+        {tab === "account" && (
+        <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>Personal Information</CardTitle>
@@ -468,6 +548,8 @@ export default function ProfilePage() {
             </Link>
           </CardContent>
         </Card>
+        </div>
+        )}
       </div>
 
       {cropSrc && (

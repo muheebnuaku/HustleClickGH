@@ -18,7 +18,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     where: { id },
     select: {
       id: true, userId: true, fullName: true, image: true, verified: true,
-      city: true, country: true, createdAt: true, lastSeenAt: true,
+      city: true, country: true, createdAt: true, lastSeenAt: true, personalCallCode: true,
     },
   });
   if (!user) return NextResponse.json({ message: "User not found" }, { status: 404 });

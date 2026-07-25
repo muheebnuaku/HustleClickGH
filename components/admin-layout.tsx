@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { LogOut, LayoutDashboard, Users, Wallet, FileText, MessageSquare, QrCode, Menu, X, Home, Shield, Database, Activity, Video, Phone, Building2, Bell, ArrowLeftRight } from "lucide-react";
+import { LogOut, LayoutDashboard, Users, Wallet, MessageSquare, QrCode, Menu, X, Home, Shield, Database, Activity, Video, Phone, Building2, Bell, ArrowLeftRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
@@ -30,12 +30,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   };
 
   const allNavItems = [
-    { href: "/admin/data-projects", label: "Data Projects", icon: Database },
-    { href: "/admin", label: "Surveys", icon: LayoutDashboard },
     { href: "/admin/users", label: "Users", icon: Users },
+    { href: "/admin/data-projects", label: "Data Projects", icon: Database },
+    { href: "/admin/surveys", label: "Surveys", icon: LayoutDashboard },
     { href: "/admin/partners", label: "Partner Inquiries", icon: Building2 },
     { href: "/admin/payments", label: "Payments", icon: Wallet },
-    { href: "/admin/responses", label: "Responses", icon: FileText },
     { href: "/admin/notifications", label: "Notifications", icon: Bell },
     { href: "/admin/activity-log", label: "Activity Log", icon: Activity },
     { href: "/admin/active-calls", label: "Active Calls", icon: Phone },

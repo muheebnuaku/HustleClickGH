@@ -7,11 +7,12 @@ import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { VerifiedBadge } from "@/components/verified-badge";
-import { Loader2, MessageCircle, UserPlus, UserCheck, MapPin, Ban, MoreVertical } from "lucide-react";
+import { Loader2, MessageCircle, UserPlus, UserCheck, MapPin, Ban, MoreVertical, Phone, Video } from "lucide-react";
 
 interface Profile {
   id: string; userId: string; fullName: string; image?: string | null; verified: boolean;
   city?: string | null; country?: string | null; createdAt: string; online: boolean;
+  personalCallCode?: string | null;
   followersCount: number; followingCount: number;
   isFollowing: boolean; isBlocked: boolean; hasBlockedMe: boolean; isSelf: boolean;
 }
@@ -108,7 +109,7 @@ export default function PublicProfilePage() {
           </div>
 
           {!p.isSelf && (
-            <div className="flex items-center gap-2 mt-5">
+            <div className="mt-5 space-y-2">
               {p.hasBlockedMe ? (
                 <p className="text-sm text-zinc-500">You can&apos;t interact with this user.</p>
               ) : p.isBlocked ? (
@@ -117,22 +118,34 @@ export default function PublicProfilePage() {
                 </Button>
               ) : (
                 <>
-                  <Button onClick={toggleFollow} disabled={busy} variant={p.isFollowing ? "outline" : "primary"} className="flex-1">
-                    {p.isFollowing ? <><UserCheck size={16} className="mr-1" />Following</> : <><UserPlus size={16} className="mr-1" />Follow</>}
-                  </Button>
-                  <Button onClick={message} disabled={busy} className="flex-1 bg-blue-600 hover:bg-blue-700">
-                    <MessageCircle size={16} className="mr-1" /> Message
-                  </Button>
-                  <div className="relative">
-                    <Button variant="outline" onClick={() => setMenu((m) => !m)} className="px-2"><MoreVertical size={16} /></Button>
-                    {menu && (
-                      <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-lg z-10 py-1">
-                        <button onClick={toggleBlock} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2">
-                          <Ban size={14} /> Block user
-                        </button>
-                      </div>
-                    )}
+                  <div className="flex items-center gap-2">
+                    <Button onClick={toggleFollow} disabled={busy} variant={p.isFollowing ? "outline" : "primary"} className="flex-1">
+                      {p.isFollowing ? <><UserCheck size={16} className="mr-1" />Following</> : <><UserPlus size={16} className="mr-1" />Follow</>}
+                    </Button>
+                    <Button onClick={message} disabled={busy} className="flex-1 bg-blue-600 hover:bg-blue-700">
+                      <MessageCircle size={16} className="mr-1" /> Message
+                    </Button>
+                    <div className="relative">
+                      <Button variant="outline" onClick={() => setMenu((m) => !m)} className="px-2"><MoreVertical size={16} /></Button>
+                      {menu && (
+                        <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-lg z-10 py-1">
+                          <button onClick={toggleBlock} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2">
+                            <Ban size={14} /> Block user
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
+                  {p.personalCallCode && (
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" className="flex-1" onClick={() => router.push(`/call?to=${p.personalCallCode}&type=audio`)}>
+                        <Phone size={16} className="mr-1" /> Call
+                      </Button>
+                      <Button variant="outline" className="flex-1" onClick={() => router.push(`/call?to=${p.personalCallCode}&type=video`)}>
+                        <Video size={16} className="mr-1" /> Video call
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
             </div>

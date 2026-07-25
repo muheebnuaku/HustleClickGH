@@ -3,16 +3,15 @@
 import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useCallNotification } from "@/app/contexts/CallNotificationContext";
+import Link from "next/link";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { createCallSignaling, type CallSignaling, type CallRole } from "@/lib/call-signaling";
 import {
   Mic, MicOff, PhoneOff, PhoneCall, Copy, CheckCircle2,
   Loader2, AlertCircle, User, Video, VideoOff, RefreshCw,
-  ScreenShare, StopCircle,
+  ScreenShare, StopCircle, MessageCircle,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -52,6 +51,8 @@ function LiveCallInner() {
   const searchParams  = useSearchParams();
   const joinCode      = searchParams.get("join");
   const joinType      = (searchParams.get("type") || "audio") as CallType;
+  // Outbound call started from a user's public profile: /call?to=<callCode>&type=…
+  const toCode        = searchParams.get("to");
   const { status }    = useSession();
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -64,7 +65,6 @@ function LiveCallInner() {
   const [error,           setError]           = useState("");
   const [copied,          setCopied]          = useState(false);
   const [personalCode,    setPersonalCode]    = useState("");
-  const [targetCodeInput, setTargetCodeInput] = useState("");
   const [otherName,       setOtherName]       = useState("");
   const [isIOS,             setIsIOS]             = useState(false);
   const [isRecording,       setIsRecording]       = useState(false);
@@ -146,7 +146,7 @@ function LiveCallInner() {
   // auto-join and re-prompt for camera/mic permissions.
   useEffect(() => {
     if ((phase === "ended" || phase === "declined") && window.location.search) {
-      window.history.replaceState({}, "", "/live-call");
+      window.history.replaceState({}, "", "/call");
     }
   }, [phase]);
 
@@ -154,7 +154,7 @@ function LiveCallInner() {
   // re-trigger auto-join and re-request camera/mic permissions.
   useEffect(() => {
     if (phase === "ended" || phase === "declined") {
-      window.history.replaceState({}, "", "/live-call");
+      window.history.replaceState({}, "", "/call");
     }
   }, [phase]);
   useEffect(() => { swappedRef.current = swapped; }, [swapped]);
@@ -468,6 +468,18 @@ function LiveCallInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinCode, status, phase]);
 
+  // ── Auto-start (outbound call from a profile) ──────────────────────────────
+  useEffect(() => {
+    if (toCode && !joinCode && status === "authenticated" && phase === "idle" && !hasAutoJoined.current) {
+      hasAutoJoined.current = true;
+      const t = (joinType === "video" ? "video" : "audio") as CallType;
+      setCallType(t);
+      callTypeRef.current = t;
+      handleStartCall(toCode.toUpperCase());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toCode, joinCode, status, phase]);
+
   // ── TURN credentials ──────────────────────────────────────────────────────
   const fetchIceServers = async (): Promise<RTCIceServer[]> => {
     try {
@@ -757,7 +769,7 @@ function LiveCallInner() {
 
   // ── Start call (caller) ───────────────────────────────────────────────────
   const handleStartCall = async (codeOverride?: string) => {
-    const targetCode = (codeOverride || targetCodeInput).trim().toUpperCase();
+    const targetCode = (codeOverride || "").trim().toUpperCase();
     if (targetCode.length < 5) { setError("Enter a valid 5-character call code"); return; }
     setError("");
     setLastCallTarget(null);
@@ -823,7 +835,7 @@ function LiveCallInner() {
 
   // ── Join call (receiver) ──────────────────────────────────────────────────
   const handleJoinCall = async (codeOverride?: string, typeOverride?: CallType) => {
-    const code = (codeOverride || targetCodeInput).trim().toUpperCase();
+    const code = (codeOverride || "").trim().toUpperCase();
     if (code.length < 5) { setError("Enter a valid call code"); return; }
     setError("");
     const type = typeOverride || callType;
@@ -1050,7 +1062,7 @@ function LiveCallInner() {
     `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
   const resetToIdle = () => {
-    setError(""); setPhase("idle"); setTargetCodeInput("");
+    setError(""); setPhase("idle");
     setOtherName(""); setTimer(0); setIsMuted(false); setIsVideoOff(false);
     setSwapped(false); setPipPos(null);
     callCodeRef.current = "";
@@ -1625,65 +1637,29 @@ function LiveCallInner() {
                   <li>Tap <strong>Start Recording</strong>, then come back here and make your call</li>
                 </ol>
                 <p className="text-xs text-amber-600 dark:text-amber-500 mt-2">
-                  Your voice and the other person's voice (from speaker) will both be captured.
+                  Your voice and the other person&rsquo;s voice (from speaker) will both be captured.
                 </p>
               </Card>
             )}
 
-            <Card className="p-5">
-              <h2 className="font-semibold mb-4 flex items-center gap-2">
-                <PhoneCall size={20} className="text-green-600" />Call Someone
-              </h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm text-zinc-500 block mb-1">Their call code</label>
-                  <Input
-                    placeholder="XXXXX"
-                    value={targetCodeInput}
-                    onChange={e => setTargetCodeInput(e.target.value.toUpperCase())}
-                    className="tracking-[0.3em] font-mono uppercase text-center text-xl py-6"
-                    maxLength={5}
-                    onKeyDown={e => e.key === "Enter" && handleStartCall()}
-                  />
-                </div>
-
-                {/* Call type selector */}
-                <div>
-                  <label className="text-sm text-zinc-500 block mb-2">Call type</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => setCallType("audio")}
-                      className={`flex items-center justify-center gap-2 py-3 rounded-xl border-2 font-medium text-sm transition-colors ${
-                        callType === "audio"
-                          ? "border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"
-                          : "border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:border-zinc-300"
-                      }`}
-                    >
-                      <Mic size={18} />Audio
-                    </button>
-                    <button
-                      onClick={() => setCallType("video")}
-                      className={`flex items-center justify-center gap-2 py-3 rounded-xl border-2 font-medium text-sm transition-colors ${
-                        callType === "video"
-                          ? "border-purple-600 bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400"
-                          : "border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:border-zinc-300"
-                      }`}
-                    >
-                      <Video size={18} />Video
-                    </button>
-                  </div>
-                </div>
-
-                <Button
-                  onClick={() => handleStartCall()}
-                  className={`w-full py-6 text-white ${callType === "video" ? "bg-purple-600 hover:bg-purple-700" : "bg-green-600 hover:bg-green-700"}`}
-                  disabled={targetCodeInput.length < 5}
-                >
-                  {callType === "video"
-                    ? <><Video size={20} className="mr-2" />Start Video Call</>
-                    : <><PhoneCall size={20} className="mr-2" />Start Audio Call</>
-                  }
-                </Button>
+            <Card className="p-8 text-center">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
+                <PhoneCall size={28} className="text-blue-600" />
+              </div>
+              <h2 className="font-semibold text-lg text-foreground">Start a call from a profile</h2>
+              <p className="text-sm text-zinc-500 mt-1 max-w-xs mx-auto">
+                Open someone&rsquo;s profile and tap <strong>Call</strong> or <strong>Video call</strong>.
+                Find people in your Messages.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2 justify-center mt-6">
+                <Link href="/messages" className="sm:w-auto">
+                  <Button className="w-full bg-blue-600 hover:bg-blue-700">
+                    <MessageCircle size={18} className="mr-1.5" />Go to Messages
+                  </Button>
+                </Link>
+                <Link href="/dashboard" className="sm:w-auto">
+                  <Button variant="outline" className="w-full">Back to Dashboard</Button>
+                </Link>
               </div>
             </Card>
           </div>

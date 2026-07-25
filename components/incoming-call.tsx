@@ -83,7 +83,7 @@ export function IncomingCallListener() {
 
       if (res.ok) {
         const type = incomingCall.callType === "video" ? "video" : "audio";
-        router.push(`/live-call?join=${incomingCall.callCode}&type=${type}`);
+        router.push(`/call?join=${incomingCall.callCode}&type=${type}`);
       }
     } catch (error) {
       console.error("Error accepting call:", error);

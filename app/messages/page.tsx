@@ -12,7 +12,7 @@ import { useMessages } from "@/app/contexts/MessagesContext";
 import { pingNewMessage } from "@/lib/message-realtime";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { Loader2, Send, Search, ArrowLeft, MessageCircle, Shield, PenSquare, Check, CheckCheck } from "lucide-react";
+import { Loader2, Send, Search, ArrowLeft, MessageCircle, PenSquare, Check, CheckCheck } from "lucide-react";
 
 interface UserCard {
   id: string; userId: string; fullName: string; image?: string | null; verified?: boolean; online?: boolean;
@@ -68,7 +68,6 @@ function MessagesContent() {
   const [loadingList, setLoadingList] = useState(true);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [other, setOther] = useState<UserCard | null>(null);
-  const [threadIsAdmin, setThreadIsAdmin] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -76,6 +75,7 @@ function MessagesContent() {
   const [peerTyping, setPeerTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const typingChannelRef = useRef<RealtimeChannel | null>(null);
+  const typingSubscribedRef = useRef(false);
   const peerTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentRef = useRef(0);
 
@@ -94,7 +94,6 @@ function MessagesContent() {
         const d = await res.json();
         setMessages(d.messages ?? []);
         setOther(d.other ?? null);
-        setThreadIsAdmin(Boolean(d.isAdmin));
         refreshUnread(); // GET marked them read
       }
     } catch { /* ignore */ } finally { setLoadingThread(false); }
@@ -128,6 +127,7 @@ function MessagesContent() {
   // while the thread is open. Typing events auto-expire after 4s.
   useEffect(() => {
     setPeerTyping(false);
+    typingSubscribedRef.current = false;
     if (!activeId) return;
     const client = getSupabaseBrowser();
     if (!client) return; // no Realtime — typing indicator simply doesn't show
@@ -138,9 +138,14 @@ function MessagesContent() {
         if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
         peerTypingTimeoutRef.current = setTimeout(() => setPeerTyping(false), 4000);
       }
-    }).subscribe();
+    }).subscribe((status) => {
+      // Broadcasts sent before the channel is SUBSCRIBED are dropped, so gate
+      // outgoing typing events on this.
+      typingSubscribedRef.current = status === "SUBSCRIBED";
+    });
     typingChannelRef.current = ch;
     return () => {
+      typingSubscribedRef.current = false;
       ch.unsubscribe().catch(() => {});
       client.removeChannel(ch);
       typingChannelRef.current = null;
@@ -151,7 +156,7 @@ function MessagesContent() {
   // Tell the other participant I'm typing (throttled to ~once per 2s).
   const notifyTyping = () => {
     const ch = typingChannelRef.current;
-    if (!ch) return;
+    if (!ch || !typingSubscribedRef.current) return;
     const now = Date.now();
     if (now - lastTypingSentRef.current < 1800) return;
     lastTypingSentRef.current = now;
@@ -219,7 +224,6 @@ function MessagesContent() {
                   <div className="flex items-center gap-1.5">
                     <span className="font-medium text-foreground truncate">{c.other?.fullName || "Unknown"}</span>
                     {c.other?.verified && <VerifiedBadge size={13} />}
-                    {c.isAdmin && <Shield size={12} className="text-blue-600 shrink-0" />}
                   </div>
                   <p className="text-xs text-zinc-500 truncate">
                     {c.lastMessage ? (c.lastMessage.senderId === myId ? "You: " : "") + c.lastMessage.body : "No messages yet"}
@@ -251,7 +255,6 @@ function MessagesContent() {
                     <div className="flex items-center gap-1.5">
                       <span className="font-semibold truncate">{other?.fullName || "Unknown"}</span>
                       {other?.verified && <VerifiedBadge size={14} />}
-                      {threadIsAdmin && <span className="text-[11px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">Admin</span>}
                     </div>
                     {peerTyping ? (
                       <span className="text-[11px] text-blue-600 flex items-center gap-1">

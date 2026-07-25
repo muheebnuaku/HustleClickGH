@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { LogOut, LayoutDashboard, User, Users, Menu, X, Home, ClipboardList, FileEdit, Database, Phone, Video, MessageCircle, Search, Shield } from "lucide-react";
+import { LogOut, LayoutDashboard, User, Users, Menu, X, Home, ClipboardList, FileEdit, Database, Video, MessageCircle, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
@@ -64,8 +64,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     { href: "/surveys", label: "Take Surveys", icon: ClipboardList },
     { href: "/data-projects", label: "Data Projects", icon: Database },
     { href: "/messages", label: "Messages", icon: MessageCircle },
-    { href: "/people", label: "Find People", icon: Search },
-    { href: "/live-call", label: "Live Call", icon: Phone },
     { href: "/recordings", label: "Recordings", icon: Video },
     { href: "/profile", label: "Profile", icon: User },
     { href: "/referral", label: "Refer & Earn", icon: Users },

@@ -4,12 +4,13 @@ import { useEffect, useState, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
+import { SurveysTabs } from "@/components/admin/surveys-tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { 
-  ArrowLeft, 
-  BarChart3, 
+import {
+  ArrowLeft,
+  BarChart3,
   Clock, 
   ClipboardList, 
   Download, 
@@ -300,6 +301,7 @@ function AdminResponsesPageContent() {
   return (
     <AdminLayout>
       <div className="space-y-6">
+        <SurveysTabs active="responses" />
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Survey Analytics</h1>
