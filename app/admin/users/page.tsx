@@ -7,7 +7,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users, Lock, Unlock, MapPin, BadgeCheck } from "lucide-react";
+import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users, Lock, Unlock, MapPin, BadgeCheck, MessageCircle, Send, X, Loader2 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { VerifiedBadge } from "@/components/verified-badge";
 
@@ -65,6 +65,36 @@ export default function AdminUsersPage() {
   const [suspendingId, setSuspendingId] = useState<string | null>(null);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [requestingLocation, setRequestingLocation] = useState(false);
+  // Admin → user direct message composer
+  const [messageTarget, setMessageTarget] = useState<UserData | null>(null);
+  const [messageBody, setMessageBody] = useState("");
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [messageResult, setMessageResult] = useState<string | null>(null);
+
+  const sendAdminMessage = async () => {
+    if (!messageTarget || !messageBody.trim() || sendingMessage) return;
+    setSendingMessage(true);
+    setMessageResult(null);
+    try {
+      const res = await fetch("/api/admin/users/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: messageTarget.id, body: messageBody.trim() }),
+      });
+      if (res.ok) {
+        setMessageResult("Message sent.");
+        setMessageBody("");
+        setTimeout(() => { setMessageTarget(null); setMessageResult(null); }, 1200);
+      } else {
+        const e = await res.json().catch(() => ({}));
+        setMessageResult(e.message || "Failed to send.");
+      }
+    } catch {
+      setMessageResult("Failed to send.");
+    } finally {
+      setSendingMessage(false);
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -397,6 +427,7 @@ export default function AdminUsersPage() {
                           <td className="py-3 px-4 text-sm text-zinc-500">{formatDate(user.createdAt)}</td>
                           <td className="py-3 px-4">
                             <div className="flex items-center justify-center gap-2">
+                              <MessageButton onClick={() => { setMessageTarget(user); setMessageBody(""); setMessageResult(null); }} />
                               <VerifyButton user={user} busy={verifyingId === user.id} onClick={() => handleVerifyUser(user.id, user.verified)} />
                               <SuspendButton user={user} busy={suspendingId === user.id} onClick={() => handleSuspendUser(user.id, user.status)} />
                             </div>
@@ -443,6 +474,7 @@ export default function AdminUsersPage() {
                       <div className="mt-3 flex items-center justify-between gap-2 flex-wrap">
                         <span className="text-xs text-zinc-500">Joined {formatDate(user.createdAt)}</span>
                         <div className="flex items-center gap-2">
+                          <MessageButton onClick={() => { setMessageTarget(user); setMessageBody(""); setMessageResult(null); }} />
                           <VerifyButton user={user} busy={verifyingId === user.id} onClick={() => handleVerifyUser(user.id, user.verified)} />
                           <SuspendButton user={user} busy={suspendingId === user.id} onClick={() => handleSuspendUser(user.id, user.status)} />
                         </div>
@@ -455,7 +487,57 @@ export default function AdminUsersPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Admin → user direct message composer */}
+      {messageTarget && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => !sendingMessage && setMessageTarget(null)}>
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-center gap-2 min-w-0">
+                <MessageCircle size={18} className="text-blue-600 shrink-0" />
+                <h3 className="font-semibold truncate">Message {messageTarget.fullName}</h3>
+              </div>
+              <button onClick={() => setMessageTarget(null)} disabled={sendingMessage} className="p-1 text-zinc-400 hover:text-foreground"><X size={18} /></button>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-xs text-zinc-500">
+                Sent as a direct message to <strong>{messageTarget.userId}</strong>. They&apos;ll see it in their inbox and can reply.
+              </p>
+              <textarea
+                value={messageBody}
+                onChange={(e) => setMessageBody(e.target.value)}
+                rows={5}
+                maxLength={4000}
+                autoFocus
+                placeholder="Write your message…"
+                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {messageResult && (
+                <p className={`text-sm ${messageResult === "Message sent." ? "text-green-600" : "text-red-600"}`}>{messageResult}</p>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setMessageTarget(null)} disabled={sendingMessage}>Cancel</Button>
+                <Button onClick={sendAdminMessage} disabled={sendingMessage || !messageBody.trim()} className="bg-blue-600 hover:bg-blue-700">
+                  {sendingMessage ? <><Loader2 size={16} className="mr-1 animate-spin" />Sending…</> : <><Send size={16} className="mr-1" />Send</>}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
+  );
+}
+
+function MessageButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Send a direct message"
+      className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+    >
+      <MessageCircle size={16} />
+    </button>
   );
 }
 

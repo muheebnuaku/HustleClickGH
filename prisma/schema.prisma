@@ -338,3 +338,59 @@ model CallRecording {
   @@index([callCode])
   @@index([userId])
 }
+
+// ── Community & messaging ─────────────────────────────────────────────────────
+// Scalar user IDs, no formal relations to User (same style as CallSession) —
+// keeps the User model untouched; routes do manual user lookups.
+
+// Asymmetric follow ("add friend" = follow). followerId follows followingId.
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String   // the user doing the following
+  followingId String   // the user being followed
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+  @@index([followerId])
+}
+
+// blockerId has blocked blockedId (blocked user can't DM the blocker).
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+// 1:1 direct-message thread. userAId/userBId stored in canonical order
+// (userAId < userBId) so (A,B) and (B,A) collapse to a single row.
+model Conversation {
+  id            String   @id @default(cuid())
+  userAId       String
+  userBId       String
+  lastMessageAt DateTime @default(now())
+  isAdmin       Boolean  @default(false) // admin↔user thread (badged in UI)
+  createdAt     DateTime @default(now())
+
+  messages      Message[]
+
+  @@unique([userAId, userBId])
+  @@index([userAId, lastMessageAt])
+  @@index([userBId, lastMessageAt])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  senderId       String
+  body           String
+  readAt         DateTime?    // when the (single, 1:1) recipient read it
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}

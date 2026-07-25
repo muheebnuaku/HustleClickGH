@@ -4,17 +4,19 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { LogOut, LayoutDashboard, User, Users, Menu, X, Home, ClipboardList, FileEdit, Database, Phone, Video } from "lucide-react";
+import { LogOut, LayoutDashboard, User, Users, Menu, X, Home, ClipboardList, FileEdit, Database, Phone, Video, MessageCircle, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { IncomingCallListener } from "@/components/incoming-call";
 import { VerifiedBadge } from "@/components/verified-badge";
+import { useMessages } from "@/app/contexts/MessagesContext";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const { unreadCount } = useMessages();
   const [balance, setBalance] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileImage, setProfileImage] = useState<string | null>(null);
@@ -61,11 +63,21 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     { href: "/my-surveys", label: "My Surveys", icon: FileEdit },
     { href: "/surveys", label: "Take Surveys", icon: ClipboardList },
     { href: "/data-projects", label: "Data Projects", icon: Database },
+    { href: "/messages", label: "Messages", icon: MessageCircle },
+    { href: "/people", label: "Find People", icon: Search },
     { href: "/live-call", label: "Live Call", icon: Phone },
     { href: "/recordings", label: "Recordings", icon: Video },
     { href: "/profile", label: "Profile", icon: User },
     { href: "/referral", label: "Refer & Earn", icon: Users },
   ];
+
+  // Small unread pill shown next to the Messages nav item.
+  const navBadge = (href: string) =>
+    href === "/messages" && unreadCount > 0 ? (
+      <span className="ml-auto inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-semibold">
+        {unreadCount > 99 ? "99+" : unreadCount}
+      </span>
+    ) : null;
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
@@ -215,6 +227,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               >
                 <Icon size={20} />
                 <span className="font-medium">{item.label}</span>
+                {navBadge(item.href)}
               </Link>
             );
           })}
@@ -261,6 +274,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                   >
                     <Icon size={20} />
                     <span className="font-medium">{item.label}</span>
+                    {navBadge(item.href)}
                   </Link>
                 );
               })}

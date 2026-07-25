@@ -29,7 +29,8 @@ export type LogType =
   | "account_export"
   | "account_delete_request"
   | "notification_broadcast"
-  | "email_broadcast";
+  | "email_broadcast"
+  | "admin_message";
 
 export type LogSeverity = "info" | "success" | "warning" | "error";
 
