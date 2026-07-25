@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { LogOut, LayoutDashboard, User, Users, Menu, X, Home, ClipboardList, FileEdit, Database, Phone, Video, MessageCircle, Search } from "lucide-react";
+import { LogOut, LayoutDashboard, User, Users, Menu, X, Home, ClipboardList, FileEdit, Database, Phone, Video, MessageCircle, Search, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
@@ -129,6 +129,17 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 </span>
               )}
             </Link>
+            {/* Staff: hop back to the admin panel with the same account */}
+            {(session?.user?.role === "admin" || session?.user?.role === "manager") && (
+              <Link
+                href="/admin"
+                className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                title="Return to the admin dashboard"
+              >
+                <Shield size={16} />
+                <span className="hidden sm:inline">Admin</span>
+              </Link>
+            )}
             <Button variant="ghost" size="sm" onClick={handleLogout}>
               <LogOut size={18} />
               <span className="hidden sm:inline ml-2">Logout</span>

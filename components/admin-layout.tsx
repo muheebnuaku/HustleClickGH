@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { LogOut, LayoutDashboard, Users, Wallet, FileText, MessageSquare, QrCode, Menu, X, Home, Shield, Database, Activity, Video, Phone, Building2, Bell } from "lucide-react";
+import { LogOut, LayoutDashboard, Users, Wallet, FileText, MessageSquare, QrCode, Menu, X, Home, Shield, Database, Activity, Video, Phone, Building2, Bell, ArrowLeftRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
@@ -71,10 +71,21 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
               <p className="text-xs text-blue-100 hidden sm:block">HustleClickGH</p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleLogout} className="text-white hover:bg-white/20">
-            <LogOut size={18} />
-            <span className="hidden sm:inline ml-2">Logout</span>
-          </Button>
+          <div className="flex items-center gap-1 sm:gap-2">
+            {/* Switch to the normal user experience with the same account */}
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium bg-white/15 hover:bg-white/25 transition-colors"
+              title="Use the platform as a normal user"
+            >
+              <ArrowLeftRight size={16} />
+              <span className="hidden sm:inline">User view</span>
+            </Link>
+            <Button variant="ghost" size="sm" onClick={handleLogout} className="text-white hover:bg-white/20">
+              <LogOut size={18} />
+              <span className="hidden sm:inline ml-2">Logout</span>
+            </Button>
+          </div>
         </div>
       </header>
 
