@@ -31,6 +31,14 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
+    // Duplicate-phone detection: a phone shared by more than one account is a
+    // multi-account / fraud signal worth flagging for review.
+    const phoneCounts = new Map<string, number>();
+    for (const u of users) {
+      const p = (u.phone || "").replace(/\s+/g, "");
+      if (p) phoneCounts.set(p, (phoneCounts.get(p) || 0) + 1);
+    }
+
     const formattedUsers = users.map((user) => ({
       id: user.id,
       userId: user.userId,
@@ -49,6 +57,7 @@ export async function GET() {
       surveysCompleted: user._count.surveyResponses,
       referralCount: user._count.referrals,
       createdAt: user.createdAt,
+      duplicatePhone: (() => { const p = (user.phone || "").replace(/\s+/g, ""); return Boolean(p) && (phoneCounts.get(p) || 0) > 1; })(),
     }));
 
     // Calculate stats
@@ -57,6 +66,7 @@ export async function GET() {
     const suspendedUsers = users.filter(u => u.status === "suspended").length;
     const verifiedUsers = users.filter(u => u.verified).length;
     const missingLocation = users.filter(u => !u.country?.trim()).length;
+    const duplicatePhoneUsers = formattedUsers.filter(u => u.duplicatePhone).length;
     const totalBalance = users.reduce((sum, u) => sum + u.balance, 0);
     const totalPaidOut = users.reduce((sum, u) => {
       const paidOut = u.withdrawals.reduce((s, w) => s + w.amount, 0);
@@ -71,6 +81,7 @@ export async function GET() {
         suspendedUsers,
         verifiedUsers,
         missingLocation,
+        duplicatePhoneUsers,
         totalPaidOut,
         totalBalance,
       },

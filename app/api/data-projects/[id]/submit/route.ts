@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { logActivity, getIp } from "@/lib/activity-log";
+import { hashFileFromUrl, VELOCITY_WINDOW_MS, VELOCITY_MAX } from "@/lib/anti-fraud";
 
 export async function POST(
   request: Request,
@@ -40,6 +41,17 @@ export async function POST(
       return NextResponse.json(
         { message: "This project is no longer accepting submissions" },
         { status: 400 }
+      );
+    }
+
+    // Velocity limit — throttle rapid-fire submissions (reward farming).
+    const recentCount = await prisma.dataSubmission.count({
+      where: { userId, submittedAt: { gte: new Date(Date.now() - VELOCITY_WINDOW_MS) } },
+    });
+    if (recentCount >= VELOCITY_MAX) {
+      return NextResponse.json(
+        { message: "You're submitting too quickly. Please try again later." },
+        { status: 429 }
       );
     }
 
@@ -140,6 +152,30 @@ export async function POST(
       }
     }
 
+    // Duplicate-content detection: hash the file and reject if the same content
+    // was already submitted to this project (by anyone) and not rejected.
+    const fileHash = await hashFileFromUrl(fileUrl, request.url, Number(fileSizeMB));
+    if (fileHash) {
+      const dup = await prisma.dataSubmission.findFirst({
+        where: { projectId, fileHash, status: { in: ["pending", "approved"] } },
+        select: { id: true, userId: true },
+      });
+      if (dup) {
+        logActivity({
+          type: "submission",
+          userId,
+          userName: session.user.name ?? null,
+          severity: "warning",
+          metadata: { projectId, reason: "duplicate_content", matchedSubmission: dup.id, sameUser: dup.userId === userId },
+          ip: getIp(request),
+        });
+        return NextResponse.json(
+          { message: "This exact recording has already been submitted. Please record a new one." },
+          { status: 409 }
+        );
+      }
+    }
+
     const submission = await prisma.dataSubmission.create({
       data: {
         projectId,
@@ -148,6 +184,7 @@ export async function POST(
         fileName,
         fileType,
         fileSizeMB,
+        fileHash,
         language: language || null,
         promptUsed: promptUsed || null,
         gender: gender || null,

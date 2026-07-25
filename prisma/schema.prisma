@@ -301,6 +301,7 @@ model DataSubmission {
   fileName        String
   fileType        String      // MIME type e.g. audio/mpeg
   fileSizeMB      Float
+  fileHash        String?     // SHA-256 of the file (server-computed); duplicate-content detection
   durationSecs    Float?
   language        String?
   promptUsed      String?     // Which prompt the user recorded
@@ -320,6 +321,8 @@ model DataSubmission {
   @@index([projectId, userId])
   @@index([userId])
   @@index([projectId, gender, status])
+  @@index([projectId, fileHash])
+  @@index([userId, submittedAt])
 }
 
 model ActivityLog {

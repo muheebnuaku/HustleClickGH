@@ -22,6 +22,7 @@ interface Submission {
   submittedAt: string;
   reviewedAt: string | null;
   user: { userId: string; fullName: string; email: string; phone: string };
+  contributorQuality?: { approved: number; rejected: number; reviewed: number; score: number; tier: "new" | "trusted" | "watch" } | null;
 }
 
 interface Project {
@@ -196,7 +197,21 @@ export default function AdminProjectSubmissionsPage() {
                   <div className="flex-1 min-w-0 space-y-3">
                     <div className="flex flex-wrap items-center gap-3">
                       <div>
-                        <p className="font-semibold text-foreground">{sub.user.fullName}</p>
+                        <p className="font-semibold text-foreground flex items-center gap-1.5">
+                          {sub.user.fullName}
+                          {sub.contributorQuality && sub.contributorQuality.reviewed >= 3 && (
+                            <span
+                              title={`${sub.contributorQuality.approved} approved / ${sub.contributorQuality.rejected} rejected`}
+                              className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                                sub.contributorQuality.tier === "trusted"
+                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                  : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                              }`}
+                            >
+                              {sub.contributorQuality.tier === "trusted" ? "Trusted" : "Low quality"} · {Math.round(sub.contributorQuality.score * 100)}%
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs text-zinc-400">{sub.user.userId} · {sub.user.phone}</p>
                       </div>
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${

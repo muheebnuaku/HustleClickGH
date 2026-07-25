@@ -29,6 +29,7 @@ interface UserData {
   country: string | null;
   region: string | null;
   city: string | null;
+  duplicatePhone?: boolean;
 }
 
 interface UserStats {
@@ -414,7 +415,10 @@ export default function AdminUsersPage() {
                           </td>
                           <td className="py-3 px-4">
                             <p className="text-sm text-foreground break-all">{user.email}</p>
-                            <p className="text-xs text-zinc-500">{user.phone}</p>
+                            <p className="text-xs text-zinc-500 flex items-center gap-1.5">
+                              {user.phone}
+                              {user.duplicatePhone && <span title="This phone number is used by more than one account" className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">shared phone</span>}
+                            </p>
                           </td>
                           <td className="py-3 px-4">
                             <span className="text-sm text-zinc-600 dark:text-zinc-400">{locationLabel(user)}</span>
@@ -454,7 +458,10 @@ export default function AdminUsersPage() {
                       </div>
                       <div className="mt-2 space-y-1 text-sm">
                         <p className="text-foreground break-all">{user.email}</p>
-                        <p className="text-zinc-500">{user.phone}</p>
+                        <p className="text-zinc-500 flex items-center gap-1.5">
+                          {user.phone}
+                          {user.duplicatePhone && <span title="Used by more than one account" className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">shared</span>}
+                        </p>
                         <p className="text-zinc-500 flex items-center gap-1"><MapPin size={13} /> {locationLabel(user)}</p>
                       </div>
                       <div className="mt-3 grid grid-cols-3 gap-2 text-center">
