@@ -248,11 +248,49 @@ model DataProject {
   malesApproved      Int              @default(0)
   femalesApproved    Int              @default(0)
   expiresAt          DateTime?
-  createdBy          String           // admin userId
+  createdBy          String           // admin userId (or org owner userId)
+  // Organization funding / escrow. orgId null = admin/internal project (behaves as before).
+  orgId              String?          // owning Organization id
+  budget             Float            @default(0) // funded reward pool (GH₵)
+  spent              Float            @default(0) // rewards already paid out of budget
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
   submissions        DataSubmission[]
+
+  @@index([orgId])
+}
+
+// A buyer organization. Logs in as a User with role="organization"; this row
+// holds company details + the funded wallet. Scalar ids, no back-relations.
+model Organization {
+  id            String   @id @default(cuid())
+  ownerUserId   String   @unique // the User account that signs in for this org
+  name          String
+  workEmail     String
+  phone         String?
+  country       String?
+  status        String   @default("active") // active | suspended
+  walletBalance Float    @default(0) // funded, not-yet-allocated GH₵
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([ownerUserId])
+}
+
+// Money movements for an org: Paystack top-ups and project allocations.
+model OrgTransaction {
+  id          String   @id @default(cuid())
+  orgId       String
+  type        String   // fund | allocation | refund
+  amount      Float    // GH₵ (positive)
+  provider    String?  // "paystack" for funds
+  providerRef String?  @unique // Paystack reference (idempotency)
+  status      String   @default("pending") // pending | success | failed
+  meta        String?  // JSON (e.g. projectId for allocations)
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, createdAt])
 }
 
 model DataSubmission {

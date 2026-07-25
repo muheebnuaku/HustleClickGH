@@ -240,6 +240,34 @@ export function adminMessageEmail(fullName: string, body: string) {
   };
 }
 
+/** Sent when an admin provisions an organization/buyer account. */
+export function orgInviteEmail(orgName: string, loginId: string, tempPassword: string) {
+  return {
+    subject: "Your HustleClickGH organization account is ready",
+    html: emailLayout(`Welcome, ${escapeHtml(orgName)}`, `
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        Your organization account on HustleClickGH is ready. You can now fund data
+        collection projects, monitor progress, and download your datasets.
+      </p>
+      <div style="margin:20px 0;padding:16px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;">
+        <p style="margin:0 0 6px;color:#71717a;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Login ID</p>
+        <p style="margin:0 0 12px;color:#065f46;font-size:20px;font-weight:700;letter-spacing:2px;">${escapeHtml(loginId)}</p>
+        <p style="margin:0 0 6px;color:#71717a;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Temporary password</p>
+        <p style="margin:0;color:#065f46;font-size:18px;font-weight:700;font-family:monospace;">${escapeHtml(tempPassword)}</p>
+      </div>
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        Sign in with your <strong>Login ID</strong> and this password, then change it from your profile.
+      </p>
+      <p style="margin:24px 0 0;">
+        <a href="https://hustleclickgh.com/login"
+           style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
+          Sign in to the portal
+        </a>
+      </p>
+    `),
+  };
+}
+
 /** Admin-composed broadcast. Plain text is converted to paragraphs. */
 export function broadcastEmail(subject: string, message: string, fullName?: string) {
   const firstName = fullName?.split(" ")[0];

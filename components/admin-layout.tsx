@@ -31,6 +31,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   const allNavItems = [
     { href: "/admin/users", label: "Users", icon: Users },
+    { href: "/admin/organizations", label: "Organizations", icon: Building2 },
     { href: "/admin/data-projects", label: "Data Projects", icon: Database },
     { href: "/admin/surveys", label: "Surveys", icon: LayoutDashboard },
     { href: "/admin/partners", label: "Partner Inquiries", icon: Building2 },

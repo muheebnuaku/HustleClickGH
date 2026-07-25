@@ -31,6 +31,8 @@ export async function middleware(request: NextRequest) {
     path.startsWith("/s/") ||
     path.startsWith("/api/s/") ||
     path === "/api/partners" ||
+    // Paystack calls this server-to-server with no session; it's signature-verified.
+    path === "/api/paystack/webhook" ||
     // Biometric sign-in happens before authentication, so these must be public
     path === "/api/webauthn/auth/options" ||
     path === "/api/webauthn/auth/verify";
@@ -44,6 +46,8 @@ export async function middleware(request: NextRequest) {
 
   // Admin paths
   const isAdminPath = path.startsWith("/admin") || path.startsWith("/api/admin");
+  // Organization portal paths (buyer side)
+  const isOrgPath = path.startsWith("/org") || path.startsWith("/api/org");
 
   // Redirect to login if trying to access protected routes without authentication
   if (!token) {
@@ -84,6 +88,13 @@ export async function middleware(request: NextRequest) {
     !path.startsWith("/api")
   ) {
     return NextResponse.redirect(new URL("/account/data", request.url));
+  }
+
+  // Organization portal — only org accounts (and admins, for support) may enter.
+  if (isOrgPath) {
+    if (token?.role !== "organization" && token?.role !== "admin") {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
   }
 
   // Check admin access — admin can access all, manager can only access call-recordings

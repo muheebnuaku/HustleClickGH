@@ -172,9 +172,15 @@ export default function AdminPartnersPage() {
                     </div>
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-zinc-500">
+                  <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-zinc-500">
                     {i.datasetSize && <span>Size: {i.datasetSize}</span>}
                     {i.budgetRange && <span>Budget: {i.budgetRange}</span>}
+                    <a
+                      href={`/admin/organizations?name=${encodeURIComponent(i.companyName)}&email=${encodeURIComponent(i.workEmail)}${i.phone ? `&phone=${encodeURIComponent(i.phone)}` : ""}${i.country ? `&country=${encodeURIComponent(i.country)}` : ""}`}
+                      className="inline-flex items-center gap-1 text-emerald-600 hover:underline font-medium"
+                    >
+                      <Building2 size={14} /> Create org account
+                    </a>
                   </div>
 
                   <button

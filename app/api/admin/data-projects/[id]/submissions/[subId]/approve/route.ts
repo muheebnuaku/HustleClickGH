@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { canReward } from "@/lib/org";
 
 export async function POST(
   _req: Request,
@@ -31,14 +32,26 @@ export async function POST(
       );
     }
 
-    const project = await prisma.dataProject.findUnique({ where: { id: projectId } });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const project = await (prisma.dataProject.findUnique as any)({ where: { id: projectId } });
     if (!project) {
       return NextResponse.json({ message: "Project not found" }, { status: 404 });
     }
 
-    // Approve: credit user balance, increment project count — atomically
+    // Escrow guard: org-funded projects can only pay out from their funded budget.
+    if (!canReward(project)) {
+      await prisma.dataProject.update({ where: { id: projectId }, data: { status: "paused" } }).catch(() => {});
+      return NextResponse.json(
+        { message: "This project's funded budget is exhausted. Ask the organization to top it up before approving more." },
+        { status: 402 }
+      );
+    }
+
+    // Approve: credit user balance, increment project count + escrow spent — atomically
     const projectUpdate: Parameters<typeof prisma.dataProject.update>[0]["data"] = {
       currentSubmissions: { increment: 1 },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      spent: { increment: project.reward } as any,
     };
     if (submission.gender === "male" && project.malesNeeded !== null) {
       projectUpdate.malesApproved = { increment: 1 };

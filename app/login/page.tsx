@@ -99,6 +99,8 @@ export default function AuthPage() {
           router.push("/admin");
         } else if (sessionData?.user?.role === "manager") {
           router.push("/admin/call-recordings");
+        } else if (sessionData?.user?.role === "organization") {
+          router.push("/org");
         } else {
           // Contributors: offer biometric setup (the page forwards on if already set up)
           router.push("/setup-biometrics");
@@ -137,6 +139,7 @@ export default function AuthPage() {
       const sessionData = await sessionRes.json();
       if (sessionData?.user?.role === "admin") router.push("/admin");
       else if (sessionData?.user?.role === "manager") router.push("/admin/call-recordings");
+      else if (sessionData?.user?.role === "organization") router.push("/org");
       else router.push("/dashboard");
       router.refresh();
     } catch (err) {
