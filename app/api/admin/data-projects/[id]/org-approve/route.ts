@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { allocateToProject } from "@/lib/org";
+import { getUsdToGhsRate, convertUsdToGhs } from "@/lib/fx";
 
 // POST /api/admin/data-projects/[id]/org-approve { action: "approve" | "reject" }
 // Approves an org-submitted project: allocates its funded budget from the org
@@ -33,17 +34,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ ok: true, status: "rejected" });
   }
 
-  // Approve: the admin sets the contributor reward (what contributors earn/see).
-  // It must not exceed the org's price — the platform keeps the difference.
-  const orgPrice = project.orgPrice ?? project.reward;
-  const reward = Number(contributorReward);
+  // Approve: the buyer pays in USD; the contributor is paid in Cedis. The admin
+  // sets the contributor reward (GH₵), which can't exceed the Cedi value of the
+  // buyer's payment — the platform keeps the difference (in Cedis).
+  const orgPriceUsd = project.orgPrice ?? project.reward;
+  const rate = await getUsdToGhsRate();
+  const buyerGhs = convertUsdToGhs(orgPriceUsd, rate);
+  const reward = Number(contributorReward); // GH₵
   if (!(reward > 0)) return NextResponse.json({ message: "Set a contributor reward greater than 0" }, { status: 400 });
-  if (reward > orgPrice) {
-    return NextResponse.json({ message: `Contributor reward can't exceed the buyer's price ($${orgPrice.toFixed(2)}).` }, { status: 400 });
+  if (reward > buyerGhs) {
+    return NextResponse.json({ message: `Contributor reward can't exceed the buyer's payment (GH₵${buyerGhs.toFixed(2)}).` }, { status: 400 });
   }
 
-  // Fund the budget from the org wallet at the BUYER price, then go live.
-  const budget = Math.round(orgPrice * project.maxSubmissions * 100) / 100;
+  // Fund the budget from the org wallet at the BUYER price (USD), then go live.
+  const budget = Math.round(orgPriceUsd * project.maxSubmissions * 100) / 100;
   const funded = await allocateToProject(project.orgId, id, budget);
   if (!funded) {
     return NextResponse.json(
@@ -52,5 +56,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     );
   }
   await prisma.dataProject.update({ where: { id }, data: { status: "active", reward } });
-  return NextResponse.json({ ok: true, status: "active", funded: budget, contributorReward: reward, margin: orgPrice - reward });
+  return NextResponse.json({ ok: true, status: "active", funded: budget, contributorReward: reward, marginGhs: buyerGhs - reward });
 }

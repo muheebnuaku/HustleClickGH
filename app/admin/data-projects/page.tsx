@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatUsd, formatDate } from "@/lib/utils";
+import { convertUsdToGhs, fallbackRate } from "@/lib/fx";
 import { Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload, Pencil, Building2, Check, X } from "lucide-react";
 import Link from "next/link";
 import { uploadFile } from "@/lib/upload-file";
@@ -95,6 +96,9 @@ export default function AdminDataProjectsPage() {
   // Org-project approval: which project's approve panel is open + the contributor reward being set
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [approveReward, setApproveReward] = useState("");
+  // Live USD→GHS rate for showing the Cedi payout value of buyer USD prices.
+  const [fxRate, setFxRate] = useState(fallbackRate());
+  const toGhs = (usd: number) => convertUsdToGhs(usd, fxRate);
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -110,6 +114,9 @@ export default function AdminDataProjectsPage() {
   };
 
   useEffect(() => { fetchProjects(); }, []);
+  useEffect(() => {
+    fetch("/api/fx/rate").then((r) => r.ok ? r.json() : null).then((d) => { if (d?.rate > 0) setFxRate(d.rate); }).catch(() => {});
+  }, []);
 
   const openEdit = (p: DataProject) => {
     setForm({
@@ -540,9 +547,9 @@ export default function AdminDataProjectsPage() {
                     <div className="flex flex-wrap gap-4 mt-3 text-sm">
                       {p.orgName ? (
                         <>
-                          <span className="text-zinc-500">Buyer price: <strong className="text-emerald-600">{formatUsd(p.orgPrice ?? p.reward)}</strong>/item</span>
+                          <span className="text-zinc-500">Buyer price: <strong className="text-emerald-600">{formatUsd(p.orgPrice ?? p.reward)}</strong>/item (≈{formatCurrency(toGhs(p.orgPrice ?? p.reward))})</span>
                           {p.status !== "pending_review" && (
-                            <span className="text-zinc-500">Contributor: <strong className="text-green-600">{formatCurrency(p.reward)}</strong> · margin <strong className="text-emerald-600">{formatUsd((p.orgPrice ?? p.reward) - p.reward)}</strong></span>
+                            <span className="text-zinc-500">Contributor: <strong className="text-green-600">{formatCurrency(p.reward)}</strong> · margin <strong className="text-emerald-600">{formatCurrency(toGhs(p.orgPrice ?? p.reward) - p.reward)}</strong></span>
                           )}
                           {(p.budget ?? 0) > 0 && <span className="text-zinc-500">Budget: {formatUsd(p.spent ?? 0)}/{formatUsd(p.budget ?? 0)}</span>}
                         </>
@@ -567,7 +574,7 @@ export default function AdminDataProjectsPage() {
                   <div className="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
                     {p.status === "pending_review" && p.orgName && (
                       <>
-                        <Button size="sm" onClick={() => { setApprovingId(p.id); setApproveReward(String(p.orgPrice ?? p.reward)); }} className="bg-green-600 hover:bg-green-700 text-white" title="Set the contributor reward and approve">
+                        <Button size="sm" onClick={() => { setApprovingId(p.id); setApproveReward(String(toGhs(p.orgPrice ?? p.reward))); }} className="bg-green-600 hover:bg-green-700 text-white" title="Set the contributor reward and approve">
                           <Check size={15} className="mr-1" />Approve
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => handleOrgApprove(p.id, "reject")} className="text-red-600 border-red-300" title="Reject">
@@ -607,10 +614,11 @@ export default function AdminDataProjectsPage() {
                 {/* Approve panel: set the contributor reward (≤ buyer price); platform keeps the spread. */}
                 {approvingId === p.id && (
                   <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
-                    <p className="text-sm font-medium text-foreground mb-1">Set the contributor reward</p>
+                    <p className="text-sm font-medium text-foreground mb-1">Set the contributor reward (paid in Cedis)</p>
                     <p className="text-xs text-zinc-500 mb-3">
-                      Buyer pays <strong className="text-emerald-600">{formatUsd(p.orgPrice ?? p.reward)}</strong> per item.
-                      Contributors will see and earn this reward; the difference is the platform&rsquo;s margin.
+                      Buyer pays <strong className="text-emerald-600">{formatUsd(p.orgPrice ?? p.reward)}</strong> per item
+                      = <strong className="text-foreground">{formatCurrency(toGhs(p.orgPrice ?? p.reward))}</strong>.
+                      Pay the contributor part of that; the rest is the platform&rsquo;s margin.
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="relative">
@@ -618,13 +626,13 @@ export default function AdminDataProjectsPage() {
                         <Input type="number" step="0.5" min="0.5" value={approveReward} onChange={(e) => setApproveReward(e.target.value)} className="pl-11 w-40" />
                       </div>
                       {(() => {
-                        const r = Number(approveReward); const op = p.orgPrice ?? p.reward; const margin = op - r;
-                        return <span className="text-sm text-zinc-500">Margin: <strong className={margin >= 0 ? "text-emerald-600" : "text-red-600"}>{formatUsd(Math.max(0, margin))}</strong>/item</span>;
+                        const r = Number(approveReward); const buyerGhs = toGhs(p.orgPrice ?? p.reward); const margin = buyerGhs - r;
+                        return <span className="text-sm text-zinc-500">Platform margin: <strong className={margin >= 0 ? "text-emerald-600" : "text-red-600"}>{formatCurrency(Math.max(0, margin))}</strong>/item</span>;
                       })()}
-                      <Button size="sm" onClick={() => handleOrgApprove(p.id, "approve", Number(approveReward))} disabled={!(Number(approveReward) > 0) || Number(approveReward) > (p.orgPrice ?? p.reward)} className="bg-green-600 hover:bg-green-700 text-white">Confirm & go live</Button>
+                      <Button size="sm" onClick={() => handleOrgApprove(p.id, "approve", Number(approveReward))} disabled={!(Number(approveReward) > 0) || Number(approveReward) > toGhs(p.orgPrice ?? p.reward)} className="bg-green-600 hover:bg-green-700 text-white">Confirm & go live</Button>
                       <Button size="sm" variant="outline" onClick={() => setApprovingId(null)}>Cancel</Button>
                     </div>
-                    {Number(approveReward) > (p.orgPrice ?? p.reward) && <p className="text-xs text-red-600 mt-1">Reward can&rsquo;t exceed the buyer&rsquo;s price.</p>}
+                    {Number(approveReward) > toGhs(p.orgPrice ?? p.reward) && <p className="text-xs text-red-600 mt-1">Reward can&rsquo;t exceed the buyer&rsquo;s payment in Cedis ({formatCurrency(toGhs(p.orgPrice ?? p.reward))}).</p>}
                   </div>
                 )}
               </Card>
