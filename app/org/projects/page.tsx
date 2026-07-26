@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatUsd } from "@/lib/utils";
+import { orgStatusLabel, orgStatusClass } from "@/lib/org-status";
 import { LICENSES, DEFAULT_LICENSE } from "@/lib/licenses";
 import { Loader2, Plus, X, Mic, Video, ArrowRight } from "lucide-react";
 
@@ -115,7 +116,7 @@ export default function OrgProjects() {
                         <p className="text-sm text-zinc-500 mt-1">{p.counts.approved}/{p.maxSubmissions} collected · {p.counts.pending} pending · {formatUsd(p.reward)}/each</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${p.status === "active" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800"}`}>{p.status}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${orgStatusClass(p.status)}`}>{orgStatusLabel(p.status)}</span>
                         <ArrowRight size={16} className="text-zinc-400" />
                       </div>
                     </div>

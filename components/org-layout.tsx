@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { LogOut, LayoutDashboard, Database, Wallet, Menu, X, Home, Building2 } from "lucide-react";
+import { LogOut, LayoutDashboard, Database, Wallet, Menu, X, Home, Building2, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
@@ -12,11 +12,19 @@ const navItems = [
   { href: "/org", label: "Dashboard", icon: LayoutDashboard },
   { href: "/org/projects", label: "Projects", icon: Database },
   { href: "/org/wallet", label: "Wallet & Billing", icon: Wallet },
+  { href: "/org/settings", label: "Settings", icon: Settings },
 ];
 
 export function OrgLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [orgName, setOrgName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/org/me").then((r) => r.ok ? r.json() : null).then((d) => { if (alive && d?.org?.name) setOrgName(d.org.name); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     document.body.style.overflow = sidebarOpen ? "hidden" : "unset";
@@ -61,7 +69,7 @@ export function OrgLayout({ children }: { children: React.ReactNode }) {
               <Building2 size={22} />
             </div>
             <div className="min-w-0">
-              <h1 className="font-bold text-lg truncate">Organization Portal</h1>
+              <h1 className="font-bold text-lg truncate">{orgName || "Organization Portal"}</h1>
               <p className="text-xs text-emerald-100 hidden sm:block">HustleClickGH for Business</p>
             </div>
           </div>

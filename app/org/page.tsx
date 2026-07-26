@@ -6,7 +6,8 @@ import { OrgLayout } from "@/components/org-layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatUsd } from "@/lib/utils";
-import { Loader2, Wallet, Database, Plus, ArrowRight } from "lucide-react";
+import { orgStatusLabel, orgStatusClass } from "@/lib/org-status";
+import { Loader2, Wallet, Database, Plus, ArrowRight, ShieldCheck, X } from "lucide-react";
 
 interface P { id: string; title: string; status: string; currentSubmissions: number; maxSubmissions: number; counts: { pending: number; approved: number }; budget: number; spent: number; }
 
@@ -14,11 +15,17 @@ export default function OrgDashboard() {
   const [wallet, setWallet] = useState(0);
   const [projects, setProjects] = useState<P[]>([]);
   const [loading, setLoading] = useState(true);
+  const [orgName, setOrgName] = useState("");
+  const [mustSetPassword, setMustSetPassword] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     fetch("/api/org/projects").then((r) => r.ok ? r.json() : null).then((d) => {
       if (d) { setWallet(d.walletBalance ?? 0); setProjects(d.projects ?? []); }
     }).catch(() => {}).finally(() => setLoading(false));
+    fetch("/api/org/me").then((r) => r.ok ? r.json() : null).then((d) => {
+      if (d?.org) { setOrgName(d.org.name || ""); setMustSetPassword(!!d.org.mustSetPassword); }
+    }).catch(() => {});
   }, []);
 
   const active = projects.filter((p) => p.status === "active").length;
@@ -31,9 +38,23 @@ export default function OrgDashboard() {
     <OrgLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Overview</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">{orgName ? `Welcome, ${orgName}` : "Overview"}</h1>
           <p className="text-zinc-600 dark:text-zinc-400 mt-1">Fund projects, watch collection, and download your datasets.</p>
         </div>
+
+        {mustSetPassword && !dismissed && (
+          <Card className="border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/10">
+            <CardContent className="p-4 flex items-start gap-3">
+              <ShieldCheck className="text-amber-600 mt-0.5 shrink-0" size={20} />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-amber-800 dark:text-amber-300">Secure your account</p>
+                <p className="text-sm text-amber-700 dark:text-amber-400">You&rsquo;re still using the temporary password from your invite. Set your own password now.</p>
+                <Link href="/org/settings"><Button size="sm" className="mt-2 bg-amber-600 hover:bg-amber-700">Set password</Button></Link>
+              </div>
+              <button onClick={() => setDismissed(true)} className="text-amber-500 hover:text-amber-700 shrink-0" aria-label="Dismiss"><X size={18} /></button>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <Card><CardContent className="p-4"><p className="text-xs text-zinc-500">Wallet balance</p><p className="text-xl sm:text-2xl font-bold text-emerald-600 mt-1">{formatUsd(wallet)}</p></CardContent></Card>
@@ -63,7 +84,7 @@ export default function OrgDashboard() {
                       <p className="font-medium text-foreground truncate">{p.title}</p>
                       <p className="text-xs text-zinc-500">{p.counts.approved}/{p.maxSubmissions} collected · {p.counts.pending} pending</p>
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${p.status === "active" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800"}`}>{p.status}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${orgStatusClass(p.status)}`}>{orgStatusLabel(p.status)}</span>
                   </Link>
                 ))}
               </div>

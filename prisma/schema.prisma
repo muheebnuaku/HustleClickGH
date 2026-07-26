@@ -275,6 +275,7 @@ model Organization {
   country       String?
   status        String   @default("active") // active | suspended
   walletBalance Float    @default(0) // funded, not-yet-allocated GH₵
+  mustSetPassword Boolean @default(true) // true after provisioning; false once the org sets its own password
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

@@ -7,6 +7,7 @@ import { OrgLayout } from "@/components/org-layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatUsd } from "@/lib/utils";
+import { orgStatusLabel, orgStatusClass } from "@/lib/org-status";
 import { Loader2, ArrowLeft, Download, Database, ShieldCheck, AlertTriangle } from "lucide-react";
 
 interface Detail {
@@ -40,7 +41,7 @@ export default function OrgProjectDetail() {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold text-foreground break-words">{p.title}</h1>
-            <span className={`text-xs px-2 py-0.5 rounded-full ${p.status === "active" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800"}`}>{p.status}</span>
+            <span className={`text-xs px-2 py-0.5 rounded-full ${orgStatusClass(p.status)}`}>{orgStatusLabel(p.status)}</span>
           </div>
           <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1 break-words">{p.description}</p>
           {p.languages.length > 0 && <p className="text-xs text-zinc-500 mt-1">Languages: {p.languages.join(", ")}</p>}
