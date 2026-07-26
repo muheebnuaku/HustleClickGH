@@ -251,8 +251,9 @@ model DataProject {
   createdBy          String           // admin userId (or org owner userId)
   // Organization funding / escrow. orgId null = admin/internal project (behaves as before).
   orgId              String?          // owning Organization id
-  budget             Float            @default(0) // funded reward pool (GH₵)
-  spent              Float            @default(0) // rewards already paid out of budget
+  orgPrice           Float?           // buyer's price per approved item (org projects). Platform margin = orgPrice − reward.
+  budget             Float            @default(0) // funded pool at the buyer price (orgPrice × target)
+  spent              Float            @default(0) // buyer cost already drawn from budget (orgPrice per approval)
   license            String           @default("commercial_ai") // usage licence key (see lib/licenses.ts)
   usageTerms         String?          // optional extra buyer-specified usage terms
   createdAt          DateTime         @default(now())

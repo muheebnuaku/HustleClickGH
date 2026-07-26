@@ -8,7 +8,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatCurrency } from "@/lib/utils";
+import { formatUsd } from "@/lib/utils";
 import { Building2, Plus, Loader2, Lock, Unlock, X } from "lucide-react";
 
 interface Org {
@@ -132,9 +132,9 @@ function OrganizationsContent() {
                     </button>
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-                    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900 py-2"><p className="text-xs text-zinc-500">Wallet</p><p className="text-sm font-semibold text-emerald-600">{formatCurrency(o.walletBalance)}</p></div>
+                    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900 py-2"><p className="text-xs text-zinc-500">Wallet</p><p className="text-sm font-semibold text-emerald-600">{formatUsd(o.walletBalance)}</p></div>
                     <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900 py-2"><p className="text-xs text-zinc-500">Projects</p><p className="text-sm font-semibold text-foreground">{o.projects}</p></div>
-                    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900 py-2"><p className="text-xs text-zinc-500">Spent</p><p className="text-sm font-semibold text-foreground">{formatCurrency(o.totalSpent)}</p></div>
+                    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900 py-2"><p className="text-xs text-zinc-500">Spent</p><p className="text-sm font-semibold text-foreground">{formatUsd(o.totalSpent)}</p></div>
                   </div>
                 </CardContent>
               </Card>

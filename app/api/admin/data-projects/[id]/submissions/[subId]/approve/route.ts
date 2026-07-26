@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { canReward } from "@/lib/org";
+import { canReward, buyerCost } from "@/lib/org";
 
 export async function POST(
   _req: Request,
@@ -47,11 +47,13 @@ export async function POST(
       );
     }
 
-    // Approve: credit user balance, increment project count + escrow spent — atomically
+    // Approve: contributor earns the (lower) reward; the org's budget is drawn by
+    // the buyer price. The platform keeps the difference (buyerCost − reward).
+    const cost = buyerCost(project);
     const projectUpdate: Parameters<typeof prisma.dataProject.update>[0]["data"] = {
       currentSubmissions: { increment: 1 },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      spent: { increment: project.reward } as any,
+      spent: { increment: cost } as any,
     };
     if (submission.gender === "male" && project.malesNeeded !== null) {
       projectUpdate.malesApproved = { increment: 1 };

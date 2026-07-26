@@ -5,8 +5,8 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatCurrency, formatDate } from "@/lib/utils";
-import { Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload, Pencil } from "lucide-react";
+import { formatCurrency, formatUsd, formatDate } from "@/lib/utils";
+import { Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload, Pencil, Building2, Check, X } from "lucide-react";
 import Link from "next/link";
 import { uploadFile } from "@/lib/upload-file";
 
@@ -33,6 +33,11 @@ interface DataProject {
   maxSubmissionsPerUser: number;
   currentSubmissions: number;
   status: string;
+  orgId?: string | null;
+  orgName?: string | null;
+  orgPrice?: number | null;
+  budget?: number;
+  spent?: number;
   pendingCount: number;
   approvedCount: number;
   rejectedCount: number;
@@ -87,6 +92,9 @@ export default function AdminDataProjectsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  // Org-project approval: which project's approve panel is open + the contributor reward being set
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [approveReward, setApproveReward] = useState("");
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -221,6 +229,24 @@ export default function AdminDataProjectsPage() {
     }
   };
 
+  const handleOrgApprove = async (id: string, action: "approve" | "reject", contributorReward?: number) => {
+    if (action === "reject" && !confirm("Reject this organization project?")) return;
+    try {
+      const res = await fetch(`/api/admin/data-projects/${id}/org-approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, contributorReward }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setError(d.message || "Action failed"); return; }
+      setError("");
+      setApprovingId(null);
+      fetchProjects();
+    } catch {
+      setError("Failed to update project");
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this project and all its submissions?")) return;
     try {
@@ -243,8 +269,11 @@ export default function AdminDataProjectsPage() {
       active: "bg-green-100 text-green-700",
       paused: "bg-yellow-100 text-yellow-700",
       completed: "bg-zinc-100 text-zinc-600",
+      pending_review: "bg-amber-100 text-amber-700",
+      rejected: "bg-red-100 text-red-700",
     };
-    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${map[status] || "bg-zinc-100 text-zinc-600"}`}>{status}</span>;
+    const label = status === "pending_review" ? "pending review" : status;
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${map[status] || "bg-zinc-100 text-zinc-600"}`}>{label}</span>;
   };
 
   return (
@@ -501,6 +530,7 @@ export default function AdminDataProjectsPage() {
                     <div className="flex flex-wrap items-center gap-2 mb-2">
                       {getTypeIcon(p.projectType)}
                       {getStatusBadge(p.status)}
+                      {p.orgName && <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 inline-flex items-center gap-1"><Building2 size={11} />{p.orgName}</span>}
                       <span className="text-xs text-zinc-400">{formatDate(p.createdAt)}</span>
                     </div>
                     <h3 className="font-semibold text-foreground truncate">{p.title}</h3>
@@ -508,7 +538,17 @@ export default function AdminDataProjectsPage() {
 
                     {/* Stats row */}
                     <div className="flex flex-wrap gap-4 mt-3 text-sm">
-                      <span className="text-zinc-500">Reward: <strong className="text-green-600">{formatCurrency(p.reward)}</strong></span>
+                      {p.orgName ? (
+                        <>
+                          <span className="text-zinc-500">Buyer price: <strong className="text-emerald-600">{formatUsd(p.orgPrice ?? p.reward)}</strong>/item</span>
+                          {p.status !== "pending_review" && (
+                            <span className="text-zinc-500">Contributor: <strong className="text-green-600">{formatCurrency(p.reward)}</strong> · margin <strong className="text-emerald-600">{formatUsd((p.orgPrice ?? p.reward) - p.reward)}</strong></span>
+                          )}
+                          {(p.budget ?? 0) > 0 && <span className="text-zinc-500">Budget: {formatUsd(p.spent ?? 0)}/{formatUsd(p.budget ?? 0)}</span>}
+                        </>
+                      ) : (
+                        <span className="text-zinc-500">Reward: <strong className="text-green-600">{formatCurrency(p.reward)}</strong></span>
+                      )}
                       <span className="text-zinc-500">Slots: <strong>{p.currentSubmissions}/{p.maxSubmissions}</strong></span>
                       <span className="text-yellow-600 font-medium">{p.pendingCount} pending</span>
                       <span className="text-green-600 font-medium">{p.approvedCount} approved</span>
@@ -525,7 +565,17 @@ export default function AdminDataProjectsPage() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
-                    <button onClick={() => openEdit(p)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit project">
+                    {p.status === "pending_review" && p.orgName && (
+                      <>
+                        <Button size="sm" onClick={() => { setApprovingId(p.id); setApproveReward(String(p.orgPrice ?? p.reward)); }} className="bg-green-600 hover:bg-green-700 text-white" title="Set the contributor reward and approve">
+                          <Check size={15} className="mr-1" />Approve
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => handleOrgApprove(p.id, "reject")} className="text-red-600 border-red-300" title="Reject">
+                          <X size={15} className="mr-1" />Reject
+                        </Button>
+                      </>
+                    )}
+                    <button onClick={() => openEdit(p)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title={p.orgName ? "Edit — you can change the price before approving" : "Edit project"}>
                       <Pencil size={18} />
                     </button>
                     <Link href={`/admin/data-projects/${p.id}`}>
@@ -553,6 +603,30 @@ export default function AdminDataProjectsPage() {
                     </button>
                   </div>
                 </div>
+
+                {/* Approve panel: set the contributor reward (≤ buyer price); platform keeps the spread. */}
+                {approvingId === p.id && (
+                  <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+                    <p className="text-sm font-medium text-foreground mb-1">Set the contributor reward</p>
+                    <p className="text-xs text-zinc-500 mb-3">
+                      Buyer pays <strong className="text-emerald-600">{formatUsd(p.orgPrice ?? p.reward)}</strong> per item.
+                      Contributors will see and earn this reward; the difference is the platform&rsquo;s margin.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 text-sm">GH₵</span>
+                        <Input type="number" step="0.5" min="0.5" value={approveReward} onChange={(e) => setApproveReward(e.target.value)} className="pl-11 w-40" />
+                      </div>
+                      {(() => {
+                        const r = Number(approveReward); const op = p.orgPrice ?? p.reward; const margin = op - r;
+                        return <span className="text-sm text-zinc-500">Margin: <strong className={margin >= 0 ? "text-emerald-600" : "text-red-600"}>{formatUsd(Math.max(0, margin))}</strong>/item</span>;
+                      })()}
+                      <Button size="sm" onClick={() => handleOrgApprove(p.id, "approve", Number(approveReward))} disabled={!(Number(approveReward) > 0) || Number(approveReward) > (p.orgPrice ?? p.reward)} className="bg-green-600 hover:bg-green-700 text-white">Confirm & go live</Button>
+                      <Button size="sm" variant="outline" onClick={() => setApprovingId(null)}>Cancel</Button>
+                    </div>
+                    {Number(approveReward) > (p.orgPrice ?? p.reward) && <p className="text-xs text-red-600 mt-1">Reward can&rsquo;t exceed the buyer&rsquo;s price.</p>}
+                  </div>
+                )}
               </Card>
             ))}
           </div>

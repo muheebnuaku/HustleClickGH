@@ -54,12 +54,17 @@ export function escrowAvailable(project: { budget: number; spent: number }): num
   return (project.budget ?? 0) - (project.spent ?? 0);
 }
 
+/** The buyer's cost per approved item — the org's price, or the reward for internal projects. */
+export function buyerCost(project: { orgId: string | null; orgPrice?: number | null; reward: number }): number {
+  return project.orgId ? (project.orgPrice ?? project.reward) : project.reward;
+}
+
 /**
- * Whether a project can pay one more reward. Admin/internal projects (no orgId)
- * are unlimited (they behave exactly as before). Org-funded projects must have
- * escrow remaining.
+ * Whether a project can approve one more item. Admin/internal projects (no orgId)
+ * are unlimited. Org-funded projects must have escrow covering the BUYER price
+ * (orgPrice) — the platform's margin (orgPrice − reward) is kept from that.
  */
-export function canReward(project: { orgId: string | null; budget: number; spent: number; reward: number }): boolean {
+export function canReward(project: { orgId: string | null; orgPrice?: number | null; budget: number; spent: number; reward: number }): boolean {
   if (!project.orgId) return true;
-  return escrowAvailable(project) >= project.reward;
+  return escrowAvailable(project) >= buyerCost(project);
 }

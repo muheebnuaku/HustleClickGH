@@ -5,7 +5,7 @@ import Link from "next/link";
 import { OrgLayout } from "@/components/org-layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { formatCurrency } from "@/lib/utils";
+import { formatUsd } from "@/lib/utils";
 import { Loader2, Wallet, Database, Plus, ArrowRight } from "lucide-react";
 
 interface P { id: string; title: string; status: string; currentSubmissions: number; maxSubmissions: number; counts: { pending: number; approved: number }; budget: number; spent: number; }
@@ -36,7 +36,7 @@ export default function OrgDashboard() {
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <Card><CardContent className="p-4"><p className="text-xs text-zinc-500">Wallet balance</p><p className="text-xl sm:text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(wallet)}</p></CardContent></Card>
+          <Card><CardContent className="p-4"><p className="text-xs text-zinc-500">Wallet balance</p><p className="text-xl sm:text-2xl font-bold text-emerald-600 mt-1">{formatUsd(wallet)}</p></CardContent></Card>
           <Card><CardContent className="p-4"><p className="text-xs text-zinc-500">Active projects</p><p className="text-xl sm:text-2xl font-bold text-foreground mt-1">{active}</p></CardContent></Card>
           <Card><CardContent className="p-4"><p className="text-xs text-zinc-500">Awaiting review</p><p className="text-xl sm:text-2xl font-bold text-amber-600 mt-1">{pending}</p></CardContent></Card>
           <Card><CardContent className="p-4"><p className="text-xs text-zinc-500">Data collected</p><p className="text-xl sm:text-2xl font-bold text-foreground mt-1">{collected}</p></CardContent></Card>

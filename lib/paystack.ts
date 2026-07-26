@@ -7,7 +7,7 @@ import crypto from "crypto";
  *   PAYSTACK_SECRET_KEY            server-only secret (sk_test_… / sk_live_…)
  *   NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY  public key (browser, optional for inline)
  *
- * Amounts are handled in GH₵ at the API boundary and converted to the smallest
+ * Amounts are handled in $ at the API boundary and converted to the smallest
  * unit (pesewas) for Paystack. If the secret key is absent, isPaystackConfigured
  * returns false and callers disable funding gracefully.
  */
@@ -47,7 +47,7 @@ export async function initTransaction(opts: {
       body: JSON.stringify({
         email: opts.email,
         amount: Math.round(opts.amountGhs * 100), // pesewas
-        currency: "GHS",
+        currency: "USD",
         reference: opts.reference,
         callback_url: opts.callbackUrl,
         metadata: opts.metadata ?? {},

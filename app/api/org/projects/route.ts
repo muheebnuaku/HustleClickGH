@@ -2,7 +2,6 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { currentOrg } from "@/lib/org-auth";
-import { allocateToProject } from "@/lib/org";
 import { LICENSES, DEFAULT_LICENSE } from "@/lib/licenses";
 
 // GET /api/org/projects — the org's own projects with collection progress.
@@ -35,7 +34,7 @@ export async function GET() {
     walletBalance: org.walletBalance,
     projects: (projects as Array<Record<string, unknown>>).map((p) => ({
       id: p.id, title: p.title, projectType: p.projectType, status: p.status,
-      reward: p.reward, maxSubmissions: p.maxSubmissions, currentSubmissions: p.currentSubmissions,
+      reward: (p.orgPrice ?? p.reward), maxSubmissions: p.maxSubmissions, currentSubmissions: p.currentSubmissions,
       budget: p.budget, spent: p.spent, createdAt: p.createdAt,
       counts: counts.get(p.id as string) || { pending: 0, approved: 0, rejected: 0 },
     })),
@@ -52,30 +51,33 @@ export async function POST(request: Request) {
   const description = String(b.description || "").trim();
   const instructions = String(b.instructions || "").trim();
   const projectType = ["voice", "video"].includes(b.projectType) ? b.projectType : "voice";
-  const reward = Number(b.reward);
+  // The org sets the price THEY pay per approved item. The contributor reward is
+  // set (lower) by an admin at approval; the difference is the platform's margin.
+  const orgPrice = Number(b.reward);
   const maxSubmissions = Number(b.maxSubmissions);
 
   if (!title || !description || !instructions) {
     return NextResponse.json({ message: "Title, description and instructions are required" }, { status: 400 });
   }
-  if (!(reward > 0) || !(maxSubmissions > 0)) {
-    return NextResponse.json({ message: "Reward and target submissions must be positive" }, { status: 400 });
+  if (!(orgPrice > 0) || !(maxSubmissions > 0)) {
+    return NextResponse.json({ message: "Price and target submissions must be positive" }, { status: 400 });
   }
 
-  const budget = Math.round(reward * maxSubmissions * 100) / 100;
-  if (org.walletBalance < budget) {
-    return NextResponse.json({ message: `Insufficient wallet balance. This project needs GH₵${budget.toFixed(2)}; top up first.` }, { status: 402 });
-  }
-
+  const estBudget = Math.round(orgPrice * maxSubmissions * 100) / 100;
   const languages = Array.isArray(b.languages) ? b.languages : (b.languages ? String(b.languages).split(",").map((s: string) => s.trim()).filter(Boolean) : []);
   const acceptedFormats = projectType === "voice" ? ["wav", "mp3", "m4a"] : ["mp4", "mov", "webm"];
   const license = LICENSES[b.license] ? b.license : DEFAULT_LICENSE;
 
+  // Org projects require admin review before they go live. They are created in
+  // "pending_review" (hidden from contributors) and no wallet funds are moved yet —
+  // the admin may adjust the price, and the budget is only allocated on approval.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const project = await (prisma.dataProject.create as any)({
     data: {
       title, description, instructions, projectType,
-      reward, maxSubmissions,
+      orgPrice,
+      reward: orgPrice, // placeholder; the admin sets the real (lower) contributor reward at approval
+      maxSubmissions,
       maxSubmissionsPerUser: Number(b.maxSubmissionsPerUser) || 1,
       minDurationSecs: Number(b.minDurationSecs) || 3,
       maxDurationSecs: Number(b.maxDurationSecs) || 60,
@@ -83,21 +85,14 @@ export async function POST(request: Request) {
       acceptedFormats: JSON.stringify(acceptedFormats),
       languages: languages.length ? JSON.stringify(languages) : null,
       samplePrompts: b.samplePrompts ? JSON.stringify(String(b.samplePrompts).split("\n").map((s: string) => s.trim()).filter(Boolean)) : null,
-      status: "active",
+      status: "pending_review",
       createdBy: session.user.id,
       orgId: org.id,
-      budget: 0, // funded via allocateToProject below
+      budget: 0, // allocated from the wallet when an admin approves
       license,
       usageTerms: b.usageTerms ? String(b.usageTerms).slice(0, 2000) : null,
     },
   });
 
-  const ok = await allocateToProject(org.id, project.id, budget);
-  if (!ok) {
-    // Roll back the project if funding failed (shouldn't happen — checked above).
-    await prisma.dataProject.delete({ where: { id: project.id } }).catch(() => {});
-    return NextResponse.json({ message: "Could not fund the project from your wallet" }, { status: 402 });
-  }
-
-  return NextResponse.json({ ok: true, projectId: project.id, funded: budget });
+  return NextResponse.json({ ok: true, projectId: project.id, status: "pending_review", estimatedBudget: estBudget });
 }

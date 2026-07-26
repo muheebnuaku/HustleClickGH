@@ -42,7 +42,19 @@ export async function GET() {
       })
     );
 
-    return NextResponse.json({ projects: projectsWithStats });
+    // Attach the owning organization's name for org-submitted projects.
+    const orgIds = Array.from(new Set(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (projectsWithStats as any[]).map((p) => p.orgId).filter(Boolean) as string[]
+    ));
+    const orgs = orgIds.length
+      ? await prisma.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } })
+      : [];
+    const orgById = new Map(orgs.map((o) => [o.id, o.name]));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const withOrg = (projectsWithStats as any[]).map((p) => ({ ...p, orgName: p.orgId ? (orgById.get(p.orgId) ?? "Organization") : null }));
+
+    return NextResponse.json({ projects: withOrg });
   } catch (error) {
     console.error("Admin data projects fetch error:", error);
     return NextResponse.json({ message: "An error occurred" }, { status: 500 });

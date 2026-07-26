@@ -6,7 +6,7 @@ import { OrgLayout } from "@/components/org-layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatUsd, formatDate } from "@/lib/utils";
 import { Loader2, Wallet, Plus, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
 
 interface Tx { id: string; type: string; amount: number; status: string; provider?: string | null; createdAt: string; meta?: { projectId?: string } | null; }
@@ -71,12 +71,12 @@ function WalletContent() {
           <CardContent className="p-6">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 flex items-center justify-center"><Wallet size={24} /></div>
-              <div><p className="text-sm text-zinc-500">Available balance</p><p className="text-3xl font-bold text-emerald-600">{formatCurrency(balance)}</p></div>
+              <div><p className="text-sm text-zinc-500">Available balance</p><p className="text-3xl font-bold text-emerald-600">{formatUsd(balance)}</p></div>
             </div>
             <div className="mt-5 border-t border-zinc-100 dark:border-zinc-800 pt-4">
               {configured ? (
                 <div className="flex flex-col sm:flex-row gap-2">
-                  <Input type="number" min={1} step="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount in GH₵" className="flex-1" />
+                  <Input type="number" min={1} step="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount in $" className="flex-1" />
                   <Button onClick={fund} disabled={funding || !(Number(amount) >= 1)} className="bg-emerald-600 hover:bg-emerald-700">
                     {funding ? <><Loader2 size={16} className="mr-1 animate-spin" />Starting…</> : <><Plus size={16} className="mr-1" />Add funds</>}
                   </Button>
@@ -107,7 +107,7 @@ function WalletContent() {
                           <p className="text-xs text-zinc-500">{formatDate(t.createdAt)}{t.status !== "success" ? ` · ${t.status}` : ""}</p>
                         </div>
                       </div>
-                      <p className={`text-sm font-semibold shrink-0 ${isIn ? "text-emerald-600" : "text-zinc-600 dark:text-zinc-300"}`}>{isIn ? "+" : "−"}{formatCurrency(t.amount)}</p>
+                      <p className={`text-sm font-semibold shrink-0 ${isIn ? "text-emerald-600" : "text-zinc-600 dark:text-zinc-300"}`}>{isIn ? "+" : "−"}{formatUsd(t.amount)}</p>
                     </div>
                   );
                 })}

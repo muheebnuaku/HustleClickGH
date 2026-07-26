@@ -16,7 +16,7 @@ export async function POST(request: Request) {
 
   const { amount } = await request.json().catch(() => ({}));
   const amountGhs = Number(amount);
-  if (!(amountGhs >= 1)) return NextResponse.json({ message: "Enter an amount of at least GH₵1" }, { status: 400 });
+  if (!(amountGhs >= 1)) return NextResponse.json({ message: "Enter an amount of at least $1" }, { status: 400 });
 
   const reference = `org_${org.id.slice(0, 8)}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   await prisma.orgTransaction.create({

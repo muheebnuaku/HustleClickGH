@@ -5,8 +5,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Contributor-facing money (balances, earnings, rewards, withdrawals) is in Cedis.
 export function formatCurrency(amount: number): string {
   return `GH₵${amount.toFixed(2)}`;
+}
+
+// Organization/buyer-facing money (wallet, funding, project pricing) is in USD.
+export function formatUsd(amount: number): string {
+  return `$${amount.toFixed(2)}`;
 }
 
 export function formatDate(date: Date | string | null | undefined): string {

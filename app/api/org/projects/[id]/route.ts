@@ -33,7 +33,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     project: {
       id: project.id, title: project.title, description: project.description,
       projectType: project.projectType, status: project.status,
-      reward: project.reward, maxSubmissions: project.maxSubmissions,
+      reward: (project.orgPrice ?? project.reward), maxSubmissions: project.maxSubmissions,
       currentSubmissions: project.currentSubmissions,
       budget: project.budget, spent: project.spent, createdAt: project.createdAt,
       languages: project.languages ? JSON.parse(project.languages) : [],

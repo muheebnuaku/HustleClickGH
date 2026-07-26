@@ -6,7 +6,7 @@ import Link from "next/link";
 import { OrgLayout } from "@/components/org-layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { formatCurrency } from "@/lib/utils";
+import { formatUsd } from "@/lib/utils";
 import { Loader2, ArrowLeft, Download, Database, ShieldCheck, AlertTriangle } from "lucide-react";
 
 interface Detail {
@@ -65,7 +65,7 @@ export default function OrgProjectDetail() {
           <CardContent className="p-5">
             <div className="flex items-center justify-between text-sm">
               <span className="text-zinc-500">Budget</span>
-              <span className="font-medium">{formatCurrency(p.spent)} spent of {formatCurrency(p.budget)}</span>
+              <span className="font-medium">{formatUsd(p.spent)} spent of {formatUsd(p.budget)}</span>
             </div>
             <div className="bg-zinc-100 dark:bg-zinc-800 rounded-full h-1.5 w-full mt-2"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${p.budget ? Math.min(100, (p.spent / p.budget) * 100) : 0}%` }} /></div>
           </CardContent>
