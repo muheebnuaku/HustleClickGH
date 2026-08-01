@@ -21,7 +21,9 @@ async function main() {
 
   const opts = {
     public: true,
-    fileSizeLimit: 524_288_000, // 500 MB
+    // Free-tier projects cap per-file uploads at 50 MB globally; the bucket
+    // limit can't exceed that. Raise this after upgrading the Supabase plan.
+    fileSizeLimit: 52_428_800, // 50 MB
     allowedMimeTypes: ["audio/*", "video/*", "image/*"],
   };
 
@@ -29,11 +31,11 @@ async function main() {
   if (existing) {
     const { error } = await supabase.storage.updateBucket(bucket, opts);
     if (error) { console.error("updateBucket failed:", error.message); process.exit(1); }
-    console.log(`Bucket "${bucket}" already existed — settings updated (public, 500MB, audio/video/image).`);
+    console.log(`Bucket "${bucket}" already existed — settings updated (public, 50MB, audio/video/image).`);
   } else {
     const { error } = await supabase.storage.createBucket(bucket, opts);
     if (error) { console.error("createBucket failed:", error.message); process.exit(1); }
-    console.log(`Bucket "${bucket}" created (public, 500MB, audio/video/image).`);
+    console.log(`Bucket "${bucket}" created (public, 50MB, audio/video/image).`);
   }
 }
 
