@@ -60,6 +60,19 @@ interface UserSubmission {
   submittedAt: string;
 }
 
+type UploadStatus = "queued" | "uploading" | "submitting" | "done" | "error";
+interface UploadItem {
+  id: string;
+  file: File;
+  status: UploadStatus;
+  progress: number; // 0–100
+  error?: string;
+}
+
+// How many files upload at once. They're independent — a cap just avoids
+// saturating a phone's connection; queued ones start as slots free up.
+const UPLOAD_CONCURRENCY = 3;
+
 const TYPE_META: Record<string, { icon: React.ElementType; color: string; label: string }> = {
   voice: { icon: Mic, color: "text-blue-600", label: "Voice Recording" },
   video: { icon: Video, color: "text-purple-600", label: "Video Recording" },
@@ -73,15 +86,19 @@ export default function DataProjectDetailPage() {
   const [project, setProject] = useState<DataProject | null>(null);
   const [userSubmission, setUserSubmission] = useState<UserSubmission | null>(null);
   const [loading, setLoading] = useState(true);
-  const [file, setFile] = useState<File | null>(null);
+  const [items, setItems] = useState<UploadItem[]>([]);
   const [language, setLanguage] = useState("");
   const [promptUsed, setPromptUsed] = useState("");
   const [gender, setGender] = useState("");
   const [consent, setConsent] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const idCounter = useRef(0);
+
+  const updateItem = (id: string, patch: Partial<UploadItem>) =>
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
 
   const fetchProject = async () => {
     setLoading(true);
@@ -99,58 +116,55 @@ export default function DataProjectDetailPage() {
 
   useEffect(() => { fetchProject(); }, [projectId]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files?.[0];
-    if (!selected || !project) return;
-
-    const sizeMB = selected.size / (1024 * 1024);
+  // Returns an error string if the file is unacceptable, else null.
+  const validateFile = (f: File): string | null => {
+    if (!project) return "Project not loaded";
+    const sizeMB = f.size / (1024 * 1024);
     if (sizeMB > project.maxFileSizeMB) {
-      setError(`File is too large. Maximum allowed size is ${project.maxFileSizeMB}MB. Your file is ${sizeMB.toFixed(1)}MB.`);
-      return;
+      return `Too large (${sizeMB.toFixed(1)}MB, max ${project.maxFileSizeMB}MB)`;
     }
-
-    // Validate by MIME type first (reliable on mobile), fall back to extension
-    const mimeType = selected.type.toLowerCase();
-    const ext = selected.name.split(".").pop()?.toLowerCase() || "";
+    const mimeType = f.type.toLowerCase();
+    const ext = f.name.split(".").pop()?.toLowerCase() || "";
     const isValidMime =
       (project.projectType === "voice" && mimeType.startsWith("audio/")) ||
       (project.projectType === "video" && mimeType.startsWith("video/")) ||
       (project.projectType === "face" && (mimeType.startsWith("video/") || mimeType.startsWith("image/")));
     const isValidExt = project.acceptedFormats.includes(ext);
-
     if (!isValidMime && !isValidExt) {
-      setError(`This file type is not accepted. For ${project.projectType} projects, please upload a ${project.projectType === "voice" ? "audio" : "video or image"} file.`);
-      return;
+      return `Not an accepted ${project.projectType === "voice" ? "audio" : "video/image"} file`;
     }
-
-    setError("");
-    setFile(selected);
+    return null;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file || !project) return;
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || []);
+    if (!selected.length || !project) return;
 
-    if (!consent) {
-      setError("You must give consent before submitting.");
-      return;
+    const rejected: string[] = [];
+    const additions: UploadItem[] = [];
+    for (const f of selected) {
+      const err = validateFile(f);
+      if (err) { rejected.push(`${f.name}: ${err}`); continue; }
+      additions.push({ id: `f${idCounter.current++}`, file: f, status: "queued", progress: 0 });
     }
-
-    if ((project.malesNeeded !== null || project.femalesNeeded !== null) && !gender) {
-      setError("Please select your gender before submitting.");
-      return;
-    }
-
-    setUploading(true);
-    setError("");
+    if (additions.length) setItems((prev) => [...prev, ...additions]);
+    setError(rejected.join("\n"));
     setMessage("");
+    e.target.value = ""; // allow re-picking the same file
+  };
 
+  const removeItem = (id: string) => setItems((prev) => prev.filter((it) => it.id !== id));
+
+  // Upload + submit a single file. Independent of the others — a failure here
+  // never touches another item. Returns true on success.
+  const processOne = async (item: UploadItem): Promise<boolean> => {
+    updateItem(item.id, { status: "uploading", progress: 0, error: undefined });
     try {
-      // Step 1: Upload file (client-side to Vercel Blob in prod, local FS in dev)
-      const uploadData = await uploadFile(file, projectId);
-
-      // Step 2: Submit metadata
-      const submitRes = await fetch(`/api/data-projects/${projectId}/submit`, {
+      const uploadData = await uploadFile(item.file, projectId, item.file.name, (pct) =>
+        updateItem(item.id, { progress: pct })
+      );
+      updateItem(item.id, { status: "submitting", progress: 100 });
+      const res = await fetch(`/api/data-projects/${projectId}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -164,20 +178,86 @@ export default function DataProjectDetailPage() {
           consentGiven: consent,
         }),
       });
-      const submitData = await submitRes.json();
+      const data = await res.json();
+      if (!res.ok) {
+        updateItem(item.id, { status: "error", error: data.message || "Submission failed" });
+        return false;
+      }
+      updateItem(item.id, { status: "done" });
+      return true;
+    } catch (err) {
+      updateItem(item.id, { status: "error", error: err instanceof Error ? err.message : "Upload failed" });
+      return false;
+    }
+  };
 
-      if (!submitRes.ok) {
-        setError(submitData.message || "Submission failed");
-      } else {
-        setMessage(submitData.message);
-        setFile(null);
+  // Run a batch with a small concurrency cap; each item is fully independent.
+  const runPool = async (list: UploadItem[]) => {
+    let i = 0;
+    let ok = 0;
+    const worker = async () => {
+      while (i < list.length) {
+        const current = list[i++];
+        if (await processOne(current)) ok++;
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, list.length) }, worker));
+    return ok;
+  };
+
+  const preflight = (): string | null => {
+    if (!consent) return "You must give consent before submitting.";
+    if (project && (project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
+      return "Please select your gender before submitting.";
+    if (project && project.languages.length > 0 && !language) return "Please select the language you used.";
+    return null;
+  };
+
+  const handleSubmitAll = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!project) return;
+    const pending = items.filter((it) => it.status === "queued" || it.status === "error");
+    if (!pending.length) { setError("Add at least one file to submit."); return; }
+    const problem = preflight();
+    if (problem) { setError(problem); return; }
+
+    setError(""); setMessage("");
+    setProcessing(true);
+    const ok = await runPool(pending);
+    setProcessing(false);
+
+    // If everything succeeded, clear the queue and refresh; otherwise keep the
+    // failed items on screen so they can be retried individually.
+    setItems((prev) => {
+      const remaining = prev.filter((it) => it.status !== "done");
+      if (remaining.length === 0) {
+        setMessage(`Submitted ${ok} recording${ok === 1 ? "" : "s"}. They're now under review.`);
         setConsent(false);
         fetchProject();
+      } else {
+        const failed = remaining.filter((it) => it.status === "error").length;
+        if (ok > 0) setMessage(`Submitted ${ok}. ${failed} still need attention — retry them below.`);
       }
-    } catch {
-      setError("An error occurred during submission");
-    } finally {
-      setUploading(false);
+      return remaining;
+    });
+  };
+
+  // Retry one failed file without touching the others.
+  const retryOne = async (item: UploadItem) => {
+    const problem = preflight();
+    if (problem) { setError(problem); return; }
+    setError("");
+    const ok = await processOne(item);
+    if (ok) {
+      setItems((prev) => {
+        const remaining = prev.filter((it) => it.status !== "done");
+        if (remaining.length === 0) {
+          setMessage("All recordings submitted. They're now under review.");
+          setConsent(false);
+          fetchProject();
+        }
+        return remaining;
+      });
     }
   };
 
@@ -399,33 +479,24 @@ export default function DataProjectDetailPage() {
                   </div>
                 )}
 
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  {/* File picker */}
+                <form onSubmit={handleSubmitAll} className="space-y-4">
+                  {/* File picker — accepts multiple files */}
                   <div>
-                    <label className="block text-sm font-medium mb-2">Recording File *</label>
+                    <label className="block text-sm font-medium mb-2">Recording Files *</label>
                     <div
-                      onClick={() => fileInputRef.current?.click()}
-                      className="border-2 border-dashed border-zinc-200 rounded-xl p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-colors"
+                      onClick={() => !processing && fileInputRef.current?.click()}
+                      className={`border-2 border-dashed border-zinc-200 rounded-xl p-6 text-center transition-colors ${processing ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:border-blue-400 hover:bg-blue-50/30"}`}
                     >
-                      {file ? (
-                        <div className="flex items-center justify-center gap-3">
-                          {getFileIcon(file.type)}
-                          <div className="text-left">
-                            <p className="text-sm font-medium text-foreground">{file.name}</p>
-                            <p className="text-xs text-zinc-400">{formatFileSize(file.size / (1024 * 1024))}</p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-zinc-400">
-                          <Upload size={28} className="mx-auto mb-2 opacity-50" />
-                          <p className="text-sm font-medium">Tap to select your recording</p>
-                          <p className="text-xs mt-1">{project.acceptedFormats.join(", ")} · Max {project.maxFileSizeMB}MB</p>
-                        </div>
-                      )}
+                      <div className="text-zinc-400">
+                        <Upload size={28} className="mx-auto mb-2 opacity-50" />
+                        <p className="text-sm font-medium">{items.length ? "Tap to add more files" : "Tap to select your recordings"}</p>
+                        <p className="text-xs mt-1">{project.acceptedFormats.join(", ")} · Max {project.maxFileSizeMB}MB each · You can pick several</p>
+                      </div>
                     </div>
                     <input
                       ref={fileInputRef}
                       type="file"
+                      multiple
                       accept={
                         project.projectType === "voice"
                           ? "audio/*,.mp3,.wav,.m4a,.ogg,.aac,.opus"
@@ -436,6 +507,50 @@ export default function DataProjectDetailPage() {
                       onChange={handleFileChange}
                       className="hidden"
                     />
+
+                    {/* Selected files with independent progress / status / retry */}
+                    {items.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {items.map((it) => (
+                          <div key={it.id} className="border border-zinc-200 rounded-xl p-3">
+                            <div className="flex items-center gap-3">
+                              {getFileIcon(it.file.type)}
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-foreground truncate">{it.file.name}</p>
+                                <p className="text-xs text-zinc-400">{formatFileSize(it.file.size / (1024 * 1024))}</p>
+                              </div>
+                              {/* Status pill / actions */}
+                              {it.status === "done" && <span className="text-xs text-green-600 inline-flex items-center gap-1 shrink-0"><CheckCircle2 size={14} />Submitted</span>}
+                              {it.status === "error" && (
+                                <button type="button" onClick={() => retryOne(it)} className="text-xs text-blue-600 font-medium inline-flex items-center gap-1 shrink-0 hover:underline">
+                                  <Loader2 size={13} className="hidden" />Retry
+                                </button>
+                              )}
+                              {(it.status === "uploading" || it.status === "submitting") && (
+                                <span className="text-xs text-zinc-500 inline-flex items-center gap-1 shrink-0">
+                                  <Loader2 size={13} className="animate-spin" />
+                                  {it.status === "submitting" ? "Finishing…" : `${it.progress}%`}
+                                </span>
+                              )}
+                              {it.status === "queued" && !processing && (
+                                <button type="button" onClick={() => removeItem(it.id)} className="text-xs text-zinc-400 hover:text-red-500 shrink-0">Remove</button>
+                              )}
+                              {it.status === "queued" && processing && <span className="text-xs text-zinc-400 shrink-0">Queued</span>}
+                            </div>
+
+                            {/* Progress bar while uploading */}
+                            {(it.status === "uploading" || it.status === "submitting") && (
+                              <div className="mt-2 h-1.5 w-full rounded-full bg-zinc-100 overflow-hidden">
+                                <div className="h-full bg-blue-600 transition-all" style={{ width: `${it.status === "submitting" ? 100 : it.progress}%` }} />
+                              </div>
+                            )}
+                            {it.status === "error" && it.error && (
+                              <p className="mt-1.5 text-xs text-red-600 break-words">{it.error}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Gender selector — only when project has gender quotas */}
@@ -534,20 +649,25 @@ export default function DataProjectDetailPage() {
                     </label>
                   </div>
 
-                  <Button
-                    type="submit"
-                    disabled={
-                      !file || !consent || uploading ||
-                      ((project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
-                    }
-                    className="w-full bg-green-500 hover:bg-green-600 text-white"
-                  >
-                    {uploading ? (
-                      <><Loader2 size={16} className="mr-2 animate-spin" />Uploading & Submitting...</>
-                    ) : (
-                      <><Upload size={16} className="mr-2" />Submit Recording</>
-                    )}
-                  </Button>
+                  {(() => {
+                    const pendingCount = items.filter((it) => it.status === "queued" || it.status === "error").length;
+                    return (
+                      <Button
+                        type="submit"
+                        disabled={
+                          pendingCount === 0 || !consent || processing ||
+                          ((project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
+                        }
+                        className="w-full bg-green-500 hover:bg-green-600 text-white"
+                      >
+                        {processing ? (
+                          <><Loader2 size={16} className="mr-2 animate-spin" />Uploading & Submitting…</>
+                        ) : (
+                          <><Upload size={16} className="mr-2" />Submit {pendingCount || ""} Recording{pendingCount === 1 ? "" : "s"}</>
+                        )}
+                      </Button>
+                    );
+                  })()}
 
                   <p className="text-xs text-zinc-400 text-center">
                     After submission, your recording will be reviewed. You&apos;ll be paid {formatCurrency(project.reward)} once approved.
