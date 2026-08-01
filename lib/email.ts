@@ -2,16 +2,18 @@ import { SITE_CONFIG } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
 
 /**
- * Email sender — SMTP only (Zoho Mail).
+ * Email sender — Zoho SMTP by default, optional Resend HTTP API for bulk.
  *
  * Sending through the Zoho mailbox means outgoing mail lands in its Sent
- * folder and replies come back to the same inbox you already work in.
+ * folder and replies come back to the same inbox you already work in. Zoho is
+ * fine for transactional mail but rate-limits large broadcasts; set
+ * RESEND_API_KEY to route ALL sends through Resend (better for 100s of emails)
+ * with the same EMAIL_FROM.
  *
- * There is deliberately no fallback transport: a silent fallback once masked
- * an unconfigured mailbox and sent mail through the wrong provider. If SMTP
- * isn't fully configured, sendEmail returns a specific error naming the
- * missing variables instead. Callers are fire-and-forget, so a failure here
- * never breaks the surrounding request.
+ * There is deliberately no silent fallback between transports: whichever is
+ * configured is used, and sendEmail returns a specific error (missing config,
+ * bad login, rate limit…) instead of failing quietly. Callers are
+ * fire-and-forget, so a failure here never breaks the surrounding request.
  *
  * Env:
  *   SMTP_HOST=smtp.zoho.com     (smtp.zoho.eu / .in depending on your region)
@@ -19,6 +21,8 @@ import { formatCurrency } from "@/lib/utils";
  *   SMTP_USER=info@hustleclickgh.com
  *   SMTP_PASS=<app-specific password>
  *   EMAIL_FROM=HustleClickGH <info@hustleclickgh.com>
+ *   RESEND_API_KEY=<optional; when set, sends via Resend instead of SMTP.
+ *                   Requires the EMAIL_FROM domain verified in Resend.>
  */
 
 interface SendEmailOptions {
@@ -297,8 +301,53 @@ export interface SendResult {
   error?: string;
 }
 
+/**
+ * Optional bulk-friendly transport: Resend's HTTP API. Zoho SMTP opens a new
+ * authenticated connection per message and enforces tight daily caps, so large
+ * broadcasts get throttled or locked out. When RESEND_API_KEY is set, every send
+ * routes through Resend instead (one HTTPS call, no connection churn). Requires
+ * the EMAIL_FROM domain to be verified in Resend. Absent the key, SMTP is used.
+ */
+async function sendViaResend(from: string, opts: SendEmailOptions): Promise<SendResult> {
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: opts.to,
+        subject: opts.subject,
+        html: opts.html,
+        ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
+      }),
+    });
+    if (res.ok) return { ok: true };
+    // Surface the provider's complaint; keep "429"/"rate limit" in the text so
+    // the broadcast route's fatal-error detection can halt the whole run.
+    let detail = `Resend ${res.status}`;
+    try {
+      const j = (await res.json()) as { message?: string; name?: string };
+      detail = `Resend ${res.status}: ${j.message || j.name || "send failed"}`;
+    } catch {}
+    console.error("[email] Resend send failed:", detail);
+    return { ok: false, error: detail };
+  } catch (err) {
+    const reason = (err as Error).message || "Resend request failed";
+    console.error("[email] Resend error:", reason);
+    return { ok: false, error: reason };
+  }
+}
+
 export async function sendEmail(opts: SendEmailOptions): Promise<SendResult> {
   const from = process.env.EMAIL_FROM || `HustleClickGH <${SITE_CONFIG.contact.email}>`;
+
+  // Prefer Resend for reliable bulk delivery when it's configured.
+  if (process.env.RESEND_API_KEY) {
+    return sendViaResend(from, opts);
+  }
 
   const smtpHost = process.env.SMTP_HOST;
   const smtpUser = process.env.SMTP_USER;
