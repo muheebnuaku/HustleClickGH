@@ -45,6 +45,11 @@ export async function GET(
       project: {
         ...project,
         samplePrompts: project.samplePrompts ? JSON.parse(project.samplePrompts) : [],
+        sampleVideoUrls: project.sampleVideoUrls
+          ? JSON.parse(project.sampleVideoUrls)
+          : project.sampleVideoUrl
+          ? [project.sampleVideoUrl]
+          : [],
         languages: project.languages ? JSON.parse(project.languages) : [],
         acceptedFormats: JSON.parse(project.acceptedFormats),
         slotsRemaining: project.maxSubmissions - project.currentSubmissions,

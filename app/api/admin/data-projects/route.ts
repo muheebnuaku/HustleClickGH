@@ -77,6 +77,7 @@ export async function POST(request: Request) {
       instructions,
       samplePrompts,
       sampleVideoUrl,
+      sampleVideoUrls,
       reward,
       maxSubmissions,
       maxSubmissionsPerUser,
@@ -105,7 +106,10 @@ export async function POST(request: Request) {
         projectType,
         instructions,
         samplePrompts: samplePrompts?.length ? JSON.stringify(samplePrompts) : null,
-        sampleVideoUrl: sampleVideoUrl || null,
+        // Multiple sample videos (JSON array); keep the legacy single-URL column
+        // populated with the first entry so older readers still work.
+        sampleVideoUrls: Array.isArray(sampleVideoUrls) && sampleVideoUrls.length ? JSON.stringify(sampleVideoUrls) : null,
+        sampleVideoUrl: (Array.isArray(sampleVideoUrls) && sampleVideoUrls[0]) || sampleVideoUrl || null,
         reward: parseFloat(reward),
         maxSubmissions: parseInt(maxSubmissions),
         maxSubmissionsPerUser: maxSubmissionsPerUser ? parseInt(maxSubmissionsPerUser) : 1,

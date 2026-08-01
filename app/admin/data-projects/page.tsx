@@ -88,7 +88,7 @@ export default function AdminDataProjectsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
-  const [sampleVideoFile, setSampleVideoFile] = useState<File | null>(null);
+  const [sampleVideoFiles, setSampleVideoFiles] = useState<File[]>([]);
   const sampleVideoRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
@@ -151,7 +151,7 @@ export default function AdminDataProjectsPage() {
     setShowForm(false);
     setEditingId(null);
     setForm(emptyForm);
-    setSampleVideoFile(null);
+    setSampleVideoFiles([]);
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -190,10 +190,12 @@ export default function AdminDataProjectsPage() {
         }
       } else {
         // ── Create new project ──
-        let sampleVideoUrl: string | null = null;
-        if (sampleVideoFile && form.projectType === "video") {
-          const uploaded = await uploadFile(sampleVideoFile, "sample-videos", sampleVideoFile.name);
-          sampleVideoUrl = uploaded.url;
+        let sampleVideoUrls: string[] = [];
+        if (sampleVideoFiles.length && form.projectType === "video") {
+          const uploaded = await Promise.all(
+            sampleVideoFiles.map((f) => uploadFile(f, "sample-videos", f.name))
+          );
+          sampleVideoUrls = uploaded.map((u) => u.url);
         }
 
         const res = await fetch("/api/admin/data-projects", {
@@ -204,7 +206,7 @@ export default function AdminDataProjectsPage() {
             acceptedFormats: formats,
             languages: langArray,
             samplePrompts: promptsArray,
-            sampleVideoUrl,
+            sampleVideoUrls,
           }),
         });
         const data = await res.json();
@@ -365,32 +367,46 @@ export default function AdminDataProjectsPage() {
                 <p className="text-xs text-zinc-400 mt-1">Phrases or sentences the user should say or read aloud</p>
               </div>
 
-              {/* Sample video — video projects only */}
+              {/* Sample videos — video projects only; add as many as you like */}
               {form.projectType === "video" && (
                 <div>
-                  <label className="block text-sm font-medium mb-1">Sample Video (optional)</label>
+                  <label className="block text-sm font-medium mb-1">Sample Videos (optional)</label>
+                  {sampleVideoFiles.length > 0 && (
+                    <div className="space-y-2 mb-2">
+                      {sampleVideoFiles.map((f, i) => (
+                        <div key={`${f.name}-${i}`} className="flex items-center gap-3 rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-2">
+                          <Video size={18} className="text-purple-500 shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-foreground truncate">{f.name}</p>
+                            <p className="text-xs text-zinc-400">{(f.size / (1024 * 1024)).toFixed(1)} MB</p>
+                          </div>
+                          <button type="button" onClick={() => setSampleVideoFiles((prev) => prev.filter((_, idx) => idx !== i))} className="text-xs text-red-500 hover:underline shrink-0">Remove</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div
                     onClick={() => sampleVideoRef.current?.click()}
                     className="border-2 border-dashed border-zinc-200 rounded-xl p-5 text-center cursor-pointer hover:border-purple-400 hover:bg-purple-50/20 transition-colors"
                   >
-                    {sampleVideoFile ? (
-                      <div className="flex items-center justify-center gap-3">
-                        <Video size={20} className="text-purple-500" />
-                        <div className="text-left">
-                          <p className="text-sm font-medium text-foreground">{sampleVideoFile.name}</p>
-                          <p className="text-xs text-zinc-400">{(sampleVideoFile.size / (1024 * 1024)).toFixed(1)} MB</p>
-                        </div>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); setSampleVideoFile(null); }} className="ml-2 text-xs text-red-500 hover:underline">Remove</button>
-                      </div>
-                    ) : (
-                      <div className="text-zinc-400">
-                        <Upload size={24} className="mx-auto mb-2 opacity-50" />
-                        <p className="text-sm font-medium">Click to upload a sample video</p>
-                        <p className="text-xs mt-1">mp4, mov, webm · Max 50MB · Users will watch this before submitting</p>
-                      </div>
-                    )}
+                    <div className="text-zinc-400">
+                      <Upload size={24} className="mx-auto mb-2 opacity-50" />
+                      <p className="text-sm font-medium">{sampleVideoFiles.length ? "Add another sample video" : "Click to upload sample videos"}</p>
+                      <p className="text-xs mt-1">mp4, mov, webm · Max 50MB each · Users will watch these before submitting</p>
+                    </div>
                   </div>
-                  <input ref={sampleVideoRef} type="file" accept="video/*,.mp4,.mov,.webm" onChange={(e) => setSampleVideoFile(e.target.files?.[0] || null)} className="hidden" />
+                  <input
+                    ref={sampleVideoRef}
+                    type="file"
+                    multiple
+                    accept="video/*,.mp4,.mov,.webm"
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files || []);
+                      if (picked.length) setSampleVideoFiles((prev) => [...prev, ...picked]);
+                      e.target.value = "";
+                    }}
+                    className="hidden"
+                  />
                 </div>
               )}
 

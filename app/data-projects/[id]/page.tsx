@@ -44,6 +44,7 @@ interface DataProject {
   audioBitDepth: number | null;
   recordingType: string | null;
   sampleVideoUrl: string | null;
+  sampleVideoUrls: string[];
 }
 
 interface UserSubmission {
@@ -334,16 +335,16 @@ export default function DataProjectDetailPage() {
                 {project.instructions}
               </div>
 
-              {/* Sample video — video projects */}
-              {project.sampleVideoUrl && (
+              {/* Sample videos — video projects */}
+              {(project.sampleVideoUrls?.length ? project.sampleVideoUrls : project.sampleVideoUrl ? [project.sampleVideoUrl] : []).length > 0 && (
                 <div className="mt-4">
-                  <h3 className="text-sm font-semibold mb-1 text-zinc-700">Sample Video</h3>
-                  <p className="text-xs text-zinc-400 mb-2">Watch this example before recording your submission.</p>
-                  <video
-                    controls
-                    src={project.sampleVideoUrl}
-                    className="w-full rounded-xl bg-black max-h-72"
-                  />
+                  <h3 className="text-sm font-semibold mb-1 text-zinc-700">Sample Video{(project.sampleVideoUrls?.length || 1) > 1 ? "s" : ""}</h3>
+                  <p className="text-xs text-zinc-400 mb-2">Watch {(project.sampleVideoUrls?.length || 1) > 1 ? "these examples" : "this example"} before recording your submission.</p>
+                  <div className="space-y-3">
+                    {(project.sampleVideoUrls?.length ? project.sampleVideoUrls : [project.sampleVideoUrl!]).map((url, i) => (
+                      <video key={`${url}-${i}`} controls src={url} className="w-full rounded-xl bg-black max-h-72" />
+                    ))}
+                  </div>
                 </div>
               )}
 
