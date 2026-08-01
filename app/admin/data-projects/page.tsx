@@ -191,7 +191,7 @@ export default function AdminDataProjectsPage() {
       } else {
         // ── Create new project ──
         let sampleVideoUrls: string[] = [];
-        if (sampleVideoFiles.length && form.projectType === "video") {
+        if (sampleVideoFiles.length && (form.projectType === "video" || form.projectType === "face")) {
           const uploaded = await Promise.all(
             sampleVideoFiles.map((f) => uploadFile(f, "sample-videos", f.name))
           );
@@ -367,8 +367,8 @@ export default function AdminDataProjectsPage() {
                 <p className="text-xs text-zinc-400 mt-1">Phrases or sentences the user should say or read aloud</p>
               </div>
 
-              {/* Sample videos — video projects only; add as many as you like */}
-              {form.projectType === "video" && (
+              {/* Sample videos — video & face projects; add as many as you like */}
+              {(form.projectType === "video" || form.projectType === "face") && (
                 <div>
                   <label className="block text-sm font-medium mb-1">Sample Videos (optional)</label>
                   {sampleVideoFiles.length > 0 && (
