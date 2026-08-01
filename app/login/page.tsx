@@ -365,6 +365,11 @@ export default function AuthPage() {
                           {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
                       </div>
+                      <div className="text-right">
+                        <Link href="/forgot-password" className="text-xs font-medium text-blue-600 hover:text-blue-700">
+                          Forgot password?
+                        </Link>
+                      </div>
                     </div>
 
                     <Button

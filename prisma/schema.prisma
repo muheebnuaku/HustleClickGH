@@ -397,6 +397,19 @@ model EmailRecipient {
   @@index([broadcastId])
 }
 
+// Password reset. We store only a SHA-256 hash of the emailed token (never the
+// raw token), with a short expiry. Scalar-id style, like CallSession.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
 model CallSession {
   id              String    @id @default(cuid())
   callCode        String    @unique  // short code shared between users — personal 5-char or generated

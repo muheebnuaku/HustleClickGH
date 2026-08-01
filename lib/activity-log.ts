@@ -30,7 +30,9 @@ export type LogType =
   | "account_delete_request"
   | "notification_broadcast"
   | "email_broadcast"
-  | "admin_message";
+  | "admin_message"
+  | "password_reset_requested"
+  | "password_reset_completed";
 
 export type LogSeverity = "info" | "success" | "warning" | "error";
 

@@ -131,6 +131,38 @@ export function accountVerifiedEmail(fullName: string) {
   };
 }
 
+/**
+ * Password reset link. Also reminds the user of their User ID, since they sign
+ * in with that (not their email) and may have forgotten it too.
+ */
+export function passwordResetEmail(fullName: string, resetUrl: string, userId: string) {
+  const firstName = fullName.split(" ")[0] || "there";
+  return {
+    subject: "Reset your HustleClickGH password",
+    html: emailLayout(`Reset your password, ${firstName}`, `
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        We received a request to reset the password for your HustleClickGH account.
+        Click the button below to choose a new one. This link expires in <strong>1 hour</strong>.
+      </p>
+      <p style="margin:24px 0;">
+        <a href="${resetUrl}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
+          Reset my password
+        </a>
+      </p>
+      <div style="margin:20px 0;padding:16px;background:#f0fdf4;border:2px dashed #86efac;border-radius:10px;text-align:center;">
+        <p style="margin:0 0 6px;color:#71717a;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Your User ID (for signing in)</p>
+        <p style="margin:0;color:#16a34a;font-size:24px;font-weight:700;letter-spacing:3px;">${userId}</p>
+      </div>
+      <p style="color:#71717a;font-size:12px;line-height:1.6;">
+        If you didn&rsquo;t request this, you can safely ignore this email — your password won&rsquo;t change.
+        If the button doesn&rsquo;t work, copy and paste this link into your browser:<br>
+        <span style="color:#2563eb;word-break:break-all;">${resetUrl}</span>
+      </p>
+    `),
+  };
+}
+
 /** Escapes text that an admin typed before it goes into an HTML email. */
 function escapeHtml(text: string): string {
   return text
