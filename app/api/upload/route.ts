@@ -2,112 +2,62 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
 import { nanoid } from "nanoid";
-import type { HandleUploadBody } from "@vercel/blob/client";
+import { getSupabaseAdmin, STORAGE_BUCKET } from "@/lib/supabase-admin";
 
-// Production: handle the client-side Vercel Blob token exchange
-// The browser calls @vercel/blob/client upload() which sends a JSON body here
-// The file then goes directly from the browser to Vercel Blob CDN
-// ─────────────────────────────────────────────────────────────────────────────
-// Local dev (no BLOB_READ_WRITE_TOKEN): accept FormData, write to public/uploads/
-
+/**
+ * Issues a short-lived signed upload URL for Supabase Storage.
+ *
+ * The browser POSTs { projectId, fileName } here; we authenticate the session,
+ * build a unique object path, and return a signed token the browser uses to
+ * upload the file DIRECTLY to Supabase Storage (never through this serverless
+ * function — so there is no 4.5 MB body limit). All files live in Supabase.
+ */
 export async function POST(request: Request): Promise<NextResponse> {
-  const contentType = request.headers.get("content-type") || "";
-
-  // In production always use Vercel Blob regardless of whether BLOB_READ_WRITE_TOKEN
-  // is visible here — routing on the env var caused fallthrough to FormData when the
-  // var wasn't present at runtime, producing a confusing "Content-Type" TypeError.
-  if (process.env.NODE_ENV === "production" && !contentType.includes("multipart/form-data")) {
-    // ── Vercel Blob client upload (production) ────────────────────────────
-    // Auth is checked inside onBeforeGenerateToken so that Vercel's CDN
-    // completion callback (no user cookies) can reach onUploadCompleted.
-
-    // Pre-check: surface missing token immediately with a clear message
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      console.error("Upload error: BLOB_READ_WRITE_TOKEN is not set in this environment");
-      return NextResponse.json(
-        { message: "Storage not configured — BLOB_READ_WRITE_TOKEN missing" },
-        { status: 503 }
-      );
-    }
-
-    try {
-      const { handleUpload } = await import("@vercel/blob/client");
-      const body = await request.json() as HandleUploadBody;
-      console.log("Blob upload request type:", (body as { type?: string }).type);
-
-      const jsonResponse = await handleUpload({
-        body,
-        request,
-        onBeforeGenerateToken: async () => {
-          const session = await getServerSession(authOptions);
-          console.log("onBeforeGenerateToken — session user:", session?.user?.id ?? "NONE");
-          if (!session?.user) {
-            throw new Error("Unauthorized — no active session");
-          }
-          return {
-            allowedContentTypes: [
-              "audio/mpeg", "audio/wav", "audio/x-m4a", "audio/m4a",
-              "audio/ogg", "audio/webm", "audio/mp4", "audio/aac",
-              "video/mp4", "video/quicktime", "video/webm", "video/3gpp",
-              "image/jpeg", "image/png",
-            ],
-            maximumSizeInBytes: 500 * 1024 * 1024, // 500 MB
-          };
-        },
-        onUploadCompleted: async () => {
-          // Optional post-upload hook — nothing needed here
-        },
-      });
-
-      return NextResponse.json(jsonResponse);
-    } catch (error) {
-      console.error("Blob upload error (full):", error);
-      return NextResponse.json(
-        { message: (error as Error).message || "Upload failed" },
-        { status: 400 }
-      );
-    }
-  }
-
-  // ── Local dev: FormData upload → public/uploads/ ──────────────────────
   const session = await getServerSession(authOptions);
   if (!session?.user) {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
 
-  try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    const rawProjectId = (formData.get("projectId") as string | null) || "general";
-    // Sanitize: only allow alphanumeric, dash, underscore — prevents path traversal
-    const projectId = rawProjectId.replace(/[^a-zA-Z0-9_-]/g, "") || "general";
-
-    if (!file) {
-      return NextResponse.json({ message: "No file provided" }, { status: 400 });
-    }
-
-    const fileSizeMB = file.size / (1024 * 1024);
-    if (fileSizeMB > 500) {
-      return NextResponse.json({ message: "File exceeds 500MB limit" }, { status: 400 });
-    }
-
-    const ext = file.name.split(".").pop() || "bin";
-    const uniqueName = `${nanoid(12)}.${ext}`;
-    const uploadsDir = path.join(process.cwd(), "public", "uploads", projectId);
-    await mkdir(uploadsDir, { recursive: true });
-    await writeFile(path.join(uploadsDir, uniqueName), Buffer.from(await file.arrayBuffer()));
-
-    return NextResponse.json({
-      url: `/uploads/${projectId}/${uniqueName}`,
-      fileName: file.name,
-      fileType: file.type,
-      fileSizeMB: parseFloat(fileSizeMB.toFixed(2)),
-    });
-  } catch (error) {
-    console.error("Local upload error:", error);
-    return NextResponse.json({ message: "Upload failed" }, { status: 500 });
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return NextResponse.json(
+      { message: "Storage not configured — SUPABASE_SERVICE_ROLE_KEY missing" },
+      { status: 503 }
+    );
   }
+
+  let body: { projectId?: string; fileName?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ message: "Invalid request body" }, { status: 400 });
+  }
+
+  // Sanitize the folder prefix (path traversal guard) and derive a unique name.
+  const projectId = (body.projectId || "general").replace(/[^a-zA-Z0-9_-]/g, "") || "general";
+  const rawName = body.fileName || `file-${Date.now()}`;
+  const ext = rawName.includes(".") ? rawName.slice(rawName.lastIndexOf(".") + 1).replace(/[^a-zA-Z0-9]/g, "") : "bin";
+  const objectPath = `${projectId}/${nanoid(16)}.${ext || "bin"}`;
+
+  const { data, error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .createSignedUploadUrl(objectPath);
+
+  if (error || !data) {
+    console.error("createSignedUploadUrl error:", error);
+    return NextResponse.json(
+      { message: error?.message || "Could not create upload URL" },
+      { status: 500 }
+    );
+  }
+
+  const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(objectPath);
+
+  return NextResponse.json({
+    bucket: STORAGE_BUCKET,
+    path: data.path,
+    token: data.token,
+    publicUrl: pub.publicUrl,
+  });
 }

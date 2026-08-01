@@ -1,15 +1,12 @@
 /**
  * Server-side helper for auto-sharing recordings between call partners.
- * Downloads an existing recording and re-uploads it to create a copy.
+ * Downloads an existing recording and re-uploads it to Supabase Storage so the
+ * other user gets their own copy.
  */
 
-import { readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { nanoid } from "nanoid";
+import { getSupabaseAdmin, STORAGE_BUCKET } from "@/lib/supabase-admin";
 
-/**
- * Download and re-upload a recording to create a copy for the other user.
- * Handles both Vercel Blob URLs (production) and local file paths (dev).
- */
 function mimeFromFileName(fileName: string): string {
   const ext = fileName.split(".").pop()?.toLowerCase();
   if (ext === "mp4") return "video/mp4";
@@ -18,64 +15,33 @@ function mimeFromFileName(fileName: string): string {
   return "audio/webm";
 }
 
+/**
+ * Download a recording from its URL and re-upload it as a fresh Supabase object,
+ * returning the new public URL.
+ */
 export async function downloadAndReuploadRecording(
   sourceUrl: string,
   suggestedFileName: string,
 ): Promise<string> {
-  try {
-    // Determine if URL is a Vercel Blob URL or local path
-    const isLocalPath = sourceUrl.startsWith("/uploads/");
-    const isBlob = sourceUrl.includes("blob.vercel-storage.com");
+  const supabase = getSupabaseAdmin();
+  if (!supabase) throw new Error("Storage not configured — SUPABASE_SERVICE_ROLE_KEY missing");
 
-    if (isLocalPath) {
-      // Local development: copy from public/uploads/ to public/uploads/
-      const publicDir = join(process.cwd(), "public");
-      const sourcePath = join(publicDir, sourceUrl);
-      const fileName = `${Date.now()}-${suggestedFileName}`;
-      const destPath = join(publicDir, "uploads", fileName);
+  const mime = mimeFromFileName(suggestedFileName);
+  const buffer = await fetch(sourceUrl).then((res) => {
+    if (!res.ok) throw new Error(`Failed to download: ${res.status}`);
+    return res.arrayBuffer();
+  });
 
-      try {
-        const content = readFileSync(sourcePath);
-        writeFileSync(destPath, content);
-        return `/uploads/${fileName}`;
-      } catch {
-        throw new Error(`Failed to copy local file: ${sourceUrl}`);
-      }
-    }
+  const ext = suggestedFileName.includes(".")
+    ? suggestedFileName.slice(suggestedFileName.lastIndexOf(".") + 1).replace(/[^a-zA-Z0-9]/g, "")
+    : "webm";
+  const objectPath = `recordings/${nanoid(16)}.${ext || "webm"}`;
 
-    if (isBlob) {
-      // Production: download from Vercel Blob and re-upload
-      const buffer = await fetch(sourceUrl).then((res) => {
-        if (!res.ok) throw new Error(`Failed to download: ${res.status}`);
-        return res.arrayBuffer();
-      });
+  const { error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(objectPath, Buffer.from(buffer), { contentType: mime, upsert: true });
+  if (error) throw new Error(`Failed to re-upload recording: ${error.message}`);
 
-      const mime = mimeFromFileName(suggestedFileName);
-      const blob = new Blob([buffer], { type: mime });
-      const file = new File([blob], suggestedFileName, { type: mime });
-
-      // Import Vercel Blob server SDK
-      const { put } = await import("@vercel/blob");
-
-      // Generate a timestamp-based filename to avoid collisions
-      const ext = suggestedFileName.includes(".")
-        ? suggestedFileName.slice(suggestedFileName.lastIndexOf("."))
-        : ".webm";
-      const base = suggestedFileName.includes(".")
-        ? suggestedFileName.slice(0, suggestedFileName.lastIndexOf("."))
-        : suggestedFileName;
-      const uniqueName = `${base}-${Date.now()}${ext}`;
-
-      const result = await put(`recordings/${uniqueName}`, file, {
-        access: "public",
-      });
-
-      return result.url;
-    }
-
-    throw new Error(`Unsupported URL format: ${sourceUrl}`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    throw new Error(`Failed to download and re-upload recording: ${message}`);
-  }
+  const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(objectPath);
+  return pub.publicUrl;
 }

@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { getSupabaseAdmin, STORAGE_BUCKET } from "@/lib/supabase-admin";
+
+// Turn a Supabase public URL into the object path inside the storage bucket.
+function objectPathFromUrl(fileUrl: string): string | null {
+  const marker = `/storage/v1/object/public/${STORAGE_BUCKET}/`;
+  const i = fileUrl.indexOf(marker);
+  if (i === -1) return null;
+  return decodeURIComponent(fileUrl.slice(i + marker.length));
+}
 
 // DELETE /api/admin/call-recordings/[id] — delete a recording (admin only)
 export async function DELETE(
@@ -25,20 +34,12 @@ export async function DELETE(
   if (!recording)
     return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Delete file from storage — best-effort, don't fail if file is missing
+  // Delete file from Supabase Storage — best-effort, don't fail if file is missing
   try {
-    if (recording.fileUrl) {
-      if (process.env.BLOB_READ_WRITE_TOKEN) {
-        // Production: Vercel Blob
-        const { del } = await import("@vercel/blob");
-        await del(recording.fileUrl);
-      } else {
-        // Local dev: file lives in public/uploads/
-        const { unlink } = await import("fs/promises");
-        const { join } = await import("path");
-        const relativePath = new URL(recording.fileUrl, "http://localhost").pathname;
-        await unlink(join(process.cwd(), "public", relativePath)).catch(() => {});
-      }
+    const supabase = getSupabaseAdmin();
+    const objectPath = recording.fileUrl ? objectPathFromUrl(recording.fileUrl) : null;
+    if (supabase && objectPath) {
+      await supabase.storage.from(STORAGE_BUCKET).remove([objectPath]);
     }
   } catch {
     // Storage deletion failed — still delete the DB record

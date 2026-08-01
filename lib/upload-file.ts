@@ -1,13 +1,18 @@
+import { getSupabaseBrowser } from "@/lib/supabase-browser";
+
 /**
- * Uploads a file/blob to storage.
+ * Uploads a file/blob to Supabase Storage.
  *
- * Production (BLOB_READ_WRITE_TOKEN present on server):
- *   Uses @vercel/blob client-side upload — the file goes directly from the
- *   browser to Vercel Blob CDN without passing through the Next.js API route.
- *   This bypasses Vercel's 4.5 MB serverless body limit.
+ * Flow (same in dev and prod — all files live in Supabase):
+ *   1. Ask /api/upload for a signed upload token (server authenticates the
+ *      session and reserves a unique object path).
+ *   2. Upload the file DIRECTLY from the browser to Supabase Storage with that
+ *      token — the bytes never pass through the Next.js serverless function, so
+ *      there is no 4.5 MB body limit.
+ *   3. Return the file's public URL.
  *
- * Local dev (no BLOB_READ_WRITE_TOKEN):
- *   Falls back to a FormData POST to /api/upload which writes to public/uploads/.
+ * `projectId` is used as the storage folder prefix (e.g. "recordings",
+ * "sample-videos", or an actual project id).
  */
 export async function uploadFile(
   file: File | Blob,
@@ -20,63 +25,42 @@ export async function uploadFile(
     (file instanceof File ? file.name : `recording-${Date.now()}.webm`);
 
   const fileSizeMB = parseFloat((file.size / (1024 * 1024)).toFixed(2));
-
-  if (process.env.NODE_ENV === "production") {
-    // Client-side Vercel Blob upload (bypasses serverless body limit)
-    const { upload } = await import("@vercel/blob/client");
-    const blobFile =
-      file instanceof File ? file : new File([file], name, { type: file.type });
-
-    // Add a random suffix to avoid "blob already exists" errors on re-uploads
-    const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
-    const base = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
-    const uniqueName = `${base}-${Date.now()}${ext}`;
-
-    const blob = await upload(`datasets/${projectId}/${uniqueName}`, blobFile, {
-      access: "public",
-      handleUploadUrl: "/api/upload",
-      onUploadProgress: onProgress ? ({ percentage }) => onProgress(percentage) : undefined,
-    });
-
-    return {
-      url: blob.url,
-      fileName: name,
-      fileType: file.type,
-      fileSizeMB,
-    };
-  }
-
-  // Local dev: FormData POST via XHR so we can track progress
-  const formData = new FormData();
   const uploadBlob =
     file instanceof File ? file : new File([file], name, { type: file.type });
-  formData.append("file", uploadBlob);
-  formData.append("projectId", projectId);
 
-  const data = await new Promise<{ url: string; fileName: string; fileType: string; fileSizeMB: number }>(
-    (resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "/api/upload");
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
-      };
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(JSON.parse(xhr.responseText));
-        } else {
-          try { reject(new Error(JSON.parse(xhr.responseText).message || "Upload failed")); }
-          catch { reject(new Error("Upload failed")); }
-        }
-      };
-      xhr.onerror = () => reject(new Error("Upload failed"));
-      xhr.send(formData);
-    }
-  );
+  onProgress?.(5);
+
+  // 1. Reserve a signed upload URL from the server.
+  const signRes = await fetch("/api/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId, fileName: name }),
+  });
+  if (!signRes.ok) {
+    let msg = "Upload failed";
+    try { msg = (await signRes.json()).message || msg; } catch {}
+    throw new Error(msg);
+  }
+  const { bucket, path, token, publicUrl } = await signRes.json();
+
+  // 2. Upload straight to Supabase Storage with the signed token.
+  const supabase = getSupabaseBrowser();
+  if (!supabase) throw new Error("Storage unavailable — Supabase is not configured");
+
+  onProgress?.(15);
+  const { error } = await supabase.storage
+    .from(bucket)
+    .uploadToSignedUrl(path, token, uploadBlob, {
+      contentType: uploadBlob.type || "application/octet-stream",
+      upsert: true,
+    });
+  if (error) throw new Error(error.message || "Upload failed");
+  onProgress?.(100);
 
   return {
-    url: data.url,
-    fileName: data.fileName ?? name,
-    fileType: data.fileType ?? file.type,
-    fileSizeMB: data.fileSizeMB ?? fileSizeMB,
+    url: publicUrl,
+    fileName: name,
+    fileType: file.type,
+    fileSizeMB,
   };
 }
