@@ -361,6 +361,42 @@ model ActivityLog {
   @@index([type, createdAt])
 }
 
+// A single admin email broadcast (campaign). Recipients + per-person delivery
+// status live in EmailRecipient so we can show who received it, who didn't, and
+// resend to the failures. Scalar-id style (no relations), like CallSession.
+model EmailBroadcast {
+  id            String   @id @default(cuid())
+  subject       String
+  message       String
+  target        String   // all | verified | unverified | no_location | country | custom
+  country       String?
+  createdById   String
+  createdByName String?
+  total         Int      @default(0)
+  sentCount     Int      @default(0)
+  failedCount   Int      @default(0)
+  status        String   @default("sending") // sending | completed | partial | stopped
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+model EmailRecipient {
+  id          String   @id @default(cuid())
+  broadcastId String
+  email       String
+  fullName    String?
+  status      String   @default("pending") // pending | sent | failed
+  error       String?
+  attempts    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([broadcastId, status])
+  @@index([broadcastId])
+}
+
 model CallSession {
   id              String    @id @default(cuid())
   callCode        String    @unique  // short code shared between users — personal 5-char or generated

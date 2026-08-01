@@ -341,6 +341,17 @@ async function sendViaResend(from: string, opts: SendEmailOptions): Promise<Send
   }
 }
 
+/**
+ * True when a send error means the provider has cut us off (rate/usage limit),
+ * so the rest of a broadcast would fail too and should stop rather than hammer
+ * on. Covers Resend 429 and Zoho's "550 5.4.6 Unusual sending activity".
+ */
+export function isRateLimitError(msg = ""): boolean {
+  return /429|451|quota|rate.?limit|too many requests|sending limit|unusual sending activity|5\.4\.6|usage-policy|try after/i.test(
+    msg
+  );
+}
+
 export async function sendEmail(opts: SendEmailOptions): Promise<SendResult> {
   const from = process.env.EMAIL_FROM || `HustleClickGH <${SITE_CONFIG.contact.email}>`;
 
