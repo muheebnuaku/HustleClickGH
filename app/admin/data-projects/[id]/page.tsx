@@ -375,7 +375,7 @@ export default function AdminProjectSubmissionsPage() {
                             {files.map((f, i) => (
                               <div
                                 key={`${f.url}-${i}`}
-                                className={`border border-zinc-100 dark:border-zinc-800 rounded-lg p-2 flex flex-col ${isAudio(f.type) || isVideo(f.type) ? "sm:col-span-2" : ""}`}
+                                className={`border border-zinc-100 dark:border-zinc-800 rounded-lg p-2 flex flex-col ${isAudio(f.type) ? "sm:col-span-2" : ""}`}
                               >
                                 <div className="flex items-center justify-between gap-2 mb-1">
                                   <p className="text-xs font-medium text-foreground truncate">{f.name}</p>
@@ -390,9 +390,9 @@ export default function AdminProjectSubmissionsPage() {
                                 {isAudio(f.type) ? (
                                   <audio controls src={f.url} className="w-full h-10 mt-1" />
                                 ) : isVideo(f.type) ? (
-                                  <video controls playsInline src={f.url} className="rounded-lg mx-auto max-w-full max-h-[70vh] bg-black" />
+                                  <video controls playsInline src={f.url} className="rounded-lg mx-auto max-w-full max-h-72 bg-black" />
                                 ) : (
-                                  <img src={f.url} alt={f.name} className="rounded-lg mx-auto max-w-full max-h-[70vh] object-contain bg-zinc-50 dark:bg-zinc-900" />
+                                  <img src={f.url} alt={f.name} className="rounded-lg mx-auto max-w-full max-h-72 object-contain bg-zinc-50 dark:bg-zinc-900" />
                                 )}
                               </div>
                             ))}
