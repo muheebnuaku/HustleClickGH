@@ -7,11 +7,11 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
-  Loader2, Mic, Video, ScanFace, ArrowLeft, Upload,
+  Loader2, Mic, Video, ScanFace, ArrowLeft, Upload, Download,
   CheckCircle2, Clock, XCircle, AlertCircle, FileAudio, FileVideo, File
 } from "lucide-react";
 import Link from "next/link";
-import { uploadFile } from "@/lib/upload-file";
+import { uploadFile, sha256Hex, toDownloadUrl } from "@/lib/upload-file";
 import { getLicense } from "@/lib/licenses";
 import { analyzeMedia, specLine, type MediaMeta } from "@/lib/media-quality";
 
@@ -63,7 +63,7 @@ interface UserSubmission {
   submittedAt: string;
 }
 
-type UploadedFile = { fileUrl: string; fileName: string; fileType: string; fileSizeMB: number };
+type UploadedFile = { fileUrl: string; fileName: string; fileType: string; fileSizeMB: number; fileHash?: string };
 type UploadStatus = "analyzing" | "invalid" | "queued" | "uploading" | "uploaded" | "submitting" | "done" | "error";
 interface UploadItem {
   id: string;
@@ -204,10 +204,12 @@ export default function DataProjectDetailPage() {
   const uploadOne = async (item: UploadItem): Promise<boolean> => {
     updateItem(item.id, { status: "uploading", progress: 0, error: undefined });
     try {
+      // Hash in the browser so the server can dedup without re-downloading.
+      const fileHash = await sha256Hex(item.file);
       const u = await uploadFile(item.file, projectId, item.file.name, (pct) =>
         updateItem(item.id, { progress: pct })
       );
-      const data: UploadedFile = { fileUrl: u.url, fileName: u.fileName, fileType: u.fileType, fileSizeMB: u.fileSizeMB };
+      const data: UploadedFile = { fileUrl: u.url, fileName: u.fileName, fileType: u.fileType, fileSizeMB: u.fileSizeMB, fileHash };
       uploadedRef.current.set(item.id, data);
       updateItem(item.id, { status: "uploaded", progress: 100, uploaded: data });
       return true;
@@ -483,8 +485,11 @@ export default function DataProjectDetailPage() {
                       <div className="space-y-2">
                         {subFiles.map((f, i) => (
                           <div key={`${f.url}-${i}`}>
-                            <div className="flex items-center gap-2 text-xs text-zinc-500 mb-1">
-                              {getFileIcon(f.type)}<span className="truncate">{f.name} · {formatFileSize(f.sizeMB)}</span>
+                            <div className="flex items-center justify-between gap-2 text-xs text-zinc-500 mb-1">
+                              <span className="inline-flex items-center gap-2 min-w-0">{getFileIcon(f.type)}<span className="truncate">{f.name} · {formatFileSize(f.sizeMB)}</span></span>
+                              <a href={toDownloadUrl(f.url, f.name)} download={f.name} className="inline-flex items-center gap-1 text-blue-600 hover:underline shrink-0">
+                                <Download size={12} />Save
+                              </a>
                             </div>
                             {f.type.startsWith("audio") && <audio controls src={f.url} className="w-full h-9" />}
                             {f.type.startsWith("video") && <video controls src={f.url} className="rounded-lg max-h-44 bg-black w-full" />}

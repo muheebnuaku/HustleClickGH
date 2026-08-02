@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { logActivity, getIp } from "@/lib/activity-log";
-import { hashFileFromUrl, VELOCITY_WINDOW_MS, VELOCITY_MAX } from "@/lib/anti-fraud";
+import { VELOCITY_WINDOW_MS, VELOCITY_MAX } from "@/lib/anti-fraud";
 
 export async function POST(
   request: Request,
@@ -24,7 +24,7 @@ export async function POST(
     // A submission can hold several files (one user's full set). New clients send
     // `files: [{fileUrl,fileName,fileType,fileSizeMB}, …]`; older single-file
     // callers send the flat fields — normalize both to one array.
-    type SubFile = { fileUrl: string; fileName: string; fileType: string; fileSizeMB: number; meta?: unknown };
+    type SubFile = { fileUrl: string; fileName: string; fileType: string; fileSizeMB: number; meta?: unknown; fileHash?: string };
     const filesArr: SubFile[] =
       Array.isArray(filesInput) && filesInput.length
         ? filesInput
@@ -56,10 +56,19 @@ export async function POST(
       );
     }
 
-    // Velocity limit — throttle rapid-fire submissions (reward farming).
-    const recentCount = await prisma.dataSubmission.count({
-      where: { userId, submittedAt: { gte: new Date(Date.now() - VELOCITY_WINDOW_MS) } },
-    });
+    // Run the independent gate counts in parallel — fewer DB round-trips under
+    // load (hundreds of concurrent submissions).
+    const [recentCount, userSubmissionCount] = await Promise.all([
+      // Velocity — throttle rapid-fire submissions (reward farming).
+      prisma.dataSubmission.count({
+        where: { userId, submittedAt: { gte: new Date(Date.now() - VELOCITY_WINDOW_MS) } },
+      }),
+      // Per-user limit — count only non-rejected (rejected can be retried).
+      prisma.dataSubmission.count({
+        where: { projectId, userId, status: { in: ["pending", "approved"] } },
+      }),
+    ]);
+
     if (recentCount >= VELOCITY_MAX) {
       return NextResponse.json(
         { message: "You're submitting too quickly. Please try again later." },
@@ -74,11 +83,6 @@ export async function POST(
       );
     }
 
-    // Per-user submission limit — count only non-rejected submissions
-    // (rejected ones can be retried, so they don't use up a slot).
-    const userSubmissionCount = await prisma.dataSubmission.count({
-      where: { projectId, userId, status: { in: ["pending", "approved"] } },
-    });
     const maxPerUser = project.maxSubmissionsPerUser ?? 1;
     if (userSubmissionCount >= maxPerUser) {
       const times = maxPerUser === 1 ? "once" : maxPerUser === 2 ? "twice" : `${maxPerUser} times`;
@@ -159,9 +163,11 @@ export async function POST(
       where: { projectId, userId, status: "rejected" },
     });
 
-    // Duplicate-content detection: hash the primary file and reject if the same
-    // content was already submitted to this project (by anyone) and not rejected.
-    const fileHash = await hashFileFromUrl(primary.fileUrl, request.url, Number(primary.fileSizeMB));
+    // Duplicate-content detection using the hash the browser computed (sent with
+    // the submission). This avoids re-downloading the file server-side, keeping
+    // the endpoint thin under load. Reject if the same content was already
+    // submitted to this project (by anyone) and not rejected.
+    const fileHash = typeof primary.fileHash === "string" && primary.fileHash ? primary.fileHash : null;
     if (fileHash) {
       const dup = await prisma.dataSubmission.findFirst({
         where: { projectId, fileHash, status: { in: ["pending", "approved"] } },
@@ -194,7 +200,7 @@ export async function POST(
         fileSizeMB: primary.fileSizeMB,
         fileHash,
         files: JSON.stringify(
-          filesArr.map((f) => ({ url: f.fileUrl, name: f.fileName, type: f.fileType, sizeMB: f.fileSizeMB, meta: f.meta ?? null }))
+          filesArr.map((f) => ({ url: f.fileUrl, name: f.fileName, type: f.fileType, sizeMB: f.fileSizeMB, meta: f.meta ?? null, hash: f.fileHash ?? null }))
         ),
         durationSecs:
           primary.meta && typeof primary.meta === "object" && "durationSecs" in primary.meta

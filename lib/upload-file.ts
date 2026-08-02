@@ -1,6 +1,36 @@
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 
 /**
+ * SHA-256 of a file, computed in the browser (native crypto.subtle). Sent with a
+ * submission so the server can dedup WITHOUT re-downloading the file — this keeps
+ * the submit endpoint thin under load (hundreds of concurrent submissions).
+ * Requires a secure context (https / localhost); returns undefined otherwise.
+ */
+export async function sha256Hex(blob: Blob): Promise<string | undefined> {
+  try {
+    if (typeof crypto === "undefined" || !crypto.subtle) return undefined;
+    const buf = await blob.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buf);
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return undefined;
+  }
+}
+
+/** Append Supabase's ?download param so browsers (esp. mobile) SAVE the file
+ *  with Content-Disposition: attachment instead of opening it inline. */
+export function toDownloadUrl(url: string, filename?: string): string {
+  try {
+    const u = new URL(url);
+    u.searchParams.set("download", filename || "");
+    return u.toString();
+  } catch {
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}download=${encodeURIComponent(filename || "")}`;
+  }
+}
+
+/**
  * Uploads a file/blob to Supabase Storage.
  *
  * Flow (same in dev and prod — all files live in Supabase):

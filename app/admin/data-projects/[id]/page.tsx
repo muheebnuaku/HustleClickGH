@@ -6,6 +6,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Card } from "@/components/ui/card";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download, MessageSquare, Send, X } from "lucide-react";
+import { toDownloadUrl } from "@/lib/upload-file";
 import Link from "next/link";
 
 interface Submission {
@@ -307,7 +308,7 @@ export default function AdminProjectSubmissionsPage() {
                               >
                                 <div className="flex items-center justify-between gap-2 mb-1">
                                   <p className="text-xs font-medium text-foreground truncate">{f.name}</p>
-                                  <a href={f.url} target="_blank" rel="noopener noreferrer" download className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline shrink-0">
+                                  <a href={toDownloadUrl(f.url, f.name)} download={f.name} className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline shrink-0">
                                     <Download size={12} />Save
                                   </a>
                                 </div>
