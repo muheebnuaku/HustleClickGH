@@ -136,7 +136,9 @@ export default function AdminProjectSubmissionsPage() {
   const isVideo = (fileType: string) => fileType.startsWith("video");
 
   // A submission may hold several files (new) or one (legacy) — normalize.
-  const subFiles = (sub: Submission): { url: string; name: string; type: string; sizeMB: number }[] => {
+  type SubFileMeta = { width?: number; height?: number; durationSecs?: number; brightness?: number; sharpness?: number; loudnessDb?: number; warnings?: string[] };
+  type SubFileRow = { url: string; name: string; type: string; sizeMB: number; meta?: SubFileMeta | null };
+  const subFiles = (sub: Submission): SubFileRow[] => {
     if (sub.files) {
       try {
         const arr = JSON.parse(sub.files);
@@ -144,6 +146,18 @@ export default function AdminProjectSubmissionsPage() {
       } catch {}
     }
     return [{ url: sub.fileUrl, name: sub.fileName, type: sub.fileType, sizeMB: sub.fileSizeMB }];
+  };
+
+  // Short spec line for a file's measured quality metadata.
+  const fileSpec = (m?: SubFileMeta | null): string => {
+    if (!m) return "";
+    const p: string[] = [];
+    if (m.width && m.height) p.push(`${m.width}×${m.height}`);
+    if (m.durationSecs) p.push(`${m.durationSecs}s`);
+    if (m.brightness !== undefined) p.push(`bright ${m.brightness}%`);
+    if (m.sharpness !== undefined) p.push(`sharp ${m.sharpness}`);
+    if (m.loudnessDb !== undefined && m.loudnessDb > -99) p.push(`${m.loudnessDb}dB`);
+    return p.join(" · ");
   };
 
   return (
@@ -213,14 +227,14 @@ export default function AdminProjectSubmissionsPage() {
                           {sub.user.fullName}
                           {sub.contributorQuality && sub.contributorQuality.reviewed >= 3 && (
                             <span
-                              title={`${sub.contributorQuality.approved} approved / ${sub.contributorQuality.rejected} rejected`}
+                              title={`Approval rate from past reviews: ${sub.contributorQuality.approved} approved / ${sub.contributorQuality.rejected} rejected`}
                               className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                                 sub.contributorQuality.tier === "trusted"
                                   ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
                                   : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                               }`}
                             >
-                              {sub.contributorQuality.tier === "trusted" ? "Trusted" : "Low quality"} · {Math.round(sub.contributorQuality.score * 100)}%
+                              {sub.contributorQuality.tier === "trusted" ? "Trusted" : "Low approval"} · {Math.round(sub.contributorQuality.score * 100)}%
                             </span>
                           )}
                         </p>
@@ -256,6 +270,10 @@ export default function AdminProjectSubmissionsPage() {
                             {files.map((f, i) => (
                               <div key={`${f.url}-${i}`} className="border border-zinc-100 dark:border-zinc-800 rounded-lg p-2">
                                 <p className="text-xs text-zinc-500 break-all mb-1">{f.name} · {f.sizeMB.toFixed(1)}MB · {f.type}</p>
+                                {fileSpec(f.meta) && <p className="text-xs text-zinc-400 mb-1">Quality: {fileSpec(f.meta)}</p>}
+                                {f.meta?.warnings && f.meta.warnings.length > 0 && (
+                                  <p className="text-xs text-amber-600 mb-1">⚠ {f.meta.warnings.join(" · ")}</p>
+                                )}
                                 {isAudio(f.type) ? (
                                   <audio controls src={f.url} className="w-full max-w-sm h-10" />
                                 ) : isVideo(f.type) ? (

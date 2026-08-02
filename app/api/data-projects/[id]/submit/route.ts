@@ -24,7 +24,7 @@ export async function POST(
     // A submission can hold several files (one user's full set). New clients send
     // `files: [{fileUrl,fileName,fileType,fileSizeMB}, …]`; older single-file
     // callers send the flat fields — normalize both to one array.
-    type SubFile = { fileUrl: string; fileName: string; fileType: string; fileSizeMB: number };
+    type SubFile = { fileUrl: string; fileName: string; fileType: string; fileSizeMB: number; meta?: unknown };
     const filesArr: SubFile[] =
       Array.isArray(filesInput) && filesInput.length
         ? filesInput
@@ -185,8 +185,12 @@ export async function POST(
         fileSizeMB: primary.fileSizeMB,
         fileHash,
         files: JSON.stringify(
-          filesArr.map((f) => ({ url: f.fileUrl, name: f.fileName, type: f.fileType, sizeMB: f.fileSizeMB }))
+          filesArr.map((f) => ({ url: f.fileUrl, name: f.fileName, type: f.fileType, sizeMB: f.fileSizeMB, meta: f.meta ?? null }))
         ),
+        durationSecs:
+          primary.meta && typeof primary.meta === "object" && "durationSecs" in primary.meta
+            ? (primary.meta as { durationSecs?: number }).durationSecs ?? null
+            : null,
         language: language || null,
         promptUsed: promptUsed || null,
         gender: gender || null,

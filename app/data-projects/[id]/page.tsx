@@ -13,6 +13,7 @@ import {
 import Link from "next/link";
 import { uploadFile } from "@/lib/upload-file";
 import { getLicense } from "@/lib/licenses";
+import { analyzeMedia, specLine, type MediaMeta } from "@/lib/media-quality";
 
 interface DataProject {
   id: string;
@@ -62,7 +63,7 @@ interface UserSubmission {
 }
 
 type UploadedFile = { fileUrl: string; fileName: string; fileType: string; fileSizeMB: number };
-type UploadStatus = "queued" | "uploading" | "uploaded" | "submitting" | "done" | "error";
+type UploadStatus = "analyzing" | "invalid" | "queued" | "uploading" | "uploaded" | "submitting" | "done" | "error";
 interface UploadItem {
   id: string;
   file: File;
@@ -70,6 +71,7 @@ interface UploadItem {
   progress: number; // 0–100
   error?: string;
   uploaded?: UploadedFile; // set once the file is in storage
+  meta?: MediaMeta; // measured quality specs
 }
 
 // How many files upload at once. They're independent — a cap just avoids
@@ -145,6 +147,21 @@ export default function DataProjectDetailPage() {
     return null;
   };
 
+  // Measure a file's quality; block clearly-bad ones, attach specs to the rest.
+  const analyzeItem = async (item: UploadItem) => {
+    if (!project) return;
+    try {
+      const { meta, hardError } = await analyzeMedia(item.file, {
+        minDurationSecs: project.minDurationSecs,
+        maxDurationSecs: project.maxDurationSecs,
+      });
+      if (hardError) updateItem(item.id, { status: "invalid", error: hardError, meta });
+      else updateItem(item.id, { status: "queued", meta });
+    } catch {
+      updateItem(item.id, { status: "queued" }); // never block on analyzer failure
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files || []);
     if (!selected.length || !project) return;
@@ -154,9 +171,12 @@ export default function DataProjectDetailPage() {
     for (const f of selected) {
       const err = validateFile(f);
       if (err) { rejected.push(`${f.name}: ${err}`); continue; }
-      additions.push({ id: `f${idCounter.current++}`, file: f, status: "queued", progress: 0 });
+      additions.push({ id: `f${idCounter.current++}`, file: f, status: "analyzing", progress: 0 });
     }
-    if (additions.length) setItems((prev) => [...prev, ...additions]);
+    if (additions.length) {
+      setItems((prev) => [...prev, ...additions]);
+      additions.forEach((it) => analyzeItem(it)); // async quality check per file
+    }
     setError(rejected.join("\n"));
     setMessage("");
     e.target.value = ""; // allow re-picking the same file
@@ -209,7 +229,7 @@ export default function DataProjectDetailPage() {
 
   // Send the whole set as ONE submission. Counts as one submission from one
   // user (one slot, one gender count, one reward).
-  const submitSet = async (files: UploadedFile[]): Promise<boolean> => {
+  const submitSet = async (files: (UploadedFile & { meta?: MediaMeta })[]): Promise<boolean> => {
     setItems((prev) => prev.map((it) => (it.status === "uploaded" ? { ...it, status: "submitting" } : it)));
     try {
       const res = await fetch(`/api/data-projects/${projectId}/submit`, {
@@ -246,6 +266,13 @@ export default function DataProjectDetailPage() {
     e.preventDefault();
     if (!project) return;
     if (!items.length) { setError("Add at least one file to submit."); return; }
+    // Quality gate: wait for analysis, and block files that failed it.
+    if (items.some((it) => it.status === "analyzing")) { setError("Still checking your files — try again in a moment."); return; }
+    const invalid = items.filter((it) => it.status === "invalid");
+    if (invalid.length) {
+      setError(`${invalid.length} file${invalid.length === 1 ? " doesn't" : "s don't"} meet the quality requirements. Remove or replace ${invalid.length === 1 ? "it" : "them"} before submitting.`);
+      return;
+    }
     const problem = preflight();
     if (problem) { setError(problem); return; }
 
@@ -253,7 +280,7 @@ export default function DataProjectDetailPage() {
     setProcessing(true);
 
     // 1. Upload any files that aren't in storage yet (queued or previously failed).
-    const toUpload = items.filter((it) => it.status !== "uploaded");
+    const toUpload = items.filter((it) => it.status === "queued" || it.status === "error");
     if (toUpload.length) await uploadPool(toUpload);
 
     // 2. Only submit when EVERY file uploaded — a partial set would be incomplete.
@@ -265,8 +292,13 @@ export default function DataProjectDetailPage() {
       return;
     }
 
-    // 3. Submit the full set as one submission (preserve the picked order).
-    const files = items.map((it) => uploadedRef.current.get(it.id)!).filter(Boolean);
+    // 3. Submit the full set as one submission (preserve the picked order), with specs.
+    const files = items
+      .map((it) => {
+        const up = uploadedRef.current.get(it.id);
+        return up ? { ...up, meta: it.meta } : null;
+      })
+      .filter(Boolean) as (UploadedFile & { meta?: MediaMeta })[];
     await submitSet(files);
     setProcessing(false);
   };
@@ -574,9 +606,22 @@ export default function DataProjectDetailPage() {
                                 <p className="text-xs text-zinc-400">{formatFileSize(it.file.size / (1024 * 1024))}</p>
                               </div>
                               {/* Status pill / actions */}
-                              {it.status === "uploaded" && (
-                                <span className="text-xs text-green-600 inline-flex items-center gap-2 shrink-0">
-                                  <span className="inline-flex items-center gap-1"><CheckCircle2 size={14} />Ready</span>
+                              {it.status === "analyzing" && (
+                                <span className="text-xs text-zinc-500 inline-flex items-center gap-1 shrink-0"><Loader2 size={13} className="animate-spin" />Checking…</span>
+                              )}
+                              {it.status === "invalid" && (
+                                <span className="inline-flex items-center gap-2 shrink-0">
+                                  <span className="text-xs text-red-600 font-medium inline-flex items-center gap-1"><XCircle size={13} />Rejected</span>
+                                  <button type="button" onClick={() => removeItem(it.id)} className="text-xs text-zinc-400 hover:text-red-500">Remove</button>
+                                </span>
+                              )}
+                              {(it.status === "queued" || it.status === "uploaded") && (
+                                <span className="text-xs inline-flex items-center gap-2 shrink-0">
+                                  {it.status === "uploaded" ? (
+                                    <span className="text-green-600 inline-flex items-center gap-1"><CheckCircle2 size={14} />Ready</span>
+                                  ) : (
+                                    <span className="text-zinc-400">{processing ? "Queued" : "Ready to submit"}</span>
+                                  )}
                                   {!processing && <button type="button" onClick={() => removeItem(it.id)} className="text-zinc-400 hover:text-red-500">Remove</button>}
                                 </span>
                               )}
@@ -592,11 +637,16 @@ export default function DataProjectDetailPage() {
                               {it.status === "uploading" && (
                                 <span className="text-xs text-zinc-500 inline-flex items-center gap-1 shrink-0"><Loader2 size={13} className="animate-spin" />{it.progress}%</span>
                               )}
-                              {it.status === "queued" && !processing && (
-                                <button type="button" onClick={() => removeItem(it.id)} className="text-xs text-zinc-400 hover:text-red-500 shrink-0">Remove</button>
-                              )}
-                              {it.status === "queued" && processing && <span className="text-xs text-zinc-400 shrink-0">Queued</span>}
                             </div>
+
+                            {/* Measured specs */}
+                            {it.meta && specLine(it.meta) && (
+                              <p className="mt-1 text-xs text-zinc-400">{specLine(it.meta)}</p>
+                            )}
+                            {/* Advisory warnings (not blocking) */}
+                            {it.status !== "invalid" && it.meta?.warnings && it.meta.warnings.length > 0 && (
+                              <p className="mt-1 text-xs text-amber-600 break-words">⚠ {it.meta.warnings.join(" · ")}</p>
+                            )}
 
                             {/* Progress bar while uploading */}
                             {(it.status === "uploading" || it.status === "submitting") && (
@@ -604,7 +654,7 @@ export default function DataProjectDetailPage() {
                                 <div className="h-full bg-blue-600 transition-all" style={{ width: `${it.status === "submitting" ? 100 : it.progress}%` }} />
                               </div>
                             )}
-                            {it.status === "error" && it.error && (
+                            {(it.status === "error" || it.status === "invalid") && it.error && (
                               <p className="mt-1.5 text-xs text-red-600 break-words">{it.error}</p>
                             )}
                           </div>
@@ -713,6 +763,7 @@ export default function DataProjectDetailPage() {
                     type="submit"
                     disabled={
                       items.length === 0 || !consent || processing ||
+                      items.some((it) => it.status === "analyzing") ||
                       ((project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
                     }
                     className="w-full bg-green-500 hover:bg-green-600 text-white"
