@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, passwordResetEmail } from "@/lib/email";
 import { logActivity, getIp } from "@/lib/activity-log";
+import { SITE_CONFIG } from "@/lib/constants";
 
 // POST /api/auth/forgot-password { email }
 // Always responds the same way whether or not the email exists, so the endpoint
@@ -39,7 +40,11 @@ export async function POST(request: Request) {
       data: { userId: user.id, tokenHash, expiresAt },
     });
 
-    const base = process.env.NEXTAUTH_URL || new URL(request.url).origin;
+    // Use the canonical site URL in production (NEXTAUTH_URL can point at a stale
+    // vercel.app domain); fall back to the request origin locally.
+    const base =
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      (process.env.NODE_ENV === "production" ? SITE_CONFIG.url : new URL(request.url).origin);
     const resetUrl = `${base}/reset-password?token=${rawToken}`;
     const mail = passwordResetEmail(user.fullName, resetUrl, user.userId);
     // Fire-and-forget; never reveal success/failure to the caller.

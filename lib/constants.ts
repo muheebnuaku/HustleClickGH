@@ -1,5 +1,8 @@
 export const SITE_CONFIG = {
   name: "HustleClickGH",
+  // Canonical production URL — used to build absolute links in emails so they
+  // never depend on NEXTAUTH_URL (which can point at a stale vercel.app domain).
+  url: "https://www.hustleclickgh.com",
   description: "Ghana's AI Dataset Collection Platform — earn GH₵ by recording your voice, completing surveys, and contributing language data.",
   contact: {
     email: "info@hustleclickgh.com",
