@@ -39,12 +39,25 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const rows = subs.map((s) => {
     const u = userById.get(s.userId);
     const c = consentByUser.get(s.userId);
+    // A submission may hold several files; expose them all (primary kept for back-compat).
+    let allFiles: { url: string; name: string; type: string; sizeMB: number }[] = [
+      { url: s.fileUrl, name: s.fileName, type: s.fileType, sizeMB: s.fileSizeMB },
+    ];
+    if (s.files) {
+      try {
+        const parsed = JSON.parse(s.files);
+        if (Array.isArray(parsed) && parsed.length) allFiles = parsed;
+      } catch {}
+    }
     return {
       submissionId: s.id,
       fileUrl: s.fileUrl,
       fileName: s.fileName,
       fileType: s.fileType,
       fileSizeMB: s.fileSizeMB,
+      fileCount: allFiles.length,
+      fileUrls: allFiles.map((f) => f.url).join(" "),
+      files: allFiles,
       durationSecs: s.durationSecs ?? "",
       language: s.language ?? "",
       prompt: s.promptUsed ?? "",
@@ -76,11 +89,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const filename = `dataset-${project.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${id.slice(0, 6)}`;
 
   if (format === "csv") {
+    // Drop the nested `files` array from CSV (JSON keeps it); fileUrls/fileCount cover it.
     const cols = Object.keys(rows[0] || {
       submissionId: "", fileUrl: "", fileName: "", fileType: "", fileSizeMB: "", durationSecs: "",
       language: "", prompt: "", gender: "", contributorRef: "", contributorCountry: "",
       contributorRegion: "", contributorCity: "", submittedAt: "", consentGiven: "", consentSignedAt: "", consentDocument: "",
-    });
+    }).filter((c) => c !== "files");
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => esc((r as Record<string, unknown>)[c])).join(","))].join("\n");
     return new NextResponse(csv, {

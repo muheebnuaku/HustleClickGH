@@ -53,6 +53,7 @@ interface UserSubmission {
   fileName: string;
   fileType: string;
   fileSizeMB: number;
+  files?: string | null; // JSON array of {url,name,type,sizeMB}
   language: string | null;
   promptUsed: string | null;
   status: string;
@@ -60,13 +61,15 @@ interface UserSubmission {
   submittedAt: string;
 }
 
-type UploadStatus = "queued" | "uploading" | "submitting" | "done" | "error";
+type UploadedFile = { fileUrl: string; fileName: string; fileType: string; fileSizeMB: number };
+type UploadStatus = "queued" | "uploading" | "uploaded" | "submitting" | "done" | "error";
 interface UploadItem {
   id: string;
   file: File;
   status: UploadStatus;
   progress: number; // 0–100
   error?: string;
+  uploaded?: UploadedFile; // set once the file is in storage
 }
 
 // How many files upload at once. They're independent — a cap just avoids
@@ -153,56 +156,41 @@ export default function DataProjectDetailPage() {
     e.target.value = ""; // allow re-picking the same file
   };
 
-  const removeItem = (id: string) => setItems((prev) => prev.filter((it) => it.id !== id));
+  const removeItem = (id: string) => {
+    uploadedRef.current.delete(id);
+    setItems((prev) => prev.filter((it) => it.id !== id));
+  };
 
-  // Upload + submit a single file. Independent of the others — a failure here
-  // never touches another item. Returns true on success.
-  const processOne = async (item: UploadItem): Promise<boolean> => {
+  // Uploaded-file data, tracked outside React so it survives across retries and
+  // is readable synchronously when we build the final grouped submission.
+  const uploadedRef = useRef<Map<string, UploadedFile>>(new Map());
+
+  // Upload ONE file to storage (independent — a failure here never touches
+  // another item). It does NOT submit; the whole set is submitted together.
+  const uploadOne = async (item: UploadItem): Promise<boolean> => {
     updateItem(item.id, { status: "uploading", progress: 0, error: undefined });
     try {
-      const uploadData = await uploadFile(item.file, projectId, item.file.name, (pct) =>
+      const u = await uploadFile(item.file, projectId, item.file.name, (pct) =>
         updateItem(item.id, { progress: pct })
       );
-      updateItem(item.id, { status: "submitting", progress: 100 });
-      const res = await fetch(`/api/data-projects/${projectId}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileUrl: uploadData.url,
-          fileName: uploadData.fileName,
-          fileType: uploadData.fileType,
-          fileSizeMB: uploadData.fileSizeMB,
-          language: language || null,
-          promptUsed: promptUsed || null,
-          gender: gender || null,
-          consentGiven: consent,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        updateItem(item.id, { status: "error", error: data.message || "Submission failed" });
-        return false;
-      }
-      updateItem(item.id, { status: "done" });
+      const data: UploadedFile = { fileUrl: u.url, fileName: u.fileName, fileType: u.fileType, fileSizeMB: u.fileSizeMB };
+      uploadedRef.current.set(item.id, data);
+      updateItem(item.id, { status: "uploaded", progress: 100, uploaded: data });
       return true;
     } catch (err) {
+      uploadedRef.current.delete(item.id);
       updateItem(item.id, { status: "error", error: err instanceof Error ? err.message : "Upload failed" });
       return false;
     }
   };
 
-  // Run a batch with a small concurrency cap; each item is fully independent.
-  const runPool = async (list: UploadItem[]) => {
+  // Upload a batch with a small concurrency cap; each item is independent.
+  const uploadPool = async (list: UploadItem[]) => {
     let i = 0;
-    let ok = 0;
     const worker = async () => {
-      while (i < list.length) {
-        const current = list[i++];
-        if (await processOne(current)) ok++;
-      }
+      while (i < list.length) await uploadOne(list[i++]);
     };
     await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, list.length) }, worker));
-    return ok;
   };
 
   const preflight = (): string | null => {
@@ -213,52 +201,85 @@ export default function DataProjectDetailPage() {
     return null;
   };
 
+  // Send the whole set as ONE submission. Counts as one submission from one
+  // user (one slot, one gender count, one reward).
+  const submitSet = async (files: UploadedFile[]): Promise<boolean> => {
+    setItems((prev) => prev.map((it) => (it.status === "uploaded" ? { ...it, status: "submitting" } : it)));
+    try {
+      const res = await fetch(`/api/data-projects/${projectId}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          files,
+          language: language || null,
+          promptUsed: promptUsed || null,
+          gender: gender || null,
+          consentGiven: consent,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setItems((prev) => prev.map((it) => (it.status === "submitting" ? { ...it, status: "uploaded" } : it)));
+        setError(data.message || "Submission failed");
+        return false;
+      }
+      setMessage(data.message || "Submission received! Your files are under review.");
+      uploadedRef.current.clear();
+      setItems([]);
+      setConsent(false);
+      fetchProject();
+      return true;
+    } catch {
+      setItems((prev) => prev.map((it) => (it.status === "submitting" ? { ...it, status: "uploaded" } : it)));
+      setError("An error occurred while submitting.");
+      return false;
+    }
+  };
+
   const handleSubmitAll = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!project) return;
-    const pending = items.filter((it) => it.status === "queued" || it.status === "error");
-    if (!pending.length) { setError("Add at least one file to submit."); return; }
+    if (!items.length) { setError("Add at least one file to submit."); return; }
     const problem = preflight();
     if (problem) { setError(problem); return; }
 
     setError(""); setMessage("");
     setProcessing(true);
-    const ok = await runPool(pending);
-    setProcessing(false);
 
-    // If everything succeeded, clear the queue and refresh; otherwise keep the
-    // failed items on screen so they can be retried individually.
-    setItems((prev) => {
-      const remaining = prev.filter((it) => it.status !== "done");
-      if (remaining.length === 0) {
-        setMessage(`Submitted ${ok} recording${ok === 1 ? "" : "s"}. They're now under review.`);
-        setConsent(false);
-        fetchProject();
-      } else {
-        const failed = remaining.filter((it) => it.status === "error").length;
-        if (ok > 0) setMessage(`Submitted ${ok}. ${failed} still need attention — retry them below.`);
-      }
-      return remaining;
-    });
+    // 1. Upload any files that aren't in storage yet (queued or previously failed).
+    const toUpload = items.filter((it) => it.status !== "uploaded");
+    if (toUpload.length) await uploadPool(toUpload);
+
+    // 2. Only submit when EVERY file uploaded — a partial set would be incomplete.
+    const allUploaded = items.every((it) => uploadedRef.current.has(it.id));
+    if (!allUploaded) {
+      setProcessing(false);
+      const failed = items.filter((it) => !uploadedRef.current.has(it.id)).length;
+      setError(`${failed} file${failed === 1 ? "" : "s"} failed to upload. Retry ${failed === 1 ? "it" : "them"} below, then submit.`);
+      return;
+    }
+
+    // 3. Submit the full set as one submission (preserve the picked order).
+    const files = items.map((it) => uploadedRef.current.get(it.id)!).filter(Boolean);
+    await submitSet(files);
+    setProcessing(false);
   };
 
-  // Retry one failed file without touching the others.
+  // Retry uploading one failed file without touching the others.
   const retryOne = async (item: UploadItem) => {
-    const problem = preflight();
-    if (problem) { setError(problem); return; }
     setError("");
-    const ok = await processOne(item);
-    if (ok) {
-      setItems((prev) => {
-        const remaining = prev.filter((it) => it.status !== "done");
-        if (remaining.length === 0) {
-          setMessage("All recordings submitted. They're now under review.");
-          setConsent(false);
-          fetchProject();
-        }
-        return remaining;
-      });
+    await uploadOne(item);
+  };
+
+  // A submission may carry several files (new) or one (legacy) — normalize.
+  const parseSubmissionFiles = (sub: UserSubmission): { url: string; name: string; type: string; sizeMB: number }[] => {
+    if (sub.files) {
+      try {
+        const arr = JSON.parse(sub.files);
+        if (Array.isArray(arr) && arr.length) return arr;
+      } catch {}
     }
+    return [{ url: sub.fileUrl, name: sub.fileName, type: sub.fileType, sizeMB: sub.fileSizeMB }];
   };
 
   const formatFileSize = (mb: number) => mb < 1 ? `${(mb * 1024).toFixed(0)}KB` : `${mb.toFixed(1)}MB`;
@@ -386,23 +407,32 @@ export default function DataProjectDetailPage() {
                 )}
               </div>
             </div>
-            {userSubmission.status !== "rejected" && (
-              <>
-                <div className="flex items-center gap-3 text-sm text-zinc-500">
-                  {getFileIcon(userSubmission.fileType)}
-                  <div>
-                    <p className="font-medium text-foreground">{userSubmission.fileName}</p>
-                    <p className="text-xs">{formatFileSize(userSubmission.fileSizeMB)} · Submitted {formatDate(userSubmission.submittedAt)}</p>
+            {userSubmission.status !== "rejected" && (() => {
+              const subFiles = parseSubmissionFiles(userSubmission);
+              return (
+                <>
+                  <p className="text-xs text-zinc-400 mb-2">
+                    {subFiles.length} file{subFiles.length === 1 ? "" : "s"} · Submitted {formatDate(userSubmission.submittedAt)}
+                  </p>
+                  <div className="space-y-3">
+                    {subFiles.map((f, i) => (
+                      <div key={`${f.url}-${i}`} className="border border-zinc-100 rounded-lg p-3">
+                        <div className="flex items-center gap-3 text-sm text-zinc-500 mb-2">
+                          {getFileIcon(f.type)}
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground truncate">{f.name}</p>
+                            <p className="text-xs">{formatFileSize(f.sizeMB)}</p>
+                          </div>
+                        </div>
+                        {f.type.startsWith("audio") && <audio controls src={f.url} className="w-full h-10" />}
+                        {f.type.startsWith("video") && <video controls src={f.url} className="rounded-lg max-h-48 bg-black w-full" />}
+                        {f.type.startsWith("image") && <img src={f.url} alt={f.name} className="rounded-lg max-h-48 object-contain" />}
+                      </div>
+                    ))}
                   </div>
-                </div>
-                {userSubmission.fileType.startsWith("audio") && (
-                  <audio controls src={userSubmission.fileUrl} className="mt-3 w-full h-10" />
-                )}
-                {userSubmission.fileType.startsWith("video") && (
-                  <video controls src={userSubmission.fileUrl} className="mt-3 rounded-lg max-h-48 bg-black" />
-                )}
-              </>
-            )}
+                </>
+              );
+            })()}
           </Card>
         )}
 
@@ -520,17 +550,23 @@ export default function DataProjectDetailPage() {
                                 <p className="text-xs text-zinc-400">{formatFileSize(it.file.size / (1024 * 1024))}</p>
                               </div>
                               {/* Status pill / actions */}
-                              {it.status === "done" && <span className="text-xs text-green-600 inline-flex items-center gap-1 shrink-0"><CheckCircle2 size={14} />Submitted</span>}
-                              {it.status === "error" && (
-                                <button type="button" onClick={() => retryOne(it)} className="text-xs text-blue-600 font-medium inline-flex items-center gap-1 shrink-0 hover:underline">
-                                  <Loader2 size={13} className="hidden" />Retry
-                                </button>
-                              )}
-                              {(it.status === "uploading" || it.status === "submitting") && (
-                                <span className="text-xs text-zinc-500 inline-flex items-center gap-1 shrink-0">
-                                  <Loader2 size={13} className="animate-spin" />
-                                  {it.status === "submitting" ? "Finishing…" : `${it.progress}%`}
+                              {it.status === "uploaded" && (
+                                <span className="text-xs text-green-600 inline-flex items-center gap-2 shrink-0">
+                                  <span className="inline-flex items-center gap-1"><CheckCircle2 size={14} />Ready</span>
+                                  {!processing && <button type="button" onClick={() => removeItem(it.id)} className="text-zinc-400 hover:text-red-500">Remove</button>}
                                 </span>
+                              )}
+                              {it.status === "submitting" && (
+                                <span className="text-xs text-zinc-500 inline-flex items-center gap-1 shrink-0"><Loader2 size={13} className="animate-spin" />Submitting…</span>
+                              )}
+                              {it.status === "error" && (
+                                <span className="inline-flex items-center gap-2 shrink-0">
+                                  <button type="button" onClick={() => retryOne(it)} disabled={processing} className="text-xs text-blue-600 font-medium hover:underline disabled:opacity-50">Retry</button>
+                                  {!processing && <button type="button" onClick={() => removeItem(it.id)} className="text-xs text-zinc-400 hover:text-red-500">Remove</button>}
+                                </span>
+                              )}
+                              {it.status === "uploading" && (
+                                <span className="text-xs text-zinc-500 inline-flex items-center gap-1 shrink-0"><Loader2 size={13} className="animate-spin" />{it.progress}%</span>
                               )}
                               {it.status === "queued" && !processing && (
                                 <button type="button" onClick={() => removeItem(it.id)} className="text-xs text-zinc-400 hover:text-red-500 shrink-0">Remove</button>
@@ -649,25 +685,21 @@ export default function DataProjectDetailPage() {
                     </label>
                   </div>
 
-                  {(() => {
-                    const pendingCount = items.filter((it) => it.status === "queued" || it.status === "error").length;
-                    return (
-                      <Button
-                        type="submit"
-                        disabled={
-                          pendingCount === 0 || !consent || processing ||
-                          ((project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
-                        }
-                        className="w-full bg-green-500 hover:bg-green-600 text-white"
-                      >
-                        {processing ? (
-                          <><Loader2 size={16} className="mr-2 animate-spin" />Uploading & Submitting…</>
-                        ) : (
-                          <><Upload size={16} className="mr-2" />Submit {pendingCount || ""} Recording{pendingCount === 1 ? "" : "s"}</>
-                        )}
-                      </Button>
-                    );
-                  })()}
+                  <Button
+                    type="submit"
+                    disabled={
+                      items.length === 0 || !consent || processing ||
+                      ((project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
+                    }
+                    className="w-full bg-green-500 hover:bg-green-600 text-white"
+                  >
+                    {processing ? (
+                      <><Loader2 size={16} className="mr-2 animate-spin" />Uploading & Submitting…</>
+                    ) : (
+                      <><Upload size={16} className="mr-2" />Submit {items.length || ""} File{items.length === 1 ? "" : "s"}</>
+                    )}
+                  </Button>
+                  <p className="text-xs text-zinc-500 text-center -mt-1">All your files are submitted together as one submission.</p>
 
                   <p className="text-xs text-zinc-400 text-center">
                     After submission, your recording will be reviewed. You&apos;ll be paid {formatCurrency(project.reward)} once approved.

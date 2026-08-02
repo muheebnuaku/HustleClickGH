@@ -14,6 +14,7 @@ interface Submission {
   fileName: string;
   fileType: string;
   fileSizeMB: number;
+  files?: string | null; // JSON array of {url,name,type,sizeMB}
   language: string | null;
   promptUsed: string | null;
   status: string;
@@ -134,6 +135,17 @@ export default function AdminProjectSubmissionsPage() {
   const isAudio = (fileType: string) => fileType.startsWith("audio");
   const isVideo = (fileType: string) => fileType.startsWith("video");
 
+  // A submission may hold several files (new) or one (legacy) — normalize.
+  const subFiles = (sub: Submission): { url: string; name: string; type: string; sizeMB: number }[] => {
+    if (sub.files) {
+      try {
+        const arr = JSON.parse(sub.files);
+        if (Array.isArray(arr) && arr.length) return arr;
+      } catch {}
+    }
+    return [{ url: sub.fileUrl, name: sub.fileName, type: sub.fileType, sizeMB: sub.fileSizeMB }];
+  };
+
   return (
     <AdminLayout>
       <div className="space-y-6">
@@ -224,30 +236,42 @@ export default function AdminProjectSubmissionsPage() {
                     </div>
 
                     {/* File details */}
-                    <div className="text-sm text-zinc-500 space-y-1 break-words">
-                      <p><span className="font-medium">File:</span> <span className="break-all">{sub.fileName}</span> · {sub.fileSizeMB.toFixed(1)}MB · {sub.fileType}</p>
-                      {sub.language && <p><span className="font-medium">Language:</span> {sub.language}</p>}
-                      {sub.promptUsed && <p><span className="font-medium">Prompt recorded:</span> &ldquo;{sub.promptUsed}&rdquo;</p>}
-                      <p><span className="font-medium">Submitted:</span> {formatDate(sub.submittedAt)}</p>
-                      {sub.reviewedAt && <p><span className="font-medium">Reviewed:</span> {formatDate(sub.reviewedAt)}</p>}
-                      {sub.notes && (
-                        <p className="text-red-600"><span className="font-medium">Notes:</span> {sub.notes}</p>
-                      )}
-                    </div>
+                    {(() => {
+                      const files = subFiles(sub);
+                      return (
+                        <>
+                          <div className="text-sm text-zinc-500 space-y-1 break-words">
+                            <p><span className="font-medium">{files.length} file{files.length === 1 ? "" : "s"}</span> · {files.reduce((s, f) => s + f.sizeMB, 0).toFixed(1)}MB total</p>
+                            {sub.language && <p><span className="font-medium">Language:</span> {sub.language}</p>}
+                            {sub.promptUsed && <p><span className="font-medium">Prompt recorded:</span> &ldquo;{sub.promptUsed}&rdquo;</p>}
+                            <p><span className="font-medium">Submitted:</span> {formatDate(sub.submittedAt)}</p>
+                            {sub.reviewedAt && <p><span className="font-medium">Reviewed:</span> {formatDate(sub.reviewedAt)}</p>}
+                            {sub.notes && (
+                              <p className="text-red-600"><span className="font-medium">Notes:</span> {sub.notes}</p>
+                            )}
+                          </div>
 
-                    {/* Media preview */}
-                    <div className="mt-2">
-                      {isAudio(sub.fileType) ? (
-                        <audio controls src={sub.fileUrl} className="w-full max-w-sm h-10" />
-                      ) : isVideo(sub.fileType) ? (
-                        <video controls src={sub.fileUrl} className="rounded-lg max-w-xs max-h-40 bg-black" />
-                      ) : (
-                        <img src={sub.fileUrl} alt="submission" className="rounded-lg max-w-xs max-h-40 object-cover" />
-                      )}
-                      <a href={sub.fileUrl} target="_blank" rel="noopener noreferrer" download className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-1">
-                        <Download size={12} />Download file
-                      </a>
-                    </div>
+                          {/* Media preview — every file in the submission */}
+                          <div className="mt-2 space-y-3">
+                            {files.map((f, i) => (
+                              <div key={`${f.url}-${i}`} className="border border-zinc-100 dark:border-zinc-800 rounded-lg p-2">
+                                <p className="text-xs text-zinc-500 break-all mb-1">{f.name} · {f.sizeMB.toFixed(1)}MB · {f.type}</p>
+                                {isAudio(f.type) ? (
+                                  <audio controls src={f.url} className="w-full max-w-sm h-10" />
+                                ) : isVideo(f.type) ? (
+                                  <video controls src={f.url} className="rounded-lg max-w-xs max-h-40 bg-black" />
+                                ) : (
+                                  <img src={f.url} alt="submission" className="rounded-lg max-w-xs max-h-40 object-cover" />
+                                )}
+                                <a href={f.url} target="_blank" rel="noopener noreferrer" download className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-1">
+                                  <Download size={12} />Download
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {/* Actions (only for pending) */}

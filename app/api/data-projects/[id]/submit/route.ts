@@ -19,11 +19,23 @@ export async function POST(
     const { id: projectId } = await params;
     const userId = session.user.id;
     const body = await request.json();
-    const { fileUrl, fileName, fileType, fileSizeMB, language, promptUsed, consentGiven, gender } = body;
+    const { files: filesInput, fileUrl, fileName, fileType, fileSizeMB, language, promptUsed, consentGiven, gender } = body;
 
-    if (!fileUrl || !fileName || !fileType || !fileSizeMB) {
+    // A submission can hold several files (one user's full set). New clients send
+    // `files: [{fileUrl,fileName,fileType,fileSizeMB}, …]`; older single-file
+    // callers send the flat fields — normalize both to one array.
+    type SubFile = { fileUrl: string; fileName: string; fileType: string; fileSizeMB: number };
+    const filesArr: SubFile[] =
+      Array.isArray(filesInput) && filesInput.length
+        ? filesInput
+        : fileUrl && fileName
+        ? [{ fileUrl, fileName, fileType, fileSizeMB }]
+        : [];
+
+    if (!filesArr.length || filesArr.some((f) => !f.fileUrl || !f.fileName || !f.fileType || !f.fileSizeMB)) {
       return NextResponse.json({ message: "Missing required fields" }, { status: 400 });
     }
+    const primary = filesArr[0];
 
     if (!consentGiven) {
       return NextResponse.json(
@@ -107,30 +119,27 @@ export async function POST(
       }
     }
 
-    // Validate file format
+    // Validate every file's format and size.
     const acceptedFormats: string[] = JSON.parse(project.acceptedFormats);
-    const fileExt = fileName.split(".").pop()?.toLowerCase() || "";
-    
-    // Always accept webm for voice projects (browser recordings use webm)
     const isVoiceProject = project.projectType === "voice";
-    const isWebmFile = fileExt === "webm";
+    // Live call recordings are exempt from format/size checks (webm, can be large).
     const isCallRecording = promptUsed?.toLowerCase().includes("call recording") || promptUsed?.toLowerCase().includes("live call");
-    
-    if (!acceptedFormats.includes(fileExt) && !(isVoiceProject && isWebmFile) && !isCallRecording) {
-      return NextResponse.json(
-        { message: `File format .${fileExt} is not accepted. Allowed: ${acceptedFormats.join(", ")}` },
-        { status: 400 }
-      );
-    }
 
-    // Validate file size — but skip this for live call recordings.
-    // A 60-minute WAV at 16kHz/16-bit is ~115 MB which exceeds typical project limits.
-    // The TURN-relayed recording is fully consented so we accept any size.
-    if (!isCallRecording && fileSizeMB > project.maxFileSizeMB) {
-      return NextResponse.json(
-        { message: `File size ${fileSizeMB.toFixed(1)}MB exceeds limit of ${project.maxFileSizeMB}MB` },
-        { status: 400 }
-      );
+    for (const f of filesArr) {
+      const ext = f.fileName.split(".").pop()?.toLowerCase() || "";
+      const isWebmFile = ext === "webm";
+      if (!acceptedFormats.includes(ext) && !(isVoiceProject && isWebmFile) && !isCallRecording) {
+        return NextResponse.json(
+          { message: `File "${f.fileName}" (.${ext}) is not accepted. Allowed: ${acceptedFormats.join(", ")}` },
+          { status: 400 }
+        );
+      }
+      if (!isCallRecording && f.fileSizeMB > project.maxFileSizeMB) {
+        return NextResponse.json(
+          { message: `File "${f.fileName}" (${f.fileSizeMB.toFixed(1)}MB) exceeds the ${project.maxFileSizeMB}MB limit` },
+          { status: 400 }
+        );
+      }
     }
 
     // Check if user already submitted
@@ -152,9 +161,9 @@ export async function POST(
       }
     }
 
-    // Duplicate-content detection: hash the file and reject if the same content
-    // was already submitted to this project (by anyone) and not rejected.
-    const fileHash = await hashFileFromUrl(fileUrl, request.url, Number(fileSizeMB));
+    // Duplicate-content detection: hash the primary file and reject if the same
+    // content was already submitted to this project (by anyone) and not rejected.
+    const fileHash = await hashFileFromUrl(primary.fileUrl, request.url, Number(primary.fileSizeMB));
     if (fileHash) {
       const dup = await prisma.dataSubmission.findFirst({
         where: { projectId, fileHash, status: { in: ["pending", "approved"] } },
@@ -180,11 +189,15 @@ export async function POST(
       data: {
         projectId,
         userId,
-        fileUrl,
-        fileName,
-        fileType,
-        fileSizeMB,
+        // Primary file mirrors files[0] for back-compat with single-file views.
+        fileUrl: primary.fileUrl,
+        fileName: primary.fileName,
+        fileType: primary.fileType,
+        fileSizeMB: primary.fileSizeMB,
         fileHash,
+        files: JSON.stringify(
+          filesArr.map((f) => ({ url: f.fileUrl, name: f.fileName, type: f.fileType, sizeMB: f.fileSizeMB }))
+        ),
         language: language || null,
         promptUsed: promptUsed || null,
         gender: gender || null,
@@ -203,17 +216,19 @@ export async function POST(
         submissionId: submission.id,
         projectId,
         projectTitle: project.title,
-        fileName,
-        fileType,
-        fileSizeMB,
+        fileName: primary.fileName,
+        fileType: primary.fileType,
+        fileSizeMB: primary.fileSizeMB,
+        fileCount: filesArr.length,
         language: language || null,
         gender: gender || null,
       },
       ip: getIp(request),
     });
 
+    const n = filesArr.length;
     return NextResponse.json({
-      message: "Submission received! Your recording is under review.",
+      message: `Submission received! Your ${n === 1 ? "recording is" : `${n} files are`} under review.`,
       submissionId: submission.id,
     });
   } catch (error) {

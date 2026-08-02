@@ -319,11 +319,12 @@ model DataSubmission {
   id              String      @id @default(cuid())
   projectId       String
   userId          String
-  fileUrl         String      // Vercel Blob URL or local /uploads/ path in dev
+  fileUrl         String      // Primary file URL (first file); mirrors files[0] for back-compat
   fileName        String
   fileType        String      // MIME type e.g. audio/mpeg
   fileSizeMB      Float
-  fileHash        String?     // SHA-256 of the file (server-computed); duplicate-content detection
+  fileHash        String?     // SHA-256 of the primary file (server-computed); duplicate-content detection
+  files           String?     // JSON array of {url,name,type,sizeMB} — a submission can hold several files (one user's full set)
   durationSecs    Float?
   language        String?
   promptUsed      String?     // Which prompt the user recorded
