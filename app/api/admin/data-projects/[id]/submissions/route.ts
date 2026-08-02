@@ -22,7 +22,7 @@ export async function GET(
       where: { projectId },
       include: {
         user: {
-          select: { userId: true, fullName: true, email: true, phone: true },
+          select: { id: true, userId: true, fullName: true, email: true, phone: true },
         },
       },
       orderBy: { submittedAt: "desc" },

@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { AdminLayout } from "@/components/admin-layout";
 import { Card } from "@/components/ui/card";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download, MessageSquare, Send, X } from "lucide-react";
 import Link from "next/link";
 
 interface Submission {
@@ -22,7 +22,7 @@ interface Submission {
   notes: string | null;
   submittedAt: string;
   reviewedAt: string | null;
-  user: { userId: string; fullName: string; email: string; phone: string };
+  user: { id: string; userId: string; fullName: string; email: string; phone: string };
   contributorQuality?: { approved: number; rejected: number; reviewed: number; score: number; tier: "new" | "trusted" | "watch" } | null;
 }
 
@@ -50,6 +50,33 @@ export default function AdminProjectSubmissionsPage() {
   const [rejectNotes, setRejectNotes] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  // Admin → contributor direct message (from a submission)
+  const [msgTarget, setMsgTarget] = useState<{ id: string; name: string } | null>(null);
+  const [msgBody, setMsgBody] = useState("");
+  const [msgSending, setMsgSending] = useState(false);
+  const [msgError, setMsgError] = useState("");
+
+  const sendAdminMessage = async () => {
+    if (!msgTarget || !msgBody.trim()) return;
+    setMsgSending(true);
+    setMsgError("");
+    try {
+      const res = await fetch("/api/admin/users/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: msgTarget.id, body: msgBody.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setMsgError(data.message || "Could not send message."); return; }
+      setMessage(`Message sent to ${msgTarget.name}.`);
+      setMsgTarget(null);
+      setMsgBody("");
+    } catch {
+      setMsgError("Could not send message.");
+    } finally {
+      setMsgSending(false);
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -247,6 +274,12 @@ export default function AdminProjectSubmissionsPage() {
                       }`}>
                         {sub.status}
                       </span>
+                      <button
+                        onClick={() => { setMsgTarget({ id: sub.user.id, name: sub.user.fullName }); setMsgBody(""); setMsgError(""); }}
+                        className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 border border-blue-200 dark:border-blue-900 rounded-lg px-2.5 py-1"
+                      >
+                        <MessageSquare size={13} />Message
+                      </button>
                     </div>
 
                     {/* File details */}
@@ -265,25 +298,30 @@ export default function AdminProjectSubmissionsPage() {
                             )}
                           </div>
 
-                          {/* Media preview — every file in the submission */}
-                          <div className="mt-2 space-y-3">
+                          {/* Media preview — responsive grid; audio spans full width */}
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {files.map((f, i) => (
-                              <div key={`${f.url}-${i}`} className="border border-zinc-100 dark:border-zinc-800 rounded-lg p-2">
-                                <p className="text-xs text-zinc-500 break-all mb-1">{f.name} · {f.sizeMB.toFixed(1)}MB · {f.type}</p>
-                                {fileSpec(f.meta) && <p className="text-xs text-zinc-400 mb-1">Quality: {fileSpec(f.meta)}</p>}
+                              <div
+                                key={`${f.url}-${i}`}
+                                className={`border border-zinc-100 dark:border-zinc-800 rounded-lg p-2 flex flex-col ${isAudio(f.type) ? "sm:col-span-2" : ""}`}
+                              >
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <p className="text-xs font-medium text-foreground truncate">{f.name}</p>
+                                  <a href={f.url} target="_blank" rel="noopener noreferrer" download className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline shrink-0">
+                                    <Download size={12} />Save
+                                  </a>
+                                </div>
+                                <p className="text-[11px] text-zinc-400 mb-1">{f.sizeMB.toFixed(1)}MB · {f.type}{fileSpec(f.meta) ? ` · ${fileSpec(f.meta)}` : ""}</p>
                                 {f.meta?.warnings && f.meta.warnings.length > 0 && (
-                                  <p className="text-xs text-amber-600 mb-1">⚠ {f.meta.warnings.join(" · ")}</p>
+                                  <p className="text-[11px] text-amber-600 mb-1">⚠ {f.meta.warnings.join(" · ")}</p>
                                 )}
                                 {isAudio(f.type) ? (
-                                  <audio controls src={f.url} className="w-full max-w-sm h-10" />
+                                  <audio controls src={f.url} className="w-full h-10 mt-auto" />
                                 ) : isVideo(f.type) ? (
-                                  <video controls src={f.url} className="rounded-lg max-w-xs max-h-40 bg-black" />
+                                  <video controls src={f.url} className="rounded-lg w-full max-h-64 bg-black object-contain mt-auto" />
                                 ) : (
-                                  <img src={f.url} alt="submission" className="rounded-lg max-w-xs max-h-40 object-cover" />
+                                  <img src={f.url} alt={f.name} className="rounded-lg w-full max-h-64 object-contain bg-zinc-50 dark:bg-zinc-900 mt-auto" />
                                 )}
-                                <a href={f.url} target="_blank" rel="noopener noreferrer" download className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-1">
-                                  <Download size={12} />Download
-                                </a>
                               </div>
                             ))}
                           </div>
@@ -339,6 +377,36 @@ export default function AdminProjectSubmissionsPage() {
           </div>
         )}
       </div>
+
+      {/* Admin → contributor message modal */}
+      {msgTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => !msgSending && setMsgTarget(null)}>
+          <div className="w-full max-w-md bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-foreground flex items-center gap-2"><MessageSquare size={18} /> Message {msgTarget.name}</h3>
+              <button onClick={() => !msgSending && setMsgTarget(null)} className="text-zinc-400 hover:text-zinc-600"><X size={18} /></button>
+            </div>
+            <p className="text-xs text-zinc-500 mb-2">This goes to the contributor&rsquo;s inbox, their email, and a push notification.</p>
+            {msgError && <div className="bg-red-50 text-red-600 rounded-lg px-3 py-2 text-sm mb-2">{msgError}</div>}
+            <textarea
+              value={msgBody}
+              onChange={(e) => setMsgBody(e.target.value)}
+              rows={4}
+              maxLength={4000}
+              autoFocus
+              placeholder="Type your message… e.g. Please re-record in better lighting and avoid moving your head so fast."
+              className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <div className="flex justify-end gap-2 mt-3">
+              <button onClick={() => setMsgTarget(null)} disabled={msgSending} className="px-3 py-2 text-sm rounded-lg text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50">Cancel</button>
+              <button onClick={sendAdminMessage} disabled={msgSending || !msgBody.trim()} className="px-4 py-2 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white inline-flex items-center gap-1.5 disabled:opacity-50">
+                {msgSending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+                {msgSending ? "Sending…" : "Send"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }
