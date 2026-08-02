@@ -23,9 +23,14 @@ export async function GET(
       return NextResponse.json({ message: "Project not found" }, { status: 404 });
     }
 
-    const userSubmission = await prisma.dataSubmission.findFirst({
+    const userSubmissions = await prisma.dataSubmission.findMany({
       where: { projectId: id, userId },
+      orderBy: { submittedAt: "desc" },
     });
+    const userSubmission = userSubmissions[0] ?? null; // newest, for back-compat
+    // Rejected submissions don't count against the per-user limit (users may retry).
+    const userSubmissionsUsed = userSubmissions.filter((s) => s.status !== "rejected").length;
+    const maxPerUser = project.maxSubmissionsPerUser ?? 1;
 
     // Count pending+approved submissions per gender so users see accurate remaining slots
     let malesFilled = 0;
@@ -57,6 +62,10 @@ export async function GET(
         femalesSlotsRemaining: project.femalesNeeded !== null ? Math.max(0, project.femalesNeeded - femalesFilled) : null,
       },
       userSubmission,
+      userSubmissions,
+      userSubmissionsUsed,
+      maxSubmissionsPerUser: maxPerUser,
+      canSubmitMore: userSubmissionsUsed < maxPerUser,
     });
   } catch (error) {
     console.error("Data project detail error:", error);

@@ -87,7 +87,10 @@ export default function DataProjectDetailPage() {
   const projectId = params.id as string;
 
   const [project, setProject] = useState<DataProject | null>(null);
-  const [userSubmission, setUserSubmission] = useState<UserSubmission | null>(null);
+  const [userSubmissions, setUserSubmissions] = useState<UserSubmission[]>([]);
+  const [submissionsUsed, setSubmissionsUsed] = useState(0);
+  const [maxPerUser, setMaxPerUser] = useState(1);
+  const [canSubmitMore, setCanSubmitMore] = useState(true);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [language, setLanguage] = useState("");
@@ -109,7 +112,10 @@ export default function DataProjectDetailPage() {
       const res = await fetch(`/api/data-projects/${projectId}`);
       const data = await res.json();
       setProject(data.project || null);
-      setUserSubmission(data.userSubmission || null);
+      setUserSubmissions(data.userSubmissions || []);
+      setSubmissionsUsed(data.userSubmissionsUsed || 0);
+      setMaxPerUser(data.maxSubmissionsPerUser || 1);
+      setCanSubmitMore(data.canSubmitMore ?? true);
     } catch {
       setError("Failed to load project");
     } finally {
@@ -382,62 +388,80 @@ export default function DataProjectDetailPage() {
           )}
         </Card>
 
-        {/* Already submitted */}
-        {userSubmission && (
+        {/* Success banner (visible even after the form hides on submit) */}
+        {message && (
+          <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">
+            <CheckCircle2 size={16} className="inline mr-2" />{message}
+          </div>
+        )}
+
+        {/* Your submissions */}
+        {userSubmissions.length > 0 && (
           <Card className="p-5">
-            <h2 className="font-semibold mb-3">Your Submission</h2>
-            <div className={`flex items-center gap-3 p-3 rounded-lg mb-3 ${
-              userSubmission.status === "pending" ? "bg-yellow-50" :
-              userSubmission.status === "approved" ? "bg-green-50" : "bg-red-50"
-            }`}>
-              {userSubmission.status === "pending" && <Clock size={18} className="text-yellow-600" />}
-              {userSubmission.status === "approved" && <CheckCircle2 size={18} className="text-green-600" />}
-              {userSubmission.status === "rejected" && <XCircle size={18} className="text-red-600" />}
-              <div>
-                <p className={`font-medium text-sm ${
-                  userSubmission.status === "pending" ? "text-yellow-700" :
-                  userSubmission.status === "approved" ? "text-green-700" : "text-red-700"
-                }`}>
-                  {userSubmission.status === "pending" ? "Under review — your submission is being checked by our team" :
-                   userSubmission.status === "approved" ? `Approved! ${formatCurrency(project.reward)} has been credited to your balance` :
-                   "Rejected — you can record and submit again"}
-                </p>
-                {userSubmission.notes && (
-                  <p className="text-xs text-red-600 mt-1">Reason: {userSubmission.notes}</p>
-                )}
-              </div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold">Your Submission{userSubmissions.length === 1 ? "" : "s"}</h2>
+              {maxPerUser > 1 && (
+                <span className="text-xs text-zinc-500">{submissionsUsed} of {maxPerUser} used</span>
+              )}
             </div>
-            {userSubmission.status !== "rejected" && (() => {
-              const subFiles = parseSubmissionFiles(userSubmission);
-              return (
-                <>
-                  <p className="text-xs text-zinc-400 mb-2">
-                    {subFiles.length} file{subFiles.length === 1 ? "" : "s"} · Submitted {formatDate(userSubmission.submittedAt)}
-                  </p>
-                  <div className="space-y-3">
-                    {subFiles.map((f, i) => (
-                      <div key={`${f.url}-${i}`} className="border border-zinc-100 rounded-lg p-3">
-                        <div className="flex items-center gap-3 text-sm text-zinc-500 mb-2">
-                          {getFileIcon(f.type)}
-                          <div className="min-w-0">
-                            <p className="font-medium text-foreground truncate">{f.name}</p>
-                            <p className="text-xs">{formatFileSize(f.sizeMB)}</p>
-                          </div>
-                        </div>
-                        {f.type.startsWith("audio") && <audio controls src={f.url} className="w-full h-10" />}
-                        {f.type.startsWith("video") && <video controls src={f.url} className="rounded-lg max-h-48 bg-black w-full" />}
-                        {f.type.startsWith("image") && <img src={f.url} alt={f.name} className="rounded-lg max-h-48 object-contain" />}
+
+            {/* Limit reached — make it clear they can't submit again */}
+            {!canSubmitMore && project.status === "active" && (
+              <div className="flex items-center gap-2 p-3 rounded-lg mb-3 bg-blue-50 border border-blue-100">
+                <AlertCircle size={18} className="text-blue-600 shrink-0" />
+                <p className="text-sm text-blue-700">
+                  You&rsquo;ve used all your submission{maxPerUser === 1 ? "" : "s"} for this project
+                  {maxPerUser > 1 ? ` (${submissionsUsed}/${maxPerUser})` : ""}. You can&rsquo;t submit again.
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {userSubmissions.map((sub) => {
+                const subFiles = parseSubmissionFiles(sub);
+                return (
+                  <div key={sub.id} className="border border-zinc-100 rounded-xl p-3">
+                    <div className={`flex items-center gap-3 p-2 rounded-lg mb-2 ${
+                      sub.status === "pending" ? "bg-yellow-50" : sub.status === "approved" ? "bg-green-50" : "bg-red-50"
+                    }`}>
+                      {sub.status === "pending" && <Clock size={16} className="text-yellow-600 shrink-0" />}
+                      {sub.status === "approved" && <CheckCircle2 size={16} className="text-green-600 shrink-0" />}
+                      {sub.status === "rejected" && <XCircle size={16} className="text-red-600 shrink-0" />}
+                      <div className="min-w-0">
+                        <p className={`font-medium text-sm ${
+                          sub.status === "pending" ? "text-yellow-700" : sub.status === "approved" ? "text-green-700" : "text-red-700"
+                        }`}>
+                          {sub.status === "pending" ? "Pending review — being checked by our team" :
+                           sub.status === "approved" ? `Approved! ${formatCurrency(project.reward)} credited to your balance` :
+                           "Rejected — you can submit again"}
+                        </p>
+                        <p className="text-xs text-zinc-400">{subFiles.length} file{subFiles.length === 1 ? "" : "s"} · {formatDate(sub.submittedAt)}</p>
+                        {sub.notes && <p className="text-xs text-red-600 mt-0.5">Reason: {sub.notes}</p>}
                       </div>
-                    ))}
+                    </div>
+                    {sub.status !== "rejected" && (
+                      <div className="space-y-2">
+                        {subFiles.map((f, i) => (
+                          <div key={`${f.url}-${i}`}>
+                            <div className="flex items-center gap-2 text-xs text-zinc-500 mb-1">
+                              {getFileIcon(f.type)}<span className="truncate">{f.name} · {formatFileSize(f.sizeMB)}</span>
+                            </div>
+                            {f.type.startsWith("audio") && <audio controls src={f.url} className="w-full h-9" />}
+                            {f.type.startsWith("video") && <video controls src={f.url} className="rounded-lg max-h-44 bg-black w-full" />}
+                            {f.type.startsWith("image") && <img src={f.url} alt={f.name} className="rounded-lg max-h-44 object-contain" />}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </>
-              );
-            })()}
+                );
+              })}
+            </div>
           </Card>
         )}
 
-        {/* Instructions - show if no submission OR if submission was rejected */}
-        {(!userSubmission || userSubmission.status === "rejected") && (
+        {/* Instructions + upload — only while the user can still submit */}
+        {canSubmitMore && (
           <>
             <Card className="p-5">
               <h2 className="font-semibold mb-3">Recording Instructions</h2>

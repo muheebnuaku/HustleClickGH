@@ -74,15 +74,16 @@ export async function POST(
       );
     }
 
-    // Per-user submission limit
+    // Per-user submission limit — count only non-rejected submissions
+    // (rejected ones can be retried, so they don't use up a slot).
     const userSubmissionCount = await prisma.dataSubmission.count({
-      where: { projectId, userId },
+      where: { projectId, userId, status: { in: ["pending", "approved"] } },
     });
     const maxPerUser = project.maxSubmissionsPerUser ?? 1;
     if (userSubmissionCount >= maxPerUser) {
       const times = maxPerUser === 1 ? "once" : maxPerUser === 2 ? "twice" : `${maxPerUser} times`;
       return NextResponse.json(
-        { message: `You can only submit ${times} to this project` },
+        { message: `You've reached your submission limit — you can only submit ${times} to this project.` },
         { status: 400 }
       );
     }
@@ -142,24 +143,12 @@ export async function POST(
       }
     }
 
-    // Check if user already submitted
-    const existing = await prisma.dataSubmission.findFirst({
-      where: { projectId, userId },
+    // Clean up any prior REJECTED submissions so they don't clutter the user's
+    // history when they retry. Non-rejected ones are kept and counted toward the
+    // per-user limit (already enforced above).
+    await prisma.dataSubmission.deleteMany({
+      where: { projectId, userId, status: "rejected" },
     });
-    if (existing) {
-      // Allow re-submission if the previous one was rejected
-      if (existing.status === "rejected") {
-        // Delete the old rejected submission to allow a fresh one
-        await prisma.dataSubmission.delete({
-          where: { id: existing.id },
-        });
-      } else {
-        return NextResponse.json(
-          { message: "You have already submitted to this project" },
-          { status: 400 }
-        );
-      }
-    }
 
     // Duplicate-content detection: hash the primary file and reject if the same
     // content was already submitted to this project (by anyone) and not rejected.
