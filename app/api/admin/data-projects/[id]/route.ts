@@ -19,7 +19,7 @@ export async function PUT(
     const body = await request.json();
     const {
       title, description, instructions, samplePrompts, reward,
-      maxSubmissions, maxSubmissionsPerUser, languages, minDurationSecs, maxDurationSecs,
+      maxSubmissions, maxSubmissionsPerUser, maxFilesPerSubmission, languages, minDurationSecs, maxDurationSecs,
       maxFileSizeMB, expiresAt, malesNeeded, femalesNeeded,
       audioSampleRate, audioChannels, audioBitDepth, recordingType,
     } = body;
@@ -36,6 +36,7 @@ export async function PUT(
         reward: parseFloat(reward),
         maxSubmissions: parseInt(maxSubmissions),
         maxSubmissionsPerUser: maxSubmissionsPerUser ? parseInt(maxSubmissionsPerUser) : 1,
+        maxFilesPerSubmission: maxFilesPerSubmission ? Math.max(1, parseInt(maxFilesPerSubmission)) : 1,
         languages: JSON.stringify(
           Array.isArray(languages) ? languages : []
         ),

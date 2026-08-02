@@ -32,6 +32,7 @@ interface DataProject {
   reward: number;
   maxSubmissions: number;
   maxSubmissionsPerUser: number;
+  maxFilesPerSubmission: number;
   currentSubmissions: number;
   status: string;
   orgId?: string | null;
@@ -67,6 +68,7 @@ const emptyForm = {
   reward: "",
   maxSubmissions: "",
   maxSubmissionsPerUser: "1",
+  maxFilesPerSubmission: "1",
   languages: "",
   minDurationSecs: "3",
   maxDurationSecs: "60",
@@ -128,6 +130,7 @@ export default function AdminDataProjectsPage() {
       reward: String(p.reward),
       maxSubmissions: String(p.maxSubmissions),
       maxSubmissionsPerUser: String(p.maxSubmissionsPerUser ?? 1),
+      maxFilesPerSubmission: String(p.maxFilesPerSubmission ?? 1),
       languages: p.languages?.join(", ") || "",
       minDurationSecs: String(p.minDurationSecs ?? 3),
       maxDurationSecs: String(p.maxDurationSecs ?? 60),
@@ -422,6 +425,12 @@ export default function AdminDataProjectsPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1">Submits Per User</label>
                   <Input type="number" min="1" max="100" value={form.maxSubmissionsPerUser} onChange={(e) => setForm({ ...form, maxSubmissionsPerUser: e.target.value })} placeholder="1" />
+                  <p className="text-[11px] text-zinc-400 mt-0.5">How many times each user may submit.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Files Per Submission</label>
+                  <Input type="number" min="1" max="50" value={form.maxFilesPerSubmission} onChange={(e) => setForm({ ...form, maxFilesPerSubmission: e.target.value })} placeholder="1" />
+                  <p className="text-[11px] text-zinc-400 mt-0.5">How many files a user can upload in one submission (e.g. 4 for indoor + outdoor clips).</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Min Duration (s)</label>

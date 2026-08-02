@@ -120,6 +120,15 @@ export async function POST(
       }
     }
 
+    // Enforce the project's files-per-submission limit.
+    const maxFiles = project.maxFilesPerSubmission ?? 1;
+    if (filesArr.length > maxFiles) {
+      return NextResponse.json(
+        { message: `This project allows at most ${maxFiles} file${maxFiles === 1 ? "" : "s"} per submission.` },
+        { status: 400 }
+      );
+    }
+
     // Validate every file's format and size.
     const acceptedFormats: string[] = JSON.parse(project.acceptedFormats);
     const isVoiceProject = project.projectType === "voice";

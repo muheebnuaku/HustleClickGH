@@ -38,6 +38,7 @@ interface DataProject {
   minDurationSecs: number;
   maxDurationSecs: number;
   maxFileSizeMB: number;
+  maxFilesPerSubmission: number;
   status: string;
   expiresAt: string | null;
   audioSampleRate: number | null;
@@ -168,10 +169,17 @@ export default function DataProjectDetailPage() {
 
     const rejected: string[] = [];
     const additions: UploadItem[] = [];
+    const maxFiles = project.maxFilesPerSubmission || 1;
+    let remaining = Math.max(0, maxFiles - items.length);
     for (const f of selected) {
+      if (remaining <= 0) {
+        rejected.push(`This project allows at most ${maxFiles} file${maxFiles === 1 ? "" : "s"} per submission.`);
+        break;
+      }
       const err = validateFile(f);
       if (err) { rejected.push(`${f.name}: ${err}`); continue; }
       additions.push({ id: `f${idCounter.current++}`, file: f, status: "analyzing", progress: 0 });
+      remaining--;
     }
     if (additions.length) {
       setItems((prev) => [...prev, ...additions]);
@@ -575,8 +583,13 @@ export default function DataProjectDetailPage() {
                     >
                       <div className="text-zinc-400">
                         <Upload size={28} className="mx-auto mb-2 opacity-50" />
-                        <p className="text-sm font-medium">{items.length ? "Tap to add more files" : "Tap to select your recordings"}</p>
-                        <p className="text-xs mt-1">{project.acceptedFormats.join(", ")} · Max {project.maxFileSizeMB}MB each · You can pick several</p>
+                        <p className="text-sm font-medium">{items.length ? "Tap to add more files" : "Tap to select your recording" + ((project.maxFilesPerSubmission || 1) > 1 ? "s" : "")}</p>
+                        <p className="text-xs mt-1">
+                          {project.acceptedFormats.join(", ")} · Max {project.maxFileSizeMB}MB each ·{" "}
+                          {(project.maxFilesPerSubmission || 1) > 1
+                            ? `Up to ${project.maxFilesPerSubmission} files per submission`
+                            : "1 file per submission"}
+                        </p>
                       </div>
                     </div>
                     <input
