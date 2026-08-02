@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { AdminLayout } from "@/components/admin-layout";
 import { Card } from "@/components/ui/card";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download, MessageSquare, Send, X } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download, MessageSquare, Send, X, Trash2 } from "lucide-react";
 import { toDownloadUrl } from "@/lib/upload-file";
 import Link from "next/link";
 
@@ -56,6 +56,39 @@ export default function AdminProjectSubmissionsPage() {
   const [msgBody, setMsgBody] = useState("");
   const [msgSending, setMsgSending] = useState(false);
   const [msgError, setMsgError] = useState("");
+  // Bulk delete of (non-approved) submissions
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+
+  const handleBulkDelete = async () => {
+    if (!selected.size) return;
+    if (!confirm(`Permanently delete ${selected.size} submission${selected.size === 1 ? "" : "s"} and ${selected.size === 1 ? "its" : "their"} files? This cannot be undone.`)) return;
+    setDeleting(true);
+    setError(""); setMessage("");
+    try {
+      const res = await fetch(`/api/admin/data-projects/${projectId}/submissions`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...selected] }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setError(d.message || "Delete failed"); return; }
+      setMessage(`Deleted ${d.deleted} submission${d.deleted === 1 ? "" : "s"}${d.skippedApproved ? ` · skipped ${d.skippedApproved} approved` : ""}.`);
+      setSelected(new Set());
+      fetchData();
+    } catch {
+      setError("Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const sendAdminMessage = async () => {
     if (!msgTarget || !msgBody.trim()) return;
@@ -233,6 +266,35 @@ export default function AdminProjectSubmissionsPage() {
           ))}
         </div>
 
+        {/* Bulk delete bar — non-approved submissions in the current view */}
+        {!loading && filteredSubmissions.some((s) => s.status !== "approved") && (() => {
+          const deletableIds = filteredSubmissions.filter((s) => s.status !== "approved").map((s) => s.id);
+          const allChecked = deletableIds.length > 0 && deletableIds.every((id) => selected.has(id));
+          return (
+            <div className="flex flex-wrap items-center gap-3 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2">
+              <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={allChecked}
+                  onChange={(e) => setSelected(e.target.checked ? new Set(deletableIds) : new Set())}
+                  className="w-4 h-4 rounded border-zinc-300"
+                />
+                Select all {filter === "all" ? "deletable" : filter} ({deletableIds.length})
+              </label>
+              {selected.size > 0 && (
+                <>
+                  <span className="text-xs text-zinc-500">{selected.size} selected</span>
+                  <button onClick={handleBulkDelete} disabled={deleting} className="ml-auto inline-flex items-center gap-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg px-3 py-1.5 disabled:opacity-50">
+                    {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                    Delete {selected.size}
+                  </button>
+                  <button onClick={() => setSelected(new Set())} className="text-xs text-zinc-500 hover:underline">Clear</button>
+                </>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Submissions */}
         {loading ? (
           <div className="flex items-center justify-center py-16 text-zinc-400">
@@ -250,6 +312,15 @@ export default function AdminProjectSubmissionsPage() {
                   {/* User Info */}
                   <div className="flex-1 min-w-0 space-y-3">
                     <div className="flex flex-wrap items-center gap-3">
+                      {sub.status !== "approved" && (
+                        <input
+                          type="checkbox"
+                          checked={selected.has(sub.id)}
+                          onChange={() => toggleSelect(sub.id)}
+                          className="w-4 h-4 rounded border-zinc-300 shrink-0"
+                          title="Select for deletion"
+                        />
+                      )}
                       <div>
                         <p className="font-semibold text-foreground flex items-center gap-1.5">
                           {sub.user.fullName}
@@ -304,7 +375,7 @@ export default function AdminProjectSubmissionsPage() {
                             {files.map((f, i) => (
                               <div
                                 key={`${f.url}-${i}`}
-                                className={`border border-zinc-100 dark:border-zinc-800 rounded-lg p-2 flex flex-col ${isAudio(f.type) ? "sm:col-span-2" : ""}`}
+                                className={`border border-zinc-100 dark:border-zinc-800 rounded-lg p-2 flex flex-col ${isAudio(f.type) || isVideo(f.type) ? "sm:col-span-2" : ""}`}
                               >
                                 <div className="flex items-center justify-between gap-2 mb-1">
                                   <p className="text-xs font-medium text-foreground truncate">{f.name}</p>
@@ -317,11 +388,11 @@ export default function AdminProjectSubmissionsPage() {
                                   <p className="text-[11px] text-amber-600 mb-1">⚠ {f.meta.warnings.join(" · ")}</p>
                                 )}
                                 {isAudio(f.type) ? (
-                                  <audio controls src={f.url} className="w-full h-10 mt-auto" />
+                                  <audio controls src={f.url} className="w-full h-10 mt-1" />
                                 ) : isVideo(f.type) ? (
-                                  <video controls src={f.url} className="rounded-lg w-full max-h-64 bg-black object-contain mt-auto" />
+                                  <video controls playsInline src={f.url} className="rounded-lg mx-auto max-w-full max-h-[70vh] bg-black" />
                                 ) : (
-                                  <img src={f.url} alt={f.name} className="rounded-lg w-full max-h-64 object-contain bg-zinc-50 dark:bg-zinc-900 mt-auto" />
+                                  <img src={f.url} alt={f.name} className="rounded-lg mx-auto max-w-full max-h-[70vh] object-contain bg-zinc-50 dark:bg-zinc-900" />
                                 )}
                               </div>
                             ))}
