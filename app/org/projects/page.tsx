@@ -69,7 +69,7 @@ export default function OrgProjects() {
               <div><label className="text-sm font-medium">Project title *</label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Twi conversational speech" /></div>
               <div><label className="text-sm font-medium">Description *</label><textarea className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm resize-y" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What data you need and how it will be used" /></div>
               <div><label className="text-sm font-medium">Recording instructions *</label><textarea className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm resize-y" rows={3} value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} placeholder="Step-by-step guide for contributors" /></div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-sm font-medium">Type</label>
                   <select value={form.projectType} onChange={(e) => setForm({ ...form, projectType: e.target.value })} className="w-full h-12 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 text-sm">
