@@ -185,20 +185,22 @@ export default function ReferralPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <Input
                 value={referralLink}
                 readOnly
-                className="font-mono text-sm"
+                className="font-mono text-sm min-w-0 flex-1"
               />
-              <Button onClick={handleCopy} variant="outline">
-                <Copy size={18} />
-                {copied ? "Copied!" : "Copy"}
-              </Button>
-              <Button onClick={handleShare}>
-                <Share2 size={18} />
-                Share
-              </Button>
+              <div className="flex gap-2">
+                <Button onClick={handleCopy} variant="outline" className="flex-1 sm:flex-none">
+                  <Copy size={18} />
+                  {copied ? "Copied!" : "Copy"}
+                </Button>
+                <Button onClick={handleShare} className="flex-1 sm:flex-none">
+                  <Share2 size={18} />
+                  Share
+                </Button>
+              </div>
             </div>
 
             {/* Progress to Milestone — contributors only */}
