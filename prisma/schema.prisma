@@ -43,6 +43,9 @@ model User {
   totalEarned     Float         @default(0)
   referralCode    String        @unique
   referredBy      String?
+  // Managers earn a % commission when people they referred get rewarded on a
+  // project. Null = use DEFAULT_MANAGER_COMMISSION. Only meaningful for role="manager".
+  commissionPercent Float?
   personalCallCode String?      @unique // Permanent 5-char code for voice calls
   lastSeenAt      DateTime?     // heartbeat timestamp; "online" = within the last ~90s
   createdAt       DateTime      @default(now())
@@ -203,6 +206,23 @@ model Withdrawal {
 
   @@index([userId])
   @@index([status])
+}
+
+// A commission a manager earned because someone THEY referred was rewarded on a
+// project. Scalar-id style (no relations) — keeps it decoupled like CallSession.
+model ManagerCommission {
+  id             String   @id @default(cuid())
+  managerId      String   // the manager who gets paid
+  referredUserId String   // the contributor whose approval triggered it
+  submissionId   String
+  projectId      String
+  rewardAmount   Float    // the contributor's reward this was based on
+  percent        Float    // rate applied at the time
+  amount         Float    // commission credited to the manager
+  createdAt      DateTime @default(now())
+
+  @@index([managerId, createdAt])
+  @@index([submissionId])
 }
 
 model Referral {

@@ -15,7 +15,7 @@ export async function GET() {
     }
 
     const users = await prisma.user.findMany({
-      where: { role: "user" },
+      where: { role: { in: ["user", "manager"] } },
       include: {
         _count: {
           select: {
@@ -48,6 +48,7 @@ export async function GET() {
       balance: user.balance,
       totalEarned: user.totalEarned,
       role: user.role,
+      commissionPercent: user.commissionPercent,
       status: user.status,
       verified: user.verified,
       locationRequested: user.locationRequested,
@@ -105,9 +106,9 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const { userId, action } = body;
+    const { userId, action, value } = body;
 
-    const VALID = ["suspend", "unsuspend", "verify", "unverify", "request_location"];
+    const VALID = ["suspend", "unsuspend", "verify", "unverify", "request_location", "set_commission"];
     if (!userId || !VALID.includes(action)) {
       return NextResponse.json(
         { message: "Invalid request: userId and a valid action are required" },
@@ -140,6 +141,17 @@ export async function PATCH(request: Request) {
       case "unverify":
         data = { verified: false, verifiedAt: null };
         break;
+      case "set_commission": {
+        if (user.role !== "manager") {
+          return NextResponse.json({ message: "Commission only applies to manager accounts" }, { status: 400 });
+        }
+        const pct = Number(value);
+        if (!isFinite(pct) || pct < 0 || pct > 100) {
+          return NextResponse.json({ message: "Commission must be between 0 and 100" }, { status: 400 });
+        }
+        data = { commissionPercent: Math.round(pct * 100) / 100 };
+        break;
+      }
       default: // request_location
         data = { locationRequested: true };
         break;

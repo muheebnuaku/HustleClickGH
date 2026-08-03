@@ -51,6 +51,7 @@ export async function POST(request: Request) {
     sendEmail({ to: user.email, subject: mail.subject, html: mail.html });
 
     logActivity({
+      
       type: "password_reset_requested",
       userId: user.id,
       userName: user.fullName,

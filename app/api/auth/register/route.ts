@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { hash } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { SITE_CONFIG } from "@/lib/constants";
+import { SITE_CONFIG, REFERRAL_CAP } from "@/lib/constants";
 import { logActivity, getIp } from "@/lib/activity-log";
 import { encryptField, lastChars, isEncryptionConfigured } from "@/lib/crypto";
 import { CONSENT_VERSION } from "@/lib/legal";
@@ -106,12 +106,15 @@ export async function POST(request: Request) {
 
     // Handle referral
     let referredBy = null;
+    let referrerIsManager = false;
     if (referralId) {
       const referrer = await prisma.user.findUnique({
         where: { referralCode: referralId },
+        select: { id: true, role: true },
       });
       if (referrer) {
         referredBy = referrer.id;
+        referrerIsManager = referrer.role === "manager";
       }
     }
 
@@ -166,7 +169,8 @@ export async function POST(request: Request) {
         where: { referrerId: referredBy },
       });
 
-      if (referralCount < 50) {
+      // Contributors are capped at REFERRAL_CAP; managers are unlimited.
+      if (referrerIsManager || referralCount < REFERRAL_CAP) {
         await prisma.$transaction([
           prisma.referral.create({
             data: {

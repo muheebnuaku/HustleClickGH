@@ -3,7 +3,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { canReward, buyerCost } from "@/lib/org";
+import { DEFAULT_MANAGER_COMMISSION } from "@/lib/constants";
 
 export async function POST(
   _req: Request,
@@ -61,6 +63,45 @@ export async function POST(
       projectUpdate.femalesApproved = { increment: 1 };
     }
 
+    // Manager commission: if the contributor was referred by a manager, that
+    // manager earns a % of this reward (per-manager rate, admin-editable).
+    const contributor = await prisma.user.findUnique({
+      where: { id: submission.userId },
+      select: { referredBy: true },
+    });
+    const commissionWrites: Prisma.PrismaPromise<unknown>[] = [];
+    let commissionNote = "";
+    if (contributor?.referredBy) {
+      const referrer = await prisma.user.findUnique({
+        where: { id: contributor.referredBy },
+        select: { id: true, role: true, commissionPercent: true },
+      });
+      if (referrer?.role === "manager") {
+        const percent = referrer.commissionPercent ?? DEFAULT_MANAGER_COMMISSION;
+        const amount = Math.round(project.reward * (percent / 100) * 100) / 100;
+        if (amount > 0) {
+          commissionWrites.push(
+            prisma.user.update({
+              where: { id: referrer.id },
+              data: { balance: { increment: amount }, totalEarned: { increment: amount } },
+            }),
+            prisma.managerCommission.create({
+              data: {
+                managerId: referrer.id,
+                referredUserId: submission.userId,
+                submissionId: subId,
+                projectId,
+                rewardAmount: project.reward,
+                percent,
+                amount,
+              },
+            }),
+          );
+          commissionNote = ` Manager commission GH₵${amount.toFixed(2)} (${percent}%) credited.`;
+        }
+      }
+    }
+
     await prisma.$transaction([
       prisma.dataSubmission.update({
         where: { id: subId },
@@ -82,10 +123,11 @@ export async function POST(
           totalEarned: { increment: project.reward },
         },
       }),
+      ...commissionWrites,
     ]);
 
     return NextResponse.json({
-      message: `Submission approved. GH₵${project.reward.toFixed(2)} credited to user.`,
+      message: `Submission approved. GH₵${project.reward.toFixed(2)} credited to user.${commissionNote}`,
     });
   } catch (error) {
     console.error("Approve submission error:", error);
