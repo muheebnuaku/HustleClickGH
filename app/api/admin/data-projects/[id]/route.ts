@@ -42,7 +42,7 @@ export async function PUT(
         ),
         minDurationSecs: parseInt(minDurationSecs) || 3,
         maxDurationSecs: parseInt(maxDurationSecs) || 60,
-        maxFileSizeMB: parseFloat(maxFileSizeMB) || 15,
+        maxFileSizeMB: parseFloat(maxFileSizeMB) || 0, // 0 = no limit
         expiresAt: expiresAt ? new Date(expiresAt) : null,
         malesNeeded: malesNeeded ? parseInt(malesNeeded) : null,
         femalesNeeded: femalesNeeded ? parseInt(femalesNeeded) : null,

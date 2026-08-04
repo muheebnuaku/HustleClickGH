@@ -118,7 +118,7 @@ export async function POST(request: Request) {
         languages: languages?.length ? JSON.stringify(languages) : null,
         minDurationSecs: minDurationSecs ? parseInt(minDurationSecs) : 3,
         maxDurationSecs: maxDurationSecs ? parseInt(maxDurationSecs) : 60,
-        maxFileSizeMB: maxFileSizeMB ? parseInt(maxFileSizeMB) : 25,
+        maxFileSizeMB: parseInt(maxFileSizeMB) || 0, // 0 = no limit
         acceptedFormats: JSON.stringify(acceptedFormats),
         expiresAt: expiresAt ? new Date(expiresAt) : null,
         audioSampleRate: audioSampleRate ? parseInt(audioSampleRate) : null,

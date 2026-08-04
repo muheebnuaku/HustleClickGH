@@ -72,7 +72,7 @@ const emptyForm = {
   languages: "",
   minDurationSecs: "3",
   maxDurationSecs: "60",
-  maxFileSizeMB: "15",
+  maxFileSizeMB: "",
   expiresAt: "",
   // Audio format (voice projects)
   recordingType: "conversation",
@@ -134,7 +134,7 @@ export default function AdminDataProjectsPage() {
       languages: p.languages?.join(", ") || "",
       minDurationSecs: String(p.minDurationSecs ?? 3),
       maxDurationSecs: String(p.maxDurationSecs ?? 60),
-      maxFileSizeMB: String(p.maxFileSizeMB ?? 15),
+      maxFileSizeMB: p.maxFileSizeMB ? String(p.maxFileSizeMB) : "",
       expiresAt: p.expiresAt ? p.expiresAt.slice(0, 10) : "",
       recordingType: p.recordingType || "conversation",
       audioSampleRate: String(p.audioSampleRate ?? 16000),
@@ -445,7 +445,8 @@ export default function AdminDataProjectsPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Max File Size (MB)</label>
-                  <Input type="number" min="1" max="300" value={form.maxFileSizeMB} onChange={(e) => setForm({ ...form, maxFileSizeMB: e.target.value })} />
+                  <Input type="number" min="0" value={form.maxFileSizeMB} onChange={(e) => setForm({ ...form, maxFileSizeMB: e.target.value })} placeholder="Blank = no limit" />
+                  <p className="text-[11px] text-zinc-400 mt-0.5">Leave blank for no size limit (files are still capped by storage — see note).</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Languages (comma-separated)</label>

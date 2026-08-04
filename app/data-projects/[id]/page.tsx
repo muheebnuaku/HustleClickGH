@@ -132,7 +132,8 @@ export default function DataProjectDetailPage() {
   const validateFile = (f: File): string | null => {
     if (!project) return "Project not loaded";
     const sizeMB = f.size / (1024 * 1024);
-    if (sizeMB > project.maxFileSizeMB) {
+    // 0 / blank = no project size limit (files still bounded by Supabase storage).
+    if (project.maxFileSizeMB > 0 && sizeMB > project.maxFileSizeMB) {
       return `Too large (${sizeMB.toFixed(1)}MB, max ${project.maxFileSizeMB}MB)`;
     }
     const mimeType = f.type.toLowerCase();
@@ -590,7 +591,8 @@ export default function DataProjectDetailPage() {
                         <Upload size={28} className="mx-auto mb-2 opacity-50" />
                         <p className="text-sm font-medium">{items.length ? "Tap to add more files" : "Tap to select your recording" + ((project.maxFilesPerSubmission || 1) > 1 ? "s" : "")}</p>
                         <p className="text-xs mt-1">
-                          {project.acceptedFormats.join(", ")} · Max {project.maxFileSizeMB}MB each ·{" "}
+                          {project.acceptedFormats.join(", ")}
+                          {project.maxFileSizeMB > 0 ? ` · Max ${project.maxFileSizeMB}MB each` : ""} ·{" "}
                           {(project.maxFilesPerSubmission || 1) > 1
                             ? `Up to ${project.maxFilesPerSubmission} files per submission`
                             : "1 file per submission"}

@@ -152,7 +152,8 @@ export async function POST(
           { status: 400 }
         );
       }
-      if (!isCallRecording && f.fileSizeMB > project.maxFileSizeMB) {
+      // 0 / blank = no project size limit (files still bounded by storage).
+      if (!isCallRecording && project.maxFileSizeMB > 0 && f.fileSizeMB > project.maxFileSizeMB) {
         return NextResponse.json(
           { message: `File "${f.fileName}" (${f.fileSizeMB.toFixed(1)}MB) exceeds the ${project.maxFileSizeMB}MB limit` },
           { status: 400 }
