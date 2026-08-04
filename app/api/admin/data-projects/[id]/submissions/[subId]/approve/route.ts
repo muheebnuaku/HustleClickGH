@@ -27,9 +27,11 @@ export async function POST(
       return NextResponse.json({ message: "Submission not found" }, { status: 404 });
     }
 
-    if (submission.status !== "pending") {
+    // Allow approving a pending OR a previously-rejected submission (rejection
+    // doesn't credit or count anything, so approving now pays out exactly once).
+    if (submission.status === "approved") {
       return NextResponse.json(
-        { message: "Submission has already been reviewed" },
+        { message: "Submission is already approved" },
         { status: 400 }
       );
     }

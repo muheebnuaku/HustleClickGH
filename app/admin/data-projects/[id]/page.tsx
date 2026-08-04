@@ -346,12 +346,25 @@ export default function AdminProjectSubmissionsPage() {
                       }`}>
                         {sub.status}
                       </span>
-                      <button
-                        onClick={() => { setMsgTarget({ id: sub.user.id, name: sub.user.fullName }); setMsgBody(""); setMsgError(""); }}
-                        className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 border border-blue-200 dark:border-blue-900 rounded-lg px-2.5 py-1"
-                      >
-                        <MessageSquare size={13} />Message
-                      </button>
+                      <div className="ml-auto flex items-center gap-2">
+                        {sub.status === "rejected" && (
+                          <button
+                            onClick={() => handleApprove(sub.id)}
+                            disabled={actionLoading === sub.id}
+                            title="Approve this rejected submission instead"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-400 border border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 rounded-lg px-2.5 py-1 disabled:opacity-50"
+                          >
+                            {actionLoading === sub.id ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                            Approve
+                          </button>
+                        )}
+                        <button
+                          onClick={() => { setMsgTarget({ id: sub.user.id, name: sub.user.fullName }); setMsgBody(""); setMsgError(""); }}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 border border-blue-200 dark:border-blue-900 rounded-lg px-2.5 py-1"
+                        >
+                          <MessageSquare size={13} />Message
+                        </button>
+                      </div>
                     </div>
 
                     {/* File details */}
