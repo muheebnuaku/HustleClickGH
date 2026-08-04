@@ -12,6 +12,7 @@ declare module "next-auth" {
       role: string;
       profileCompleted: boolean;
       consentAccepted: boolean;
+      status: string; // "active" | "suspended" — re-checked from the DB each request
     };
   }
 
@@ -31,5 +32,7 @@ declare module "next-auth/jwt" {
     role: string;
     profileCompleted: boolean;
     consentAccepted: boolean;
+    status?: string;
+    statusAt?: number;
   }
 }

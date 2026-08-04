@@ -36,6 +36,9 @@ export async function POST(request: Request) {
     if (!session || !session.user) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
+    if (session.user.status === "suspended") {
+      return NextResponse.json({ message: "Your account has been suspended." }, { status: 403 });
+    }
 
     const userId = session.user.id;
     const body = await request.json();

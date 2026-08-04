@@ -15,6 +15,10 @@ export async function POST(
     if (!session || !session.user) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
+    // Block users suspended after they logged in (JWT sessions stay valid).
+    if (session.user.status === "suspended") {
+      return NextResponse.json({ message: "Your account has been suspended." }, { status: 403 });
+    }
 
     const { id: projectId } = await params;
     const userId = session.user.id;

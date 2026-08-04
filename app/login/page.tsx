@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
+import { signIn, signOut } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -70,6 +70,15 @@ export default function AuthPage() {
     resolver: zodResolver(registerSchema),
     defaultValues: { country: "Ghana", idType: "ghana_card" },
   });
+
+  // Arrived here because middleware bounced a suspended session — clear the
+  // stale cookie so they're fully signed out, and explain why.
+  useEffect(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("suspended")) {
+      setError("Your account has been suspended. Please contact support.");
+      signOut({ redirect: false }).catch(() => {});
+    }
+  }, []);
 
   const handleLogin = async (data: LoginFormData) => {
     setIsLoading(true);

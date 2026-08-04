@@ -46,6 +46,13 @@ export async function middleware(request: NextRequest) {
 
   const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
 
+  // Suspended after login — the JWT stays valid, but the token's status is
+  // re-checked (~30s) so we can bounce them to /login, which signs them out.
+  // Server APIs are already blocked by the authoritative session status check.
+  if (token && (token as { status?: string }).status === "suspended" && path !== "/login") {
+    return NextResponse.redirect(new URL("/login?suspended=1", request.url));
+  }
+
   // Admin paths
   const isAdminPath = path.startsWith("/admin") || path.startsWith("/api/admin");
   // Organization portal paths (buyer side)

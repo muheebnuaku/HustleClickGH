@@ -245,6 +245,11 @@ export const authOptions: NextAuthOptions = {
         }
       }
 
+      if (user) {
+        token.status = "active"; // just authenticated → active (login blocks suspended)
+        token.statusAt = Date.now();
+      }
+
       // Refresh token from DB when the client calls session.update()
       // (e.g. after accepting consent or completing onboarding, so the gates reopen).
       if (trigger === "update" && token.id) {
@@ -253,7 +258,17 @@ export const authOptions: NextAuthOptions = {
           token.role = dbUser.role;
           token.profileCompleted = dbUser.profileCompleted;
           token.consentAccepted = dbUser.consentVersion === CONSENT_VERSION;
+          token.status = dbUser.status;
+          token.statusAt = Date.now();
         }
+      }
+
+      // Periodically re-check suspension so middleware (which reads the JWT) can
+      // block a user suspended AFTER they logged in. Throttled to ~30s.
+      if (!user && token.id && (typeof token.statusAt !== "number" || Date.now() - token.statusAt > 30000)) {
+        const dbUser = await prisma.user.findUnique({ where: { id: token.id as string }, select: { status: true } });
+        token.status = dbUser?.status ?? "suspended";
+        token.statusAt = Date.now();
       }
 
       return token;
@@ -265,6 +280,15 @@ export const authOptions: NextAuthOptions = {
         session.user.role = token.role as string;
         session.user.profileCompleted = Boolean(token.profileCompleted);
         session.user.consentAccepted = Boolean(token.consentAccepted);
+        // Authoritative status: getServerSession runs this callback on every
+        // protected API request, so a user suspended after login is blocked
+        // immediately (a cheap indexed lookup). Missing user → treat as suspended.
+        if (token.id) {
+          const dbUser = await prisma.user.findUnique({ where: { id: token.id as string }, select: { status: true } });
+          session.user.status = dbUser?.status ?? "suspended";
+        } else {
+          session.user.status = "suspended";
+        }
       }
       return session;
     },
