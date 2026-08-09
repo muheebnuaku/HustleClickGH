@@ -80,6 +80,20 @@ export default function AuthPage() {
     }
   }, []);
 
+  // Capture a referral from the link (?ref=CODE) even if the person never types
+  // it: prefill the field, open the register side, and remember it as a backstop.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("ref");
+    if (ref) {
+      registerForm.setValue("referralId", ref);
+      try { localStorage.setItem("hc_ref", ref); } catch {}
+    }
+    if (ref || params.get("register")) setIsFlipped(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleLogin = async (data: LoginFormData) => {
     setIsLoading(true);
     setError("");
@@ -172,11 +186,17 @@ export default function AuthPage() {
 
     setIsLoading(true);
 
+    // Fall back to the referral captured from the link if the field is empty.
+    let referralId = data.referralId;
+    if (!referralId) {
+      try { referralId = localStorage.getItem("hc_ref") || undefined; } catch {}
+    }
+
     try {
       const response = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, consentAgreed, consentName: consentName.trim() }),
+        body: JSON.stringify({ ...data, referralId, consentAgreed, consentName: consentName.trim() }),
       });
 
       const result = await response.json();
@@ -186,6 +206,7 @@ export default function AuthPage() {
       }
 
       // Show congratulations screen with the new User ID
+      try { localStorage.removeItem("hc_ref"); } catch {}
       setRegisteredUserId(result.userId);
       setShowCongrats(true);
       registerForm.reset();

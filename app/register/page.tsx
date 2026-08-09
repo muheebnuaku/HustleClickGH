@@ -7,8 +7,11 @@ export default function RegisterPage() {
   const router = useRouter();
   
   useEffect(() => {
-    // Redirect to the unified auth page
-    router.replace("/login");
+    // Redirect to the unified auth page, PRESERVING ?ref= (and any other query)
+    // and signalling it to open the register side.
+    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    params.set("register", "1");
+    router.replace(`/login?${params.toString()}`);
   }, [router]);
 
   return (
