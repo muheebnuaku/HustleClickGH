@@ -49,6 +49,7 @@ export async function GET() {
       totalEarned: user.totalEarned,
       role: user.role,
       commissionPercent: user.commissionPercent,
+      managerSubmitLimit: user.managerSubmitLimit,
       status: user.status,
       verified: user.verified,
       locationRequested: user.locationRequested,
@@ -108,7 +109,7 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const { userId, action, value } = body;
 
-    const VALID = ["suspend", "unsuspend", "verify", "unverify", "request_location", "set_commission"];
+    const VALID = ["suspend", "unsuspend", "verify", "unverify", "request_location", "set_commission", "set_submit_limit"];
     if (!userId || !VALID.includes(action)) {
       return NextResponse.json(
         { message: "Invalid request: userId and a valid action are required" },
@@ -150,6 +151,22 @@ export async function PATCH(request: Request) {
           return NextResponse.json({ message: "Commission must be between 0 and 100" }, { status: 400 });
         }
         data = { commissionPercent: Math.round(pct * 100) / 100 };
+        break;
+      }
+      case "set_submit_limit": {
+        if (user.role !== "manager") {
+          return NextResponse.json({ message: "Submit limit only applies to manager accounts" }, { status: 400 });
+        }
+        // Blank / 0 → unlimited (null). Otherwise a positive whole number.
+        if (value === "" || value === null || value === undefined || Number(value) === 0) {
+          data = { managerSubmitLimit: null };
+        } else {
+          const n = Math.floor(Number(value));
+          if (!isFinite(n) || n < 1 || n > 100000) {
+            return NextResponse.json({ message: "Submit limit must be a positive number, or blank for unlimited" }, { status: 400 });
+          }
+          data = { managerSubmitLimit: n };
+        }
         break;
       }
       default: // request_location

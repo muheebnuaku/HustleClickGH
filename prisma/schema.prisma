@@ -46,6 +46,9 @@ model User {
   // Managers earn a % commission when people they referred get rewarded on a
   // project. Null = use DEFAULT_MANAGER_COMMISSION. Only meaningful for role="manager".
   commissionPercent Float?
+  // How many times a MANAGER may submit to the same project. Null = unlimited
+  // (managers are exempt from the project's maxSubmissionsPerUser). Admin-set.
+  managerSubmitLimit Int?
   personalCallCode String?      @unique // Permanent 5-char code for voice calls
   lastSeenAt      DateTime?     // heartbeat timestamp; "online" = within the last ~90s
   createdAt       DateTime      @default(now())

@@ -30,7 +30,13 @@ export async function GET(
     const userSubmission = userSubmissions[0] ?? null; // newest, for back-compat
     // Rejected submissions don't count against the per-user limit (users may retry).
     const userSubmissionsUsed = userSubmissions.filter((s) => s.status !== "rejected").length;
-    const maxPerUser = project.maxSubmissionsPerUser ?? 1;
+    // Managers use their own admin-set limit (null = unlimited); others use the project's.
+    let maxPerUser: number | null = project.maxSubmissionsPerUser ?? 1;
+    if (session.user.role === "manager") {
+      const mgr = await prisma.user.findUnique({ where: { id: userId }, select: { managerSubmitLimit: true } });
+      maxPerUser = mgr?.managerSubmitLimit ?? null;
+    }
+    const canSubmitMore = maxPerUser === null || userSubmissionsUsed < maxPerUser;
 
     // Count pending+approved submissions per gender so users see accurate remaining slots
     let malesFilled = 0;
@@ -64,8 +70,8 @@ export async function GET(
       userSubmission,
       userSubmissions,
       userSubmissionsUsed,
-      maxSubmissionsPerUser: maxPerUser,
-      canSubmitMore: userSubmissionsUsed < maxPerUser,
+      maxSubmissionsPerUser: maxPerUser, // null = unlimited (managers)
+      canSubmitMore,
     });
   } catch (error) {
     console.error("Data project detail error:", error);

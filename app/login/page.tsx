@@ -120,8 +120,6 @@ export default function AuthPage() {
 
         if (sessionData?.user?.role === "admin") {
           router.push("/admin");
-        } else if (sessionData?.user?.role === "manager") {
-          router.push("/admin/call-recordings");
         } else if (sessionData?.user?.role === "organization") {
           router.push("/org");
         } else {
@@ -161,7 +159,6 @@ export default function AuthPage() {
       const sessionRes = await fetch("/api/auth/session");
       const sessionData = await sessionRes.json();
       if (sessionData?.user?.role === "admin") router.push("/admin");
-      else if (sessionData?.user?.role === "manager") router.push("/admin/call-recordings");
       else if (sessionData?.user?.role === "organization") router.push("/org");
       else router.push("/dashboard");
       router.refresh();

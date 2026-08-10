@@ -106,19 +106,10 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Check admin access — admin can access all, manager can only access call-recordings
-  if (isAdminPath) {
-    if (token?.role !== "admin" && token?.role !== "manager") {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
-    }
-    // Manager can only access /admin/call-recordings page + API
-    if (token?.role === "manager") {
-      const isCallRecordingsPath = path === "/admin/call-recordings" ||
-                                    path.startsWith("/api/admin/call-recordings");
-      if (!isCallRecordingsPath) {
-        return NextResponse.redirect(new URL("/admin/call-recordings", request.url));
-      }
-    }
+  // Admin area is admin-only. Managers are contributors-with-perks now — they
+  // no longer have access to the recording page or any admin route.
+  if (isAdminPath && token?.role !== "admin") {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
   return NextResponse.next();

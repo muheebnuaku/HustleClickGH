@@ -25,6 +25,7 @@ interface UserData {
   createdAt: string;
   role: string;
   commissionPercent: number | null;
+  managerSubmitLimit: number | null;
   status: string;
   verified: boolean;
   locationRequested: boolean;
@@ -101,6 +102,8 @@ export default function AdminUsersPage() {
 
   const [commissionDraft, setCommissionDraft] = useState<Record<string, string>>({});
   const [savingCommission, setSavingCommission] = useState<string | null>(null);
+  const [limitDraft, setLimitDraft] = useState<Record<string, string>>({});
+  const [savingLimit, setSavingLimit] = useState<string | null>(null);
 
   const fetchUsers = async () => {
     try {
@@ -128,6 +131,20 @@ export default function AdminUsersPage() {
       if (res.ok) { await fetchUsers(); setCommissionDraft((d) => { const n = { ...d }; delete n[userId]; return n; }); }
       else { const e = await res.json().catch(() => ({})); alert(e.message || "Failed to update commission."); }
     } catch { alert("Failed to update commission."); } finally { setSavingCommission(null); }
+  };
+
+  // Blank = unlimited submissions per project for this manager.
+  const handleSetSubmitLimit = async (userId: string, value: string) => {
+    setSavingLimit(userId);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, action: "set_submit_limit", value: value.trim() }),
+      });
+      if (res.ok) { await fetchUsers(); setLimitDraft((d) => { const n = { ...d }; delete n[userId]; return n; }); }
+      else { const e = await res.json().catch(() => ({})); alert(e.message || "Failed to update submit limit."); }
+    } catch { alert("Failed to update submit limit."); } finally { setSavingLimit(null); }
   };
 
   const handleSuspendUser = async (userId: string, currentStatus: string) => {
@@ -408,36 +425,69 @@ export default function AdminUsersPage() {
           <Card>
             <CardHeader>
               <CardTitle>Managers & commissions ({managers.length})</CardTitle>
-              <p className="text-sm text-zinc-500">Managers refer unlimited people and earn a % whenever someone they referred is rewarded on a project. Edit each manager&rsquo;s rate below.</p>
+              <p className="text-sm text-zinc-500">Managers refer unlimited people and earn a % whenever someone they referred is rewarded on a project. Set each manager&rsquo;s commission rate and how many times they may submit to the same project (blank = unlimited).</p>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
                 {managers.map((m) => {
                   const current = m.commissionPercent ?? DEFAULT_MANAGER_COMMISSION;
                   const draft = commissionDraft[m.id] ?? String(current);
+                  const curLimit = m.managerSubmitLimit != null ? String(m.managerSubmitLimit) : "";
+                  const limitVal = limitDraft[m.id] ?? curLimit;
                   return (
-                    <div key={m.id} className="flex flex-wrap items-center gap-3 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800">
+                    <div key={m.id} className="flex flex-wrap items-end gap-4 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800">
                       <div className="min-w-0 flex-1">
-                        <p className="font-medium text-foreground truncate">{m.fullName}</p>
+                        <p className="font-medium text-foreground truncate flex items-center gap-1.5">{m.fullName}{m.verified && <VerifiedBadge size={14} />}</p>
                         <p className="text-xs text-zinc-500">{m.userId} · {m.referralCount} referrals · earned {formatCurrency(m.totalEarned)}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="relative">
-                          <input
-                            type="number" min="0" max="100" step="0.5"
-                            value={draft}
-                            onChange={(e) => setCommissionDraft((d) => ({ ...d, [m.id]: e.target.value }))}
-                            className="w-24 h-9 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 pl-3 pr-7 text-sm"
-                          />
-                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-400">%</span>
-                        </div>
                         <button
-                          onClick={() => handleSetCommission(m.id, draft)}
-                          disabled={savingCommission === m.id || Number(draft) === current}
-                          className="h-9 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50"
+                          onClick={() => handleVerifyUser(m.id, m.verified)}
+                          disabled={verifyingId === m.id}
+                          className={`mt-1 text-xs font-medium hover:underline disabled:opacity-50 ${m.verified ? "text-zinc-500" : "text-sky-600"}`}
                         >
-                          {savingCommission === m.id ? "Saving…" : "Save"}
+                          {verifyingId === m.id ? "…" : m.verified ? "Unverify" : "Verify manager"}
                         </button>
+                      </div>
+                      {/* Commission */}
+                      <div>
+                        <label className="block text-[11px] text-zinc-500 mb-0.5">Commission</label>
+                        <div className="flex items-center gap-2">
+                          <div className="relative">
+                            <input
+                              type="number" min="0" max="100" step="0.5"
+                              value={draft}
+                              onChange={(e) => setCommissionDraft((d) => ({ ...d, [m.id]: e.target.value }))}
+                              className="w-20 h-9 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 pl-3 pr-6 text-sm"
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-400">%</span>
+                          </div>
+                          <button
+                            onClick={() => handleSetCommission(m.id, draft)}
+                            disabled={savingCommission === m.id || Number(draft) === current}
+                            className="h-9 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50"
+                          >
+                            {savingCommission === m.id ? "…" : "Save"}
+                          </button>
+                        </div>
+                      </div>
+                      {/* Submits per project */}
+                      <div>
+                        <label className="block text-[11px] text-zinc-500 mb-0.5">Submits / project</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number" min="0"
+                            value={limitVal}
+                            placeholder="∞"
+                            onChange={(e) => setLimitDraft((d) => ({ ...d, [m.id]: e.target.value }))}
+                            className="w-24 h-9 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 text-sm"
+                          />
+                          <button
+                            onClick={() => handleSetSubmitLimit(m.id, limitVal)}
+                            disabled={savingLimit === m.id || limitVal === curLimit}
+                            className="h-9 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50"
+                          >
+                            {savingLimit === m.id ? "…" : "Save"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );

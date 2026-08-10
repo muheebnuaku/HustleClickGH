@@ -87,8 +87,16 @@ export async function POST(
       );
     }
 
-    const maxPerUser = project.maxSubmissionsPerUser ?? 1;
-    if (userSubmissionCount >= maxPerUser) {
+    // Managers are exempt from the project's per-user limit — their cap is set
+    // per-manager by an admin (null = unlimited).
+    let maxPerUser: number | null;
+    if (session.user.role === "manager") {
+      const mgr = await prisma.user.findUnique({ where: { id: userId }, select: { managerSubmitLimit: true } });
+      maxPerUser = mgr?.managerSubmitLimit ?? null; // null → unlimited
+    } else {
+      maxPerUser = project.maxSubmissionsPerUser ?? 1;
+    }
+    if (maxPerUser !== null && userSubmissionCount >= maxPerUser) {
       const times = maxPerUser === 1 ? "once" : maxPerUser === 2 ? "twice" : `${maxPerUser} times`;
       return NextResponse.json(
         { message: `You've reached your submission limit — you can only submit ${times} to this project.` },
