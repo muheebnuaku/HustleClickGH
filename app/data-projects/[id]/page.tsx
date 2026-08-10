@@ -94,6 +94,7 @@ export default function DataProjectDetailPage() {
   const [submissionsUsed, setSubmissionsUsed] = useState(0);
   const [maxPerUser, setMaxPerUser] = useState(1);
   const [canSubmitMore, setCanSubmitMore] = useState(true);
+  const [bypassSlots, setBypassSlots] = useState(false);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [language, setLanguage] = useState("");
@@ -119,6 +120,7 @@ export default function DataProjectDetailPage() {
       setSubmissionsUsed(data.userSubmissionsUsed || 0);
       setMaxPerUser(data.maxSubmissionsPerUser || 1);
       setCanSubmitMore(data.canSubmitMore ?? true);
+      setBypassSlots(!!data.bypassSlots);
     } catch {
       setError("Failed to load project");
     } finally {
@@ -562,8 +564,8 @@ export default function DataProjectDetailPage() {
               </div>
             </Card>
 
-            {/* Upload Form */}
-            {project.status === "active" && project.slotsRemaining > 0 ? (
+            {/* Upload Form — managers may submit even when the project's slots are full */}
+            {project.status === "active" && (project.slotsRemaining > 0 || bypassSlots) ? (
               <>
               <Card className="p-5">
                 <h2 className="font-semibold mb-4">Upload Your Recording</h2>
@@ -696,8 +698,8 @@ export default function DataProjectDetailPage() {
                               gender === "male"
                                 ? "border-blue-500 bg-blue-50 text-blue-700"
                                 : "border-zinc-200 text-zinc-500 hover:border-blue-300"
-                            } ${project.malesSlotsRemaining === 0 ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
-                            disabled={project.malesSlotsRemaining === 0}
+                            } ${!bypassSlots && project.malesSlotsRemaining === 0 ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                            disabled={!bypassSlots && project.malesSlotsRemaining === 0}
                           >
                             <span>Male</span>
                             <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
@@ -713,8 +715,8 @@ export default function DataProjectDetailPage() {
                               gender === "female"
                                 ? "border-pink-500 bg-pink-50 text-pink-700"
                                 : "border-zinc-200 text-zinc-500 hover:border-pink-300"
-                            } ${project.femalesSlotsRemaining === 0 ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
-                            disabled={project.femalesSlotsRemaining === 0}
+                            } ${!bypassSlots && project.femalesSlotsRemaining === 0 ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                            disabled={!bypassSlots && project.femalesSlotsRemaining === 0}
                           >
                             <span>Female</span>
                             <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${

@@ -80,7 +80,11 @@ export async function POST(
       );
     }
 
-    if (project.currentSubmissions >= project.maxSubmissions) {
+    // Managers can submit BEYOND the project's overall target — their only cap
+    // is their own admin-set managerSubmitLimit. Everyone else is bound by the
+    // project's total slots.
+    const isManager = session.user.role === "manager";
+    if (!isManager && project.currentSubmissions >= project.maxSubmissions) {
       return NextResponse.json(
         { message: "This project has reached its submission limit" },
         { status: 400 }
@@ -90,7 +94,7 @@ export async function POST(
     // Managers are exempt from the project's per-user limit — their cap is set
     // per-manager by an admin (null = unlimited).
     let maxPerUser: number | null;
-    if (session.user.role === "manager") {
+    if (isManager) {
       const mgr = await prisma.user.findUnique({ where: { id: userId }, select: { managerSubmitLimit: true } });
       maxPerUser = mgr?.managerSubmitLimit ?? null; // null → unlimited
     } else {
@@ -104,7 +108,8 @@ export async function POST(
       );
     }
 
-    // Gender quota validation
+    // Gender quota validation. Managers still record a gender (data quality) but
+    // bypass the "slots filled" block — they submit up to their own limit.
     if (project.malesNeeded !== null || project.femalesNeeded !== null) {
       if (!gender || !["male", "female"].includes(gender)) {
         return NextResponse.json(
@@ -112,7 +117,7 @@ export async function POST(
           { status: 400 }
         );
       }
-      if (gender === "male" && project.malesNeeded !== null) {
+      if (!isManager && gender === "male" && project.malesNeeded !== null) {
         const maleCount = await prisma.dataSubmission.count({
           where: { projectId, gender: "male", status: { in: ["pending", "approved"] } },
         });
@@ -123,7 +128,7 @@ export async function POST(
           );
         }
       }
-      if (gender === "female" && project.femalesNeeded !== null) {
+      if (!isManager && gender === "female" && project.femalesNeeded !== null) {
         const femaleCount = await prisma.dataSubmission.count({
           where: { projectId, gender: "female", status: { in: ["pending", "approved"] } },
         });
