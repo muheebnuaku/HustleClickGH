@@ -59,7 +59,20 @@ export async function POST(request: Request) {
       withdrawal = await prisma.$transaction(async (tx) => {
         const user = await tx.user.findUnique({ where: { id: userId } });
         if (!user) throw new Error("USER_NOT_FOUND");
-        if (user.balance < parsedAmount) throw new Error("INSUFFICIENT_BALANCE");
+
+        // Reserve money already tied up in pending requests, so a user can never
+        // queue withdrawals whose total exceeds their balance. (Previously each
+        // request was only checked against the full balance, letting a GH₵30
+        // balance spawn many GH₵30 requests.)
+        const pendingAgg = await tx.withdrawal.aggregate({
+          where: { userId, status: "pending" },
+          _sum: { amount: true },
+        });
+        const reserved = pendingAgg._sum.amount ?? 0;
+        const available = user.balance - reserved;
+        if (parsedAmount > available) {
+          throw new Error(`INSUFFICIENT_AVAILABLE:${available.toFixed(2)}`);
+        }
 
         return tx.withdrawal.create({
           data: {
@@ -76,8 +89,13 @@ export async function POST(request: Request) {
       const msg = (err as Error).message;
       if (msg === "USER_NOT_FOUND")
         return NextResponse.json({ message: "User not found" }, { status: 404 });
-      if (msg === "INSUFFICIENT_BALANCE")
-        return NextResponse.json({ message: "Insufficient balance" }, { status: 400 });
+      if (msg.startsWith("INSUFFICIENT_AVAILABLE")) {
+        const avail = msg.split(":")[1];
+        return NextResponse.json(
+          { message: `You can only withdraw up to GH₵${avail} — the rest of your balance is already in pending requests.` },
+          { status: 400 }
+        );
+      }
       throw err;
     }
 
