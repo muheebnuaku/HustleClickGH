@@ -350,6 +350,7 @@ model DataSubmission {
   fileSizeMB      Float
   fileHash        String?     // SHA-256 of the primary file (server-computed); duplicate-content detection
   files           String?     // JSON array of {url,name,type,sizeMB} — a submission can hold several files (one user's full set)
+  aiReview        String?     // JSON {score,verdict,reasons,summary,model} — auto AI quality suggestion
   durationSecs    Float?
   language        String?
   promptUsed      String?     // Which prompt the user recorded

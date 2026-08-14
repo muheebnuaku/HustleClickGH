@@ -17,6 +17,7 @@ interface Submission {
   fileType: string;
   fileSizeMB: number;
   files?: string | null; // JSON array of {url,name,type,sizeMB}
+  aiReview?: string | null; // JSON AiReviewResult (auto-scored on submit)
   language: string | null;
   promptUsed: string | null;
   status: string;
@@ -269,6 +270,11 @@ export default function AdminProjectSubmissionsPage() {
   const isAudio = (fileType: string) => fileType.startsWith("audio");
   const isVideo = (fileType: string) => fileType.startsWith("video");
 
+  const parseAiReview = (raw?: string | null): AiReviewResult | null => {
+    if (!raw) return null;
+    try { const r = JSON.parse(raw); return r && typeof r.score === "number" ? (r as AiReviewResult) : null; } catch { return null; }
+  };
+
   // A submission may hold several files (new) or one (legacy) — normalize.
   type SubFileMeta = { width?: number; height?: number; durationSecs?: number; brightness?: number; sharpness?: number; loudnessDb?: number; warnings?: string[] };
   type SubFileRow = { url: string; name: string; type: string; sizeMB: number; meta?: SubFileMeta | null };
@@ -494,12 +500,13 @@ export default function AdminProjectSubmissionsPage() {
                       );
                     })()}
 
-                    {/* AI quality suggestion (human still decides) */}
+                    {/* AI quality suggestion (auto-scored on submit; human still decides) */}
                     {aiError[sub.id] && (
                       <div className="text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">{aiError[sub.id]}</div>
                     )}
-                    {aiResults[sub.id] && (() => {
-                      const r = aiResults[sub.id];
+                    {(() => {
+                      const r = aiResults[sub.id] || parseAiReview(sub.aiReview);
+                      if (!r) return null;
                       const cls = r.verdict === "approve"
                         ? "border-green-200 bg-green-50 dark:bg-green-900/10 dark:border-green-900"
                         : r.verdict === "reject"

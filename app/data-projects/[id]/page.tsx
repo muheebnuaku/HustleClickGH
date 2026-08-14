@@ -14,6 +14,7 @@ import Link from "next/link";
 import { uploadFile, sha256Hex, toDownloadUrl } from "@/lib/upload-file";
 import { getLicense } from "@/lib/licenses";
 import { analyzeMedia, specLine, type MediaMeta } from "@/lib/media-quality";
+import { extractFramesFromFile } from "@/lib/frame-extract";
 
 interface DataProject {
   id: string;
@@ -242,7 +243,7 @@ export default function DataProjectDetailPage() {
 
   // Send the whole set as ONE submission. Counts as one submission from one
   // user (one slot, one gender count, one reward).
-  const submitSet = async (files: (UploadedFile & { meta?: MediaMeta })[]): Promise<boolean> => {
+  const submitSet = async (files: (UploadedFile & { meta?: MediaMeta })[]): Promise<string | null> => {
     setItems((prev) => prev.map((it) => (it.status === "uploaded" ? { ...it, status: "submitting" } : it)));
     try {
       const res = await fetch(`/api/data-projects/${projectId}/submit`, {
@@ -260,19 +261,41 @@ export default function DataProjectDetailPage() {
       if (!res.ok) {
         setItems((prev) => prev.map((it) => (it.status === "submitting" ? { ...it, status: "uploaded" } : it)));
         setError(data.message || "Submission failed");
-        return false;
+        return null;
       }
       setMessage(data.message || "Submission received! Your files are under review.");
       uploadedRef.current.clear();
       setItems([]);
       setConsent(false);
       fetchProject();
-      return true;
+      return (data.submissionId as string) || null;
     } catch {
       setItems((prev) => prev.map((it) => (it.status === "submitting" ? { ...it, status: "uploaded" } : it)));
       setError("An error occurred while submitting.");
-      return false;
+      return null;
     }
+  };
+
+  // Fire-and-forget: after submitting, extract a few frames from the LOCAL files
+  // and ask the server for an AI quality suggestion (stored on the submission).
+  // Cheap + best-effort — never blocks the contributor.
+  const autoScoreSubmission = async (submissionId: string, localFiles: File[]) => {
+    try {
+      const frames: string[] = [];
+      for (const f of localFiles) {
+        if (frames.length >= 6) break;
+        const per = f.type.startsWith("video") ? 2 : 1; // spread across video timeline
+        const fr = await extractFramesFromFile(f, per);
+        frames.push(...fr);
+      }
+      const capped = frames.slice(0, 6);
+      if (!capped.length) return;
+      await fetch(`/api/data-projects/${projectId}/submissions/${submissionId}/ai-review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ frames: capped }),
+      }).catch(() => {});
+    } catch { /* best-effort */ }
   };
 
   const handleSubmitAll = async (e: React.FormEvent) => {
@@ -312,8 +335,12 @@ export default function DataProjectDetailPage() {
         return up ? { ...up, meta: it.meta } : null;
       })
       .filter(Boolean) as (UploadedFile & { meta?: MediaMeta })[];
-    await submitSet(files);
+    // Capture the local files for AI scoring BEFORE submitSet clears the list.
+    const localFiles = items.map((it) => it.file);
+    const submissionId = await submitSet(files);
     setProcessing(false);
+    // Auto AI quality suggestion — fire-and-forget, doesn't block the contributor.
+    if (submissionId) autoScoreSubmission(submissionId, localFiles);
   };
 
   // Retry uploading one failed file without touching the others.
