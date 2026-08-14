@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { scoreFrames, isAiConfigured } from "@/lib/ai-review";
+import { scoreFrames, isAiConfigured, summarizeSpecs } from "@/lib/ai-review";
 
 // POST { frames: string[] } — auto AI quality suggestion, called by the
 // contributor's browser right after they submit (frames extracted from their
@@ -29,7 +29,7 @@ export async function POST(
 
     const submission = await prisma.dataSubmission.findUnique({
       where: { id: subId },
-      select: { projectId: true, userId: true },
+      select: { projectId: true, userId: true, files: true },
     });
     if (!submission || submission.projectId !== projectId) {
       return NextResponse.json({ message: "Submission not found" }, { status: 404 });
@@ -45,7 +45,7 @@ export async function POST(
     });
     if (!project) return NextResponse.json({ message: "Project not found" }, { status: 404 });
 
-    const result = await scoreFrames(project.instructions, project.projectType, clean);
+    const result = await scoreFrames(project.instructions, project.projectType, clean, summarizeSpecs(submission.files));
     await prisma.dataSubmission.update({ where: { id: subId }, data: { aiReview: JSON.stringify(result) } });
 
     return NextResponse.json({ result });

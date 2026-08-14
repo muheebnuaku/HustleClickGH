@@ -15,19 +15,51 @@ export function isAiConfigured(): boolean {
   return Boolean(process.env.OPENAI_API_KEY);
 }
 
-const SYSTEM_PROMPT = `You are a strict quality-assurance reviewer for an AI data-collection platform in Ghana.
-You are given a project's recording instructions and one or more still frames sampled from a contributor's submission.
-Judge ONLY what is visible in the frames: whether the required subject/person is present and clearly visible, lighting and exposure, focus/sharpness (blur), framing/orientation, background suitability, and any obvious violations of the instructions.
-You CANNOT hear audio or verify time-ordered actions from stills — if the instructions depend on those, say so as a limitation and don't over-penalise.
-Be fair but strict; low-resolution, dark, blurry, wrong-subject, or off-instruction frames should score low.
+const SYSTEM_PROMPT = `You are a quality-assurance reviewer for an AI data-collection platform in Ghana.
+You are given: the project's recording instructions, MEASURED facts about each file (resolution — and therefore orientation — plus brightness % and a sharpness score), and a few still frames sampled from the submission.
+
+TRUST THE MEASURED FACTS. Do NOT contradict them:
+- Orientation: portrait means height > width. If the measured resolution is portrait, the video IS portrait — never say "not portrait" or "wrong orientation" against the numbers. (The still you see may be rotated by the player; ignore apparent rotation.)
+- Brightness: only call lighting "poor/too dark" if the measured brightness is low (roughly < 30%). Numbers in the 45-80% range are acceptable lighting.
+- Sharpness/blur: only call it blurry if the measured sharpness is low.
+
+From the FRAMES, judge only what a still can actually show: is the required subject/person present and clearly visible and reasonably framed, and is the background broadly acceptable.
+You CANNOT hear audio, and you CANNOT reliably verify time-ordered actions or exact emotions from a few stills — do NOT reject for these; note them as "couldn't verify from stills" instead.
+
+Be CALIBRATED, not harsh. Reserve low scores for CLEAR failures: no person / wrong subject, face badly out of frame or not visible, measured brightness genuinely too dark, or empty/irrelevant content. Minor imperfections should still pass.
+
 Respond ONLY as compact JSON: {"score": <0-100 integer>, "verdict": "approve"|"reject"|"borderline", "reasons": ["short reason", ...], "summary": "one-sentence summary"}.
 Use "approve" for score >= 70, "reject" for score < 40, "borderline" otherwise.`;
+
+/** Summarize measured per-file specs (from a submission's files JSON) so the
+ *  model trusts them instead of guessing orientation/lighting/focus wrong. */
+export function summarizeSpecs(filesJson: string | null | undefined): string {
+  if (!filesJson) return "";
+  try {
+    const arr = JSON.parse(filesJson);
+    if (!Array.isArray(arr) || !arr.length) return "";
+    const lines = arr.map((f: { name?: string; meta?: { width?: number; height?: number; brightness?: number; sharpness?: number; durationSecs?: number } | null }, i: number) => {
+      const m = f.meta || {};
+      if (!m.width || !m.height) return `File ${i + 1}: (no measurements)`;
+      const orient = m.height > m.width ? "portrait" : "landscape";
+      const parts = [`${m.width}x${m.height} (${orient})`];
+      if (m.durationSecs) parts.push(`${m.durationSecs}s`);
+      if (m.brightness !== undefined) parts.push(`brightness ${m.brightness}%`);
+      if (m.sharpness !== undefined) parts.push(`sharpness ${m.sharpness}`);
+      return `File ${i + 1}: ${parts.join(", ")}`;
+    });
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
+}
 
 /** Grade sampled frames (base64 data URLs) against the project's instructions. */
 export async function scoreFrames(
   instructions: string,
   projectType: string,
   frames: string[],
+  specs?: string,
 ): Promise<AiReviewResult> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("AI review is not configured");
@@ -38,7 +70,10 @@ export async function scoreFrames(
   const userContent: Array<Record<string, unknown>> = [
     {
       type: "text",
-      text: `Project type: ${projectType}\n\nRecording instructions:\n${instructions || "(none provided)"}\n\nGrade the ${frames.length} sampled frame(s) below against these instructions.`,
+      text:
+        `Project type: ${projectType}\n\nRecording instructions:\n${instructions || "(none provided)"}\n\n` +
+        (specs ? `MEASURED facts (trust these over the frames for orientation/lighting/focus):\n${specs}\n\n` : "") +
+        `Grade the ${frames.length} sampled frame(s) below against these instructions.`,
     },
     ...frames.map((f) => ({ type: "image_url", image_url: { url: f, detail: "low" } })),
   ];

@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { scoreFrames, isAiConfigured } from "@/lib/ai-review";
+import { scoreFrames, isAiConfigured, summarizeSpecs } from "@/lib/ai-review";
 
 // POST { frames: string[] } — admin-triggered AI quality suggestion for a
 // submission. Frames are extracted in the admin's browser (video → canvas) and
@@ -34,14 +34,15 @@ export async function POST(
       return NextResponse.json({ message: "Frames were unreadable." }, { status: 400 });
     }
 
-    const submission = await prisma.dataSubmission.findUnique({ where: { id: subId }, select: { projectId: true } });
+    const submission = await prisma.dataSubmission.findUnique({ where: { id: subId }, select: { projectId: true, files: true } });
     if (!submission || submission.projectId !== projectId) {
       return NextResponse.json({ message: "Submission not found" }, { status: 404 });
     }
     const project = await prisma.dataProject.findUnique({ where: { id: projectId }, select: { instructions: true, projectType: true } });
     if (!project) return NextResponse.json({ message: "Project not found" }, { status: 404 });
 
-    const result = await scoreFrames(project.instructions, project.projectType, trimmed);
+    const result = await scoreFrames(project.instructions, project.projectType, trimmed, summarizeSpecs(submission.files));
+    await prisma.dataSubmission.update({ where: { id: subId }, data: { aiReview: JSON.stringify(result) } }).catch(() => {});
     return NextResponse.json({ result });
   } catch (error) {
     console.error("AI review error:", error);
