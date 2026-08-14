@@ -84,17 +84,16 @@ export async function DELETE(
       where: { id: { in: ids }, projectId },
       select: { id: true, status: true, fileUrl: true, files: true },
     });
-
-    const deletable = subs.filter((s) => s.status !== "approved");
-    const skippedApproved = subs.length - deletable.length;
-    if (deletable.length === 0) {
-      return NextResponse.json({ message: "Approved submissions can't be deleted.", deleted: 0, skippedApproved }, { status: 400 });
+    if (subs.length === 0) {
+      return NextResponse.json({ message: "No matching submissions.", deleted: 0 }, { status: 400 });
     }
 
-    // Best-effort: remove the files from Supabase Storage first.
+    // Delete any status (incl. approved/rejected) to free DB + storage space.
+    // Approved deletions do NOT refund — the reward was already paid and the
+    // project's counts stay as the historical record; we only remove the row+file.
     const supabase = getSupabaseAdmin();
     if (supabase) {
-      const paths = deletable
+      const paths = subs
         .flatMap((s) => submissionUrls(s))
         .map(objectPathFromUrl)
         .filter((p): p is string => Boolean(p));
@@ -104,10 +103,10 @@ export async function DELETE(
     }
 
     const result = await prisma.dataSubmission.deleteMany({
-      where: { id: { in: deletable.map((s) => s.id) }, projectId },
+      where: { id: { in: subs.map((s) => s.id) }, projectId },
     });
 
-    return NextResponse.json({ deleted: result.count, skippedApproved });
+    return NextResponse.json({ deleted: result.count });
   } catch (error) {
     console.error("Admin submissions delete error:", error);
     return NextResponse.json({ message: "An error occurred" }, { status: 500 });

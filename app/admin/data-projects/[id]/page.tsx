@@ -69,7 +69,11 @@ export default function AdminProjectSubmissionsPage() {
 
   const handleBulkDelete = async () => {
     if (!selected.size) return;
-    if (!confirm(`Permanently delete ${selected.size} submission${selected.size === 1 ? "" : "s"} and ${selected.size === 1 ? "its" : "their"} files? This cannot be undone.`)) return;
+    const approvedCount = submissions.filter((s) => selected.has(s.id) && s.status === "approved").length;
+    const warn = approvedCount > 0
+      ? `\n\n${approvedCount} of these are APPROVED — deleting them removes the delivered data and files but does NOT refund the contributor (already paid). Project counts stay as the historical record.`
+      : "";
+    if (!confirm(`Permanently delete ${selected.size} submission${selected.size === 1 ? "" : "s"} and ${selected.size === 1 ? "its" : "their"} files? This cannot be undone.${warn}`)) return;
     setDeleting(true);
     setError(""); setMessage("");
     try {
@@ -80,7 +84,7 @@ export default function AdminProjectSubmissionsPage() {
       });
       const d = await res.json();
       if (!res.ok) { setError(d.message || "Delete failed"); return; }
-      setMessage(`Deleted ${d.deleted} submission${d.deleted === 1 ? "" : "s"}${d.skippedApproved ? ` · skipped ${d.skippedApproved} approved` : ""}.`);
+      setMessage(`Deleted ${d.deleted} submission${d.deleted === 1 ? "" : "s"} and freed their storage.`);
       setSelected(new Set());
       fetchData();
     } catch {
@@ -266,9 +270,9 @@ export default function AdminProjectSubmissionsPage() {
           ))}
         </div>
 
-        {/* Bulk delete bar — non-approved submissions in the current view */}
-        {!loading && filteredSubmissions.some((s) => s.status !== "approved") && (() => {
-          const deletableIds = filteredSubmissions.filter((s) => s.status !== "approved").map((s) => s.id);
+        {/* Bulk delete bar — any submission in the current view (incl. approved) */}
+        {!loading && filteredSubmissions.length > 0 && (() => {
+          const deletableIds = filteredSubmissions.map((s) => s.id);
           const allChecked = deletableIds.length > 0 && deletableIds.every((id) => selected.has(id));
           return (
             <div className="flex flex-wrap items-center gap-3 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2">
@@ -279,7 +283,7 @@ export default function AdminProjectSubmissionsPage() {
                   onChange={(e) => setSelected(e.target.checked ? new Set(deletableIds) : new Set())}
                   className="w-4 h-4 rounded border-zinc-300"
                 />
-                Select all {filter === "all" ? "deletable" : filter} ({deletableIds.length})
+                Select all {filter === "all" ? "" : filter} ({deletableIds.length})
               </label>
               {selected.size > 0 && (
                 <>
@@ -312,15 +316,13 @@ export default function AdminProjectSubmissionsPage() {
                   {/* User Info */}
                   <div className="flex-1 min-w-0 space-y-3">
                     <div className="flex flex-wrap items-center gap-3">
-                      {sub.status !== "approved" && (
-                        <input
-                          type="checkbox"
-                          checked={selected.has(sub.id)}
-                          onChange={() => toggleSelect(sub.id)}
-                          className="w-4 h-4 rounded border-zinc-300 shrink-0"
-                          title="Select for deletion"
-                        />
-                      )}
+                      <input
+                        type="checkbox"
+                        checked={selected.has(sub.id)}
+                        onChange={() => toggleSelect(sub.id)}
+                        className="w-4 h-4 rounded border-zinc-300 shrink-0"
+                        title="Select for deletion"
+                      />
                       <div>
                         <p className="font-semibold text-foreground flex items-center gap-1.5">
                           {sub.user.fullName}

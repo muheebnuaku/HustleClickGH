@@ -6,8 +6,9 @@ import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Check, X, Clock, RefreshCw } from "lucide-react";
+import { Check, X, Clock, RefreshCw, Upload, FileText, Loader2 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { uploadFile } from "@/lib/upload-file";
 
 interface Withdrawal {
   id: string;
@@ -24,6 +25,7 @@ interface Withdrawal {
   requestedAt: string;
   processedAt?: string;
   notes?: string;
+  receiptUrl?: string | null;
 }
 
 export default function AdminPaymentsPage() {
@@ -36,6 +38,21 @@ export default function AdminPaymentsPage() {
   // Which request is having its rejection reason written, and the text so far
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  // Uploaded receipt URL per withdrawal id (required before approving)
+  const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  const handleReceiptUpload = async (id: string, file: File) => {
+    setUploadingId(id);
+    try {
+      const res = await uploadFile(file, "receipts", file.name);
+      setReceiptUrls((r) => ({ ...r, [id]: res.url }));
+    } catch {
+      alert("Failed to upload the receipt. Use an image (screenshot) of the payment.");
+    } finally {
+      setUploadingId(null);
+    }
+  };
 
   const fetchPayments = async () => {
     try {
@@ -65,11 +82,21 @@ export default function AdminPaymentsPage() {
   }, [status, router, session]);
 
   const handleApprove = async (id: string) => {
+    const receiptUrl = receiptUrls[id];
+    if (!receiptUrl) { alert("Upload the payment receipt before approving."); return; }
     setProcessingId(id);
     try {
-      const res = await fetch(`/api/withdrawals/${id}/approve`, { method: "POST" });
+      const res = await fetch(`/api/withdrawals/${id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ receiptUrl }),
+      });
       if (res.ok) {
+        setReceiptUrls((r) => { const n = { ...r }; delete n[id]; return n; });
         await fetchPayments();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        alert(d.message || "Failed to approve.");
       }
     } catch (error) {
       console.error("Failed to approve:", error);
@@ -217,29 +244,53 @@ export default function AdminPaymentsPage() {
                     </div>
 
                     {payment.status === "pending" && (
-                      <div className="flex flex-wrap gap-2 shrink-0">
-                        <Button
-                          onClick={() => handleApprove(payment.id)}
-                          className="bg-green-600 hover:bg-green-700"
-                          disabled={processingId === payment.id}
-                        >
-                          <Check size={18} />
-                          {processingId === payment.id ? "Processing..." : "Approve"}
-                        </Button>
-                        <Button
-                          onClick={() => { setRejectingId(payment.id); setRejectReason(""); }}
-                          variant="outline"
-                          className="text-red-600 border-red-600"
-                          disabled={processingId === payment.id || rejectingId === payment.id}
-                        >
-                          <X size={18} />
-                          Reject
-                        </Button>
+                      <div className="flex flex-col gap-2 shrink-0 w-full md:w-56">
+                        {/* Receipt — required before approving */}
+                        <label className={`flex items-center justify-center gap-2 h-10 rounded-lg border text-sm font-medium cursor-pointer transition-colors ${
+                          receiptUrls[payment.id]
+                            ? "border-green-300 bg-green-50 text-green-700 dark:bg-green-900/20 dark:border-green-800"
+                            : "border-zinc-300 dark:border-zinc-700 text-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                        }`}>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            disabled={uploadingId === payment.id}
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleReceiptUpload(payment.id, f); e.target.value = ""; }}
+                          />
+                          {uploadingId === payment.id ? (
+                            <><Loader2 size={15} className="animate-spin" />Uploading…</>
+                          ) : receiptUrls[payment.id] ? (
+                            <><Check size={15} />Receipt attached — change</>
+                          ) : (
+                            <><Upload size={15} />Upload receipt</>
+                          )}
+                        </label>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => handleApprove(payment.id)}
+                            className="bg-green-600 hover:bg-green-700 flex-1"
+                            disabled={processingId === payment.id || !receiptUrls[payment.id]}
+                            title={!receiptUrls[payment.id] ? "Upload the payment receipt first" : "Approve"}
+                          >
+                            <Check size={18} />
+                            {processingId === payment.id ? "…" : "Approve"}
+                          </Button>
+                          <Button
+                            onClick={() => { setRejectingId(payment.id); setRejectReason(""); }}
+                            variant="outline"
+                            className="text-red-600 border-red-600"
+                            disabled={processingId === payment.id || rejectingId === payment.id}
+                          >
+                            <X size={18} />
+                            Reject
+                          </Button>
+                        </div>
                       </div>
                     )}
 
                     {payment.status !== "pending" && (
-                      <div>
+                      <div className="flex flex-col items-start md:items-end gap-1 shrink-0">
                         <span
                           className={`px-4 py-2 rounded-full text-sm font-medium ${
                             payment.status === "approved"
@@ -249,6 +300,11 @@ export default function AdminPaymentsPage() {
                         >
                           {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
                         </span>
+                        {payment.status === "approved" && payment.receiptUrl && (
+                          <a href={payment.receiptUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                            <FileText size={12} />View receipt
+                          </a>
+                        )}
                       </div>
                     )}
                   </div>

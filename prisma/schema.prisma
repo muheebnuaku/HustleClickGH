@@ -203,7 +203,8 @@ model Withdrawal {
   processedAt     DateTime?
   processedBy     String?
   notes           String?
-  
+  receiptUrl      String?  // payment receipt uploaded by admin, required to approve
+
   // Relations
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 

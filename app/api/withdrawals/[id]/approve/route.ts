@@ -20,11 +20,21 @@ export async function PUT(
     
     // Parse body safely (may be empty)
     let notes = "";
+    let receiptUrl = "";
     try {
       const body = await request.json();
       notes = body.notes || "";
+      receiptUrl = typeof body.receiptUrl === "string" ? body.receiptUrl.trim() : "";
     } catch {
       // Body is empty, that's okay
+    }
+
+    // A payment receipt is required before a withdrawal can be approved.
+    if (!receiptUrl) {
+      return NextResponse.json(
+        { message: "Upload the payment receipt before approving this withdrawal." },
+        { status: 400 }
+      );
     }
 
     // Approve + deduct atomically, GUARDING that the balance actually covers it.
@@ -44,7 +54,7 @@ export async function PUT(
 
         const updated = await tx.withdrawal.update({
           where: { id },
-          data: { status: "approved", processedAt: new Date(), processedBy: session.user.id, notes },
+          data: { status: "approved", processedAt: new Date(), processedBy: session.user.id, notes, receiptUrl },
         });
         await tx.user.update({ where: { id: w.userId }, data: { balance: { decrement: w.amount } } });
         return { updated, user: w.user };
