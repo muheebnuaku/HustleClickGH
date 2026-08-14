@@ -5,8 +5,9 @@ import { useParams } from "next/navigation";
 import { AdminLayout } from "@/components/admin-layout";
 import { Card } from "@/components/ui/card";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download, MessageSquare, Send, X, Trash2 } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download, MessageSquare, Send, X, Trash2, Sparkles } from "lucide-react";
 import { toDownloadUrl } from "@/lib/upload-file";
+import type { AiReviewResult } from "@/lib/ai-review";
 import Link from "next/link";
 
 interface Submission {
@@ -66,6 +67,74 @@ export default function AdminProjectSubmissionsPage() {
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+
+  // ── AI quality review (suggestion only; human still decides) ──
+  const [aiResults, setAiResults] = useState<Record<string, AiReviewResult>>({});
+  const [aiLoading, setAiLoading] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<Record<string, string>>({});
+
+  // Downscale a video/image element to a small JPEG data URL for the model.
+  const toFrame = (src: CanvasImageSource, w: number, h: number): string | null => {
+    try {
+      const max = 768;
+      const scale = Math.min(1, max / Math.max(w || max, h || max));
+      const cw = Math.max(1, Math.round((w || max) * scale));
+      const ch = Math.max(1, Math.round((h || max) * scale));
+      const c = document.createElement("canvas");
+      c.width = cw; c.height = ch;
+      const ctx = c.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(src, 0, 0, cw, ch);
+      return c.toDataURL("image/jpeg", 0.7); // throws (returns via catch) if canvas is CORS-tainted
+    } catch { return null; }
+  };
+
+  const extractFrame = (url: string, type: string): Promise<string | null> =>
+    new Promise((resolve) => {
+      if (type.startsWith("image")) {
+        const img = new window.Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(toFrame(img, img.naturalWidth, img.naturalHeight));
+        img.onerror = () => resolve(null);
+        img.src = url;
+      } else if (type.startsWith("video")) {
+        const v = document.createElement("video");
+        v.crossOrigin = "anonymous";
+        v.muted = true;
+        v.preload = "metadata";
+        v.src = url;
+        v.onloadedmetadata = () => { try { v.currentTime = Math.min((v.duration || 1) / 2, (v.duration || 1) - 0.1); } catch { resolve(null); } };
+        v.onseeked = () => resolve(toFrame(v, v.videoWidth, v.videoHeight));
+        v.onerror = () => resolve(null);
+        setTimeout(() => resolve(null), 9000);
+      } else resolve(null);
+    });
+
+  const handleAiReview = async (sub: Submission) => {
+    setAiLoading(sub.id);
+    setAiError((e) => { const n = { ...e }; delete n[sub.id]; return n; });
+    try {
+      const files = subFiles(sub).slice(0, 6);
+      const frames: string[] = [];
+      for (const f of files) { const fr = await extractFrame(f.url, f.type); if (fr) frames.push(fr); }
+      if (!frames.length) {
+        setAiError((e) => ({ ...e, [sub.id]: "Couldn't read frames (video/image only, and storage must allow CORS)." }));
+        return;
+      }
+      const res = await fetch(`/api/admin/data-projects/${projectId}/submissions/${sub.id}/ai-review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ frames }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setAiError((e) => ({ ...e, [sub.id]: d.message || "AI review failed." })); return; }
+      setAiResults((r) => ({ ...r, [sub.id]: d.result }));
+    } catch {
+      setAiError((e) => ({ ...e, [sub.id]: "AI review failed." }));
+    } finally {
+      setAiLoading(null);
+    }
+  };
 
   const handleBulkDelete = async () => {
     if (!selected.size) return;
@@ -349,6 +418,15 @@ export default function AdminProjectSubmissionsPage() {
                         {sub.status}
                       </span>
                       <div className="ml-auto flex items-center gap-2">
+                        <button
+                          onClick={() => handleAiReview(sub)}
+                          disabled={aiLoading === sub.id}
+                          title="Get an AI quality suggestion for this submission"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-900 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 rounded-lg px-2.5 py-1 disabled:opacity-50"
+                        >
+                          {aiLoading === sub.id ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                          {aiLoading === sub.id ? "Scoring…" : "Score with AI"}
+                        </button>
                         {sub.status === "rejected" && (
                           <button
                             onClick={() => handleApprove(sub.id)}
@@ -413,6 +491,34 @@ export default function AdminProjectSubmissionsPage() {
                             ))}
                           </div>
                         </>
+                      );
+                    })()}
+
+                    {/* AI quality suggestion (human still decides) */}
+                    {aiError[sub.id] && (
+                      <div className="text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">{aiError[sub.id]}</div>
+                    )}
+                    {aiResults[sub.id] && (() => {
+                      const r = aiResults[sub.id];
+                      const cls = r.verdict === "approve"
+                        ? "border-green-200 bg-green-50 dark:bg-green-900/10 dark:border-green-900"
+                        : r.verdict === "reject"
+                        ? "border-red-200 bg-red-50 dark:bg-red-900/10 dark:border-red-900"
+                        : "border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-900";
+                      return (
+                        <div className={`rounded-lg border p-3 ${cls}`}>
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <Sparkles size={14} className="text-purple-600" />
+                            <span className="text-sm font-semibold text-foreground capitalize">AI: {r.verdict} · {r.score}/100</span>
+                            <span className="text-[10px] text-zinc-400 ml-auto">{r.model} · suggestion only</span>
+                          </div>
+                          {r.summary && <p className="text-xs text-zinc-600 dark:text-zinc-300 mb-1">{r.summary}</p>}
+                          {r.reasons.length > 0 && (
+                            <ul className="text-xs text-zinc-500 list-disc pl-4 space-y-0.5">
+                              {r.reasons.map((x, i) => <li key={i}>{x}</li>)}
+                            </ul>
+                          )}
+                        </div>
                       );
                     })()}
                   </div>
