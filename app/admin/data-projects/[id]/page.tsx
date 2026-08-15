@@ -29,6 +29,18 @@ interface Submission {
   contributorQuality?: { approved: number; rejected: number; reviewed: number; score: number; tier: "new" | "trusted" | "watch" } | null;
 }
 
+interface ArchivedRecord {
+  id: string;
+  userCode: string | null;
+  userName: string | null;
+  status: string;
+  reward: number;
+  fileCount: number;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  archivedAt: string;
+}
+
 interface Project {
   id: string;
   title: string;
@@ -53,6 +65,9 @@ export default function AdminProjectSubmissionsPage() {
   const [rejectNotes, setRejectNotes] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  // Durable participation records (from deleted submissions)
+  const [archived, setArchived] = useState<ArchivedRecord[]>([]);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   // Admin → contributor direct message (from a submission)
   const [msgTarget, setMsgTarget] = useState<{ id: string; name: string } | null>(null);
   const [msgBody, setMsgBody] = useState("");
@@ -203,6 +218,14 @@ export default function AdminProjectSubmissionsPage() {
     } finally {
       setLoading(false);
     }
+    fetchArchived();
+  };
+
+  const fetchArchived = async () => {
+    try {
+      const res = await fetch(`/api/admin/data-projects/${projectId}/archived`);
+      if (res.ok) { const d = await res.json(); setArchived(d.records || []); }
+    } catch { /* non-critical */ }
   };
 
   useEffect(() => { fetchData(); }, [projectId]);
@@ -575,6 +598,47 @@ export default function AdminProjectSubmissionsPage() {
               </Card>
             ))}
           </div>
+        )}
+
+        {/* Archived participation records (from deleted submissions) */}
+        {archived.length > 0 && (
+          <Card className="p-4">
+            <button onClick={() => setArchivedOpen((o) => !o)} className="w-full flex items-center justify-between gap-2 text-left">
+              <span className="font-semibold text-foreground">Archived submissions ({archived.length})</span>
+              <span className="text-xs text-zinc-500">{archivedOpen ? "Hide" : "Show"}</span>
+            </button>
+            <p className="text-xs text-zinc-500 mt-1">Contributors whose submissions were deleted — their participation and outcome are kept here.</p>
+            {archivedOpen && (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-zinc-500 border-b border-zinc-100 dark:border-zinc-800">
+                      <th className="py-2 pr-3">Contributor</th>
+                      <th className="py-2 pr-3">Status</th>
+                      <th className="py-2 pr-3">Earned</th>
+                      <th className="py-2 pr-3">Files</th>
+                      <th className="py-2 pr-3">Submitted</th>
+                      <th className="py-2">Deleted</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {archived.map((a) => (
+                      <tr key={a.id} className="border-b border-zinc-50 dark:border-zinc-900">
+                        <td className="py-2 pr-3"><span className="font-medium text-foreground">{a.userName || "—"}</span> <span className="text-zinc-400 text-xs">{a.userCode || ""}</span></td>
+                        <td className="py-2 pr-3">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${a.status === "approved" ? "bg-green-100 text-green-700" : a.status === "rejected" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"}`}>{a.status}</span>
+                        </td>
+                        <td className="py-2 pr-3">{a.reward > 0 ? formatCurrency(a.reward) : "—"}</td>
+                        <td className="py-2 pr-3">{a.fileCount}</td>
+                        <td className="py-2 pr-3 text-xs text-zinc-500">{a.submittedAt ? formatDate(a.submittedAt) : "—"}</td>
+                        <td className="py-2 text-xs text-zinc-500">{formatDate(a.archivedAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
         )}
       </div>
 

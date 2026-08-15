@@ -82,11 +82,37 @@ export async function DELETE(
 
     const subs = await prisma.dataSubmission.findMany({
       where: { id: { in: ids }, projectId },
-      select: { id: true, status: true, fileUrl: true, files: true },
+      select: {
+        id: true, status: true, fileUrl: true, files: true,
+        userId: true, submittedAt: true, reviewedAt: true,
+        user: { select: { userId: true, fullName: true } },
+      },
     });
     if (subs.length === 0) {
       return NextResponse.json({ message: "No matching submissions.", deleted: 0 }, { status: 400 });
     }
+
+    // Preserve a durable participation record BEFORE deleting, so a contributor's
+    // history (which project, outcome, earnings) survives the cleanup.
+    const project = await prisma.dataProject.findUnique({ where: { id: projectId }, select: { title: true, reward: true } });
+    const fileCountOf = (s: { files: string | null; fileUrl: string }) => {
+      if (s.files) { try { const a = JSON.parse(s.files); if (Array.isArray(a)) return a.length; } catch {} }
+      return s.fileUrl ? 1 : 0;
+    };
+    await prisma.contributionRecord.createMany({
+      data: subs.map((s) => ({
+        userId: s.userId,
+        userCode: s.user?.userId ?? null,
+        userName: s.user?.fullName ?? null,
+        projectId,
+        projectTitle: project?.title ?? null,
+        status: s.status,
+        reward: s.status === "approved" ? (project?.reward ?? 0) : 0,
+        fileCount: fileCountOf(s),
+        submittedAt: s.submittedAt,
+        reviewedAt: s.reviewedAt,
+      })),
+    });
 
     // Delete any status (incl. approved/rejected) to free DB + storage space.
     // Approved deletions do NOT refund — the reward was already paid and the

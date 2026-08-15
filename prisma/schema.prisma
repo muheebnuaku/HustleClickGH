@@ -340,6 +340,27 @@ model OrgTransaction {
   @@index([orgId, createdAt])
 }
 
+// Durable participation record. Written when a submission is DELETED (for space)
+// so we never lose the fact that a contributor was on a project and their
+// outcome/earnings. PII-light snapshot (denormalized code/name), no files.
+model ContributionRecord {
+  id           String    @id @default(cuid())
+  userId       String
+  userCode     String?   // USER#### for display
+  userName     String?
+  projectId    String
+  projectTitle String?
+  status       String    // status at archive time (approved | rejected | pending)
+  reward       Float     @default(0) // GH₵ earned (approved only)
+  fileCount    Int       @default(0)
+  submittedAt  DateTime?
+  reviewedAt   DateTime?
+  archivedAt   DateTime  @default(now())
+
+  @@index([projectId, archivedAt])
+  @@index([userId])
+}
+
 model DataSubmission {
   id              String      @id @default(cuid())
   projectId       String
