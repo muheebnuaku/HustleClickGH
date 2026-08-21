@@ -2,8 +2,8 @@ import OpenAI from "openai";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/activity-log";
 import { deleteUserAccount } from "@/lib/user-deletion";
-import { normalizePhone, emailLocalPart, levenshtein, assessDuplicateRisk } from "@/lib/fraud-check";
-import type { DuplicateRiskResult, Candidate } from "@/lib/fraud-check";
+import { normalizePhone, emailLocalPart, levenshtein } from "@/lib/fraud-check";
+import type { DuplicateRiskResult } from "@/lib/fraud-check";
 
 // ---------------------------------------------------------------------------
 // Lana — the admin trust & safety agent.
@@ -218,10 +218,22 @@ export async function resolveCase(caseId: string, decision: "approve" | "reject"
 
   let actionTaken: string | null = kase.autoActionTaken;
 
+  const relatedIds: string[] = (() => {
+    try {
+      return JSON.parse(kase.relatedUserIds);
+    } catch {
+      return [];
+    }
+  })();
+
   if (decision === "approve") {
     if (kase.proposedAction === "suspend" && kase.status !== "auto_actioned") {
       await prisma.user.update({ where: { id: kase.subjectUserId }, data: { status: "suspended" } });
       actionTaken = "suspended";
+    } else if (kase.proposedAction === "suspend_others" && kase.status !== "auto_actioned") {
+      // Group case: subjectUserId is the one to KEEP active; relatedUserIds are the ones to suspend.
+      if (relatedIds.length) await prisma.user.updateMany({ where: { id: { in: relatedIds } }, data: { status: "suspended" } });
+      actionTaken = "suspended_others";
     } else if (kase.proposedAction === "delete_account") {
       await deleteUserAccount(kase.subjectUserId, { reason: "admin_action", performedByUserId: adminUserId });
       actionTaken = "deleted";
@@ -232,10 +244,15 @@ export async function resolveCase(caseId: string, decision: "approve" | "reject"
       });
       actionTaken = "withdrawal_rejected";
     }
-  } else if (decision === "reject" && kase.status === "auto_actioned" && kase.autoActionTaken === "suspended") {
-    // Admin overrides Lana's auto-suspend.
-    await prisma.user.update({ where: { id: kase.subjectUserId }, data: { status: "active" } });
-    actionTaken = "unsuspended";
+  } else if (decision === "reject" && kase.status === "auto_actioned") {
+    // Admin overrides an action Lana already took on her own.
+    if (kase.autoActionTaken === "suspended") {
+      await prisma.user.update({ where: { id: kase.subjectUserId }, data: { status: "active" } });
+      actionTaken = "unsuspended";
+    } else if (kase.autoActionTaken === "suspended_others" && relatedIds.length) {
+      await prisma.user.updateMany({ where: { id: { in: relatedIds } }, data: { status: "active" } });
+      actionTaken = "unsuspended_others";
+    }
   }
 
   const updated = await prisma.lanaCase.update({
@@ -476,123 +493,294 @@ Keep replies short (a few sentences) unless the admin asks for detail.`;
 
 // --- Backfill scan (manual, admin-triggered) ----------------------------------
 // Everything above only evaluates NEW registrations/withdrawals as they
-// happen. This retroactively scans what already existed before Lana did.
+// happen. This retroactively scans what already existed before Lana did —
+// and, unlike the live per-signup check, does it as proper GROUPS (a phone
+// number can connect 5-10 accounts, not just a pair) with each member's real
+// activity and referral chain considered, so Lana can tell which one account
+// in a cluster is the genuine one worth keeping active rather than just
+// suspending whichever happened to register second.
+
+interface ClusterMember {
+  id: string;
+  userId: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  city: string | null;
+  region: string | null;
+  status: string;
+  createdAt: Date;
+  referredBy: string | null;
+}
+
+// Same signal as the live/pairwise check (lib/fraud-check.ts), just scored
+// standalone so it can feed a union-find over the WHOLE user base instead of
+// "new signup vs a candidate pool".
+function pairScore(a: ClusterMember, b: ClusterMember): { score: number; reasons: string[] } {
+  let score = 0;
+  const reasons: string[] = [];
+
+  const aPhone = normalizePhone(a.phone);
+  const bPhone = normalizePhone(b.phone);
+  if (aPhone && bPhone) {
+    const dist = levenshtein(aPhone, bPhone);
+    if (dist === 0) {
+      score += 100;
+      reasons.push("identical phone number");
+    } else if (dist <= 2) {
+      score += (3 - dist) * 25;
+      reasons.push(`phone number differs by ${dist} digit${dist > 1 ? "s" : ""}`);
+    }
+  }
+
+  const aEmail = emailLocalPart(a.email);
+  const bEmail = emailLocalPart(b.email);
+  if (aEmail && bEmail && aEmail !== bEmail) {
+    const dist = levenshtein(aEmail, bEmail);
+    const longer = Math.max(aEmail.length, bEmail.length);
+    if (longer >= 5 && dist <= 3) {
+      score += (4 - dist) * 15;
+      reasons.push(`email address is very similar ("${b.email}")`);
+    }
+  }
+
+  if (score > 0 && a.city && b.city && a.city.trim().toLowerCase() === b.city.trim().toLowerCase() && a.region && b.region && a.region.trim().toLowerCase() === b.region.trim().toLowerCase()) {
+    score += 15;
+    reasons.push("same city/region");
+  }
+
+  return { score, reasons };
+}
+
+// Minimum pairwise score to UNION two accounts into the same cluster —
+// deliberately a bit above "any similarity at all" (which findCandidates/the
+// live check uses for a top-5 shortlist) to limit spurious transitive
+// merges, since union-find will chain A~B~C into one group even if A and C
+// aren't directly similar.
+const CLUSTER_UNION_THRESHOLD = 40;
+
+class UnionFind {
+  private parent = new Map<string, string>();
+  find(x: string): string {
+    if (!this.parent.has(x)) this.parent.set(x, x);
+    let root = x;
+    while (this.parent.get(root) !== root) root = this.parent.get(root)!;
+    let cur = x;
+    while (this.parent.get(cur) !== root) {
+      const next = this.parent.get(cur)!;
+      this.parent.set(cur, root);
+      cur = next;
+    }
+    return root;
+  }
+  union(a: string, b: string) {
+    const ra = this.find(a);
+    const rb = this.find(b);
+    if (ra !== rb) this.parent.set(ra, rb);
+  }
+}
+
+async function buildDuplicateClusters(): Promise<ClusterMember[][]> {
+  const users: ClusterMember[] = await prisma.user.findMany({
+    where: { role: "user" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, userId: true, fullName: true, email: true, phone: true, city: true, region: true, status: true, createdAt: true, referredBy: true },
+  });
+
+  const uf = new UnionFind();
+  for (const u of users) uf.find(u.id);
+  for (let i = 0; i < users.length; i++) {
+    for (let j = 0; j < i; j++) {
+      if (pairScore(users[i], users[j]).score >= CLUSTER_UNION_THRESHOLD) uf.union(users[i].id, users[j].id);
+    }
+  }
+
+  const groups = new Map<string, ClusterMember[]>();
+  for (const u of users) {
+    const root = uf.find(u.id);
+    (groups.get(root) ?? groups.set(root, []).get(root)!).push(u);
+  }
+  return [...groups.values()].filter((g) => g.length >= 2);
+}
+
+interface MemberWithFacts extends ClusterMember {
+  approvedSurveys: number;
+  approvedSubmissions: number;
+  approvedWithdrawals: number;
+  referrerLabel: string | null; // "fullName (USERxxxx)" of whoever referred them
+}
+
+async function withActivityAndReferrer(m: ClusterMember): Promise<MemberWithFacts> {
+  const [approvedSurveys, approvedSubmissions, approvedWithdrawals, referrer] = await Promise.all([
+    prisma.surveyResponse.count({ where: { userId: m.id, rewarded: true } }),
+    prisma.dataSubmission.count({ where: { userId: m.id, status: "approved" } }),
+    prisma.withdrawal.count({ where: { userId: m.id, status: "approved" } }),
+    m.referredBy ? prisma.user.findUnique({ where: { id: m.referredBy }, select: { fullName: true, userId: true } }) : null,
+  ]);
+  return {
+    ...m,
+    approvedSurveys,
+    approvedSubmissions,
+    approvedWithdrawals,
+    referrerLabel: referrer ? `${referrer.fullName} (${referrer.userId})` : null,
+  };
+}
+
+function findCommonReferrer(members: MemberWithFacts[]): { label: string; count: number } | null {
+  const counts = new Map<string, number>();
+  for (const m of members) if (m.referrerLabel) counts.set(m.referrerLabel, (counts.get(m.referrerLabel) ?? 0) + 1);
+  const found = [...counts.entries()].filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1])[0];
+  return found ? { label: found[0], count: found[1] } : null;
+}
+
+interface ClusterAssessment {
+  riskScore: number;
+  keepActiveUserId: string | null; // null = recommend suspending everyone in the cluster
+  reasoning: string;
+}
+
+async function assessCluster(members: MemberWithFacts[]): Promise<ClusterAssessment> {
+  const commonReferrer = findCommonReferrer(members);
+  const activityScore = (m: MemberWithFacts) => m.approvedSurveys + m.approvedSubmissions + m.approvedWithdrawals;
+
+  if (!process.env.OPENAI_API_KEY) {
+    const ranked = [...members].sort((a, b) => activityScore(b) - activityScore(a));
+    const keepActiveUserId = activityScore(ranked[0]) > 0 ? ranked[0].id : null;
+    return {
+      riskScore: Math.min(100, 55 + members.length * 8),
+      keepActiveUserId,
+      reasoning: `Heuristic (no AI available): ${members.length} accounts cluster on phone/email/location similarity.${commonReferrer ? ` ${commonReferrer.count} of them were referred by ${commonReferrer.label}.` : ""}${keepActiveUserId ? ` Recommending ${ranked[0].fullName} stay active — most real activity in the group.` : " No account in the group shows real activity."}`,
+    };
+  }
+
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const prompt = `These accounts on HustleClickGH (Ghana survey/reward platform) were grouped by similar phone number, email, and/or location — likely the same person running multiple accounts to farm referral bonuses and task rewards, OR a genuine coincidence (e.g. family sharing a network).
+
+${members
+  .map(
+    (m, i) =>
+      `${i + 1}. id=${m.id} name="${m.fullName}" userId=${m.userId ?? ""} email="${m.email}" phone="${m.phone}" location="${m.city}, ${m.region}" status=${m.status} joined=${m.createdAt.toISOString().slice(0, 10)} — approved surveys: ${m.approvedSurveys}, approved data submissions: ${m.approvedSubmissions}, approved withdrawals: ${m.approvedWithdrawals}, referred by: ${m.referrerLabel ?? "nobody (direct signup)"}`
+  )
+  .join("\n")}
+
+${commonReferrer ? `${commonReferrer.count} of these accounts were referred by the SAME person: ${commonReferrer.label}.` : "No two accounts in this group share a referrer."}
+
+Decide: is this genuinely one person operating multiple accounts (or a referral-farming ring)? If so, which ONE account (if any) has real, legitimate activity and should stay active — the rest should be suspended. An account with zero approved surveys/submissions/withdrawals has done nothing that would be lost by suspending it. Don't assume the oldest account is automatically the "real" one — judge by actual activity.
+
+Respond with ONLY a JSON object, no other text:
+{"isGenuineDuplicateGroup": boolean, "riskScore": number (0-100), "keepActiveAccountId": string or null (the "id" field of the one account to leave active, or null if none should stay active), "reasoning": string (2-3 sentences an admin can act on, mention the referrer connection if relevant)}`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: LANA_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      max_tokens: 300,
+      response_format: { type: "json_object" },
+    });
+    const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "{}");
+    const riskScore = Math.max(0, Math.min(100, Number(parsed.riskScore) || 0));
+    const keepId = typeof parsed.keepActiveAccountId === "string" ? parsed.keepActiveAccountId : null;
+    return {
+      riskScore: Boolean(parsed.isGenuineDuplicateGroup) ? riskScore : 0,
+      keepActiveUserId: keepId && members.some((m) => m.id === keepId) ? keepId : null,
+      reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "Flagged by AI cluster review.",
+    };
+  } catch (err) {
+    console.error("[lana] cluster assessment failed:", err);
+    const ranked = [...members].sort((a, b) => activityScore(b) - activityScore(a));
+    return {
+      riskScore: Math.min(100, 50 + members.length * 8),
+      keepActiveUserId: activityScore(ranked[0]) > 0 ? ranked[0].id : null,
+      reasoning: `AI review failed — heuristic fallback: ${members.length} similar accounts, keeping the one with the most real activity active.`,
+    };
+  }
+}
 
 export interface BackfillBatchResult {
-  totalUsers: number;
-  processedUpTo: number; // pass this back as `offset` on the next call
+  totalClusters: number;
+  remainingClusters: number;
   done: boolean;
   casesCreatedThisBatch: number;
   autoSuspendedThisBatch: number;
-  sharedPayout: { distinctSharedNumbers: number } | null; // only set on the first call (offset 0)
+  sharedPayout: { distinctSharedNumbers: number };
 }
 
-// Runs one bounded chunk of the backfill scan and returns where it got to,
-// so the caller (the panel) can show real progress and stay comfortably
-// under any serverless request-duration limit instead of one long call that
-// can time out with no feedback. The shared-payout-number pass is cheap
-// (no AI calls) and runs once, on the first batch only.
+// Runs one bounded chunk of the backfill scan and returns where it got to, so
+// the caller (the panel) can show real progress and stay comfortably under
+// any serverless request-duration limit. Clusters that already have a case
+// are skipped, which is what makes this safe to just call repeatedly (no
+// offset bookkeeping needed — a fresh cluster computation each call
+// naturally excludes anything already handled).
 const BACKFILL_TIME_BUDGET_MS = 40_000;
 
-export async function runLanaBackfillBatch(offset: number): Promise<BackfillBatchResult> {
+export async function runLanaBackfillBatch(): Promise<BackfillBatchResult> {
   const started = Date.now();
-  const sharedPayout = offset === 0 ? await backfillSharedPayoutNumbers() : null;
+  const sharedPayout = await backfillSharedPayoutNumbers();
 
-  const users = await prisma.user.findMany({
-    where: { role: "user" },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, fullName: true, email: true, phone: true, city: true, region: true, fraudRiskScore: true },
-  });
+  const allClusters = await buildDuplicateClusters();
+  const pending: ClusterMember[][] = [];
+  for (const cluster of allClusters) {
+    const existing = await prisma.lanaCase.findFirst({ where: { subjectUserId: { in: cluster.map((m) => m.id) }, type: "duplicate_account" } });
+    if (!existing) pending.push(cluster);
+  }
 
   let casesCreated = 0;
   let autoSuspended = 0;
-  let i = offset;
+  let processed = 0;
 
-  for (; i < users.length; i++) {
-    if (Date.now() - started > BACKFILL_TIME_BUDGET_MS) break; // yield — caller resumes at `i`
+  for (const cluster of pending) {
+    if (Date.now() - started > BACKFILL_TIME_BUDGET_MS) break;
+    processed++;
 
-    const u = users[i];
-    if (u.fraudRiskScore != null) continue; // already flagged previously
+    const withFacts = await Promise.all(cluster.map(withActivityAndReferrer));
+    const assessment = await assessCluster(withFacts);
+    if (assessment.riskScore < 50) continue; // not confident enough to raise
 
-    const alreadyCased = await prisma.lanaCase.findFirst({ where: { subjectUserId: u.id, type: "duplicate_account" } });
-    if (alreadyCased) continue;
+    const keepId = assessment.keepActiveUserId;
+    const others = withFacts.filter((m) => m.id !== keepId);
+    if (others.length === 0) continue; // everyone's "the keeper" — nothing to flag
 
-    // Compare against earlier-created accounts only, so the earlier one is
-    // treated as "the original" and we flag one side of each pair, not both.
-    const candidates: Candidate[] = [];
-    const uPhoneKey = normalizePhone(u.phone);
-    const uEmailLocal = emailLocalPart(u.email);
-    for (let j = 0; j < i; j++) {
-      const v = users[j];
-      let score = 0;
-      const reasons: string[] = [];
+    const subject = keepId ? withFacts.find((m) => m.id === keepId)! : withFacts[0];
+    const suspendCandidates = keepId ? others : withFacts.filter((m) => m.id !== subject.id);
 
-      const vPhoneKey = normalizePhone(v.phone);
-      if (vPhoneKey && uPhoneKey) {
-        const dist = levenshtein(vPhoneKey, uPhoneKey);
-        if (dist === 0) {
-          score += 100;
-          reasons.push("identical phone number");
-        } else if (dist <= 2) {
-          score += (3 - dist) * 25;
-          reasons.push(`phone number differs by ${dist} digit${dist > 1 ? "s" : ""}`);
-        }
-      }
-
-      const vEmailLocal = emailLocalPart(v.email);
-      if (vEmailLocal && uEmailLocal && vEmailLocal !== uEmailLocal) {
-        const dist = levenshtein(vEmailLocal, uEmailLocal);
-        const longer = Math.max(vEmailLocal.length, uEmailLocal.length);
-        if (longer >= 5 && dist <= 3) {
-          score += (4 - dist) * 15;
-          reasons.push(`email address is very similar ("${v.email}")`);
-        }
-      }
-
-      if (score > 0 && v.city && u.city && v.city.trim().toLowerCase() === u.city.trim().toLowerCase() && v.region && u.region && v.region.trim().toLowerCase() === u.region.trim().toLowerCase()) {
-        score += 15;
-        reasons.push("same city/region");
-      }
-
-      if (score > 0) candidates.push({ ...v, score, matchReasons: reasons });
+    for (const m of suspendCandidates) {
+      await prisma.user.update({ where: { id: m.id }, data: { fraudRiskScore: assessment.riskScore, fraudRiskReason: assessment.reasoning, fraudFlaggedAt: new Date(), suspectedDuplicateOfUserId: subject.id } });
     }
 
-    if (candidates.length === 0) continue;
-    candidates.sort((a, b) => b.score - a.score);
-    const top5 = candidates.slice(0, 5);
-
-    const risk = await assessDuplicateRisk({ fullName: u.fullName, email: u.email, phone: u.phone, city: u.city ?? "", region: u.region ?? "" }, top5);
-    if (!risk.flagged) continue;
-
-    await prisma.user.update({ where: { id: u.id }, data: { fraudRiskScore: risk.riskScore, fraudRiskReason: risk.reason, fraudFlaggedAt: new Date(), suspectedDuplicateOfUserId: risk.suspectedDuplicateOfUserId } });
-
-    const highConfidence = risk.riskScore >= AUTO_SUSPEND_THRESHOLD;
+    const highConfidence = assessment.riskScore >= AUTO_SUSPEND_THRESHOLD;
     const kase = await prisma.lanaCase.create({
       data: {
         type: "duplicate_account",
-        subjectUserId: u.id,
-        relatedUserIds: JSON.stringify(risk.suspectedDuplicateOfUserId ? [risk.suspectedDuplicateOfUserId] : []),
-        riskScore: risk.riskScore,
-        summary: `${u.fullName} looks like a possible duplicate account (found in backfill scan)`,
-        reasoning: risk.reason ?? "Flagged by the duplicate-account heuristic during the backfill scan.",
-        proposedAction: "suspend",
+        subjectUserId: subject.id,
+        relatedUserIds: JSON.stringify(suspendCandidates.map((m) => m.id)),
+        riskScore: assessment.riskScore,
+        summary: `${suspendCandidates.length + 1}-account cluster around ${subject.fullName} — ${keepId ? "keeping this one active, suspending the rest" : "no genuine activity found in any of them"}`,
+        reasoning: `${assessment.reasoning} (found in backfill scan)`,
+        proposedAction: "suspend_others",
         status: highConfidence ? "auto_actioned" : "open",
-        autoActionTaken: highConfidence ? "suspended" : null,
+        autoActionTaken: highConfidence ? "suspended_others" : null,
       },
     });
     casesCreated++;
 
     if (highConfidence) {
-      await prisma.user.update({ where: { id: u.id }, data: { status: "suspended" } });
-      autoSuspended++;
-      await logActivity({ type: "lana_auto_action", userId: u.id, userName: u.fullName, severity: "warning", metadata: { action: "suspended", caseId: kase.id, riskScore: risk.riskScore, reason: risk.reason, source: "backfill" } });
+      await prisma.user.updateMany({ where: { id: { in: suspendCandidates.map((m) => m.id) } }, data: { status: "suspended" } });
+      autoSuspended += suspendCandidates.length;
+      await logActivity({
+        type: "lana_auto_action",
+        userId: subject.id,
+        userName: subject.fullName,
+        severity: "warning",
+        metadata: { action: "suspended_others", caseId: kase.id, suspendedUserIds: suspendCandidates.map((m) => m.id), riskScore: assessment.riskScore, reason: assessment.reasoning, source: "backfill" },
+      });
     }
   }
 
   return {
-    totalUsers: users.length,
-    processedUpTo: i,
-    done: i >= users.length,
+    totalClusters: allClusters.length,
+    remainingClusters: pending.length - processed,
+    done: processed >= pending.length,
     casesCreatedThisBatch: casesCreated,
     autoSuspendedThisBatch: autoSuspended,
     sharedPayout,

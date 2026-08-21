@@ -11,20 +11,19 @@ import { runLanaBackfillBatch } from "@/lib/lana";
 // since it can generate (and, per admin's own configured policy, act on)
 // many cases at once.
 //
-// Processes one bounded batch per call and reports where it got to — the
-// panel calls this repeatedly with an increasing `offset` until `done`, so
-// progress is visible and no single request risks a serverless timeout.
-export async function POST(request: Request) {
+// Processes one bounded batch of similarity groups per call and reports how
+// many are left — the panel calls this repeatedly until `done`, so progress
+// is visible and no single request risks a serverless timeout. Already-cased
+// groups are skipped on every call, so this is safe to just call again with
+// no state to pass in.
+export async function POST() {
   const session = await getServerSession(authOptions);
   if (!session?.user || session.user.role !== "admin") {
     return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
   }
 
-  const body = await request.json().catch(() => ({}));
-  const offset = Number.isFinite(body?.offset) ? Number(body.offset) : 0;
-
   try {
-    const result = await runLanaBackfillBatch(offset);
+    const result = await runLanaBackfillBatch();
     return NextResponse.json(result);
   } catch (error) {
     console.error("Lana backfill error:", error);

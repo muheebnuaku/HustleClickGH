@@ -1,6 +1,8 @@
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { checkForBouncedWelcomeEmails } from "@/lib/email-bounce-check";
 
 // Daily sweep (see vercel.json) for patterns only visible in aggregate — a
 // referral "ring" can look fine account-by-account (each referral passes the
@@ -55,5 +57,10 @@ export async function GET(request: Request) {
     created++;
   }
 
-  return NextResponse.json({ scanned: referrers.length, casesCreated: created });
+  const bounceCheck = await checkForBouncedWelcomeEmails().catch((err) => {
+    console.error("[lana-sweep] bounce check failed:", err);
+    return { checked: 0, bouncesFound: 0, skipped: "threw" };
+  });
+
+  return NextResponse.json({ scanned: referrers.length, casesCreated: created, bounceCheck });
 }

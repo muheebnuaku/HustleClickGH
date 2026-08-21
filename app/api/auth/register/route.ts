@@ -9,6 +9,7 @@ import { CONSENT_VERSION } from "@/lib/legal";
 import { sendEmail, welcomeEmail } from "@/lib/email";
 import { checkDuplicateRisk } from "@/lib/fraud-check";
 import { evaluateRegistration } from "@/lib/lana";
+import { domainCanReceiveMail } from "@/lib/email-domain-check";
 
 async function generateUserId(): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -82,6 +83,17 @@ export async function POST(request: Request) {
     if (consentAgreed !== true || !consentName || String(consentName).trim().length < 2) {
       return NextResponse.json(
         { message: "You must read and sign the Data Processing Agreement to register" },
+        { status: 400 }
+      );
+    }
+
+    // Reject obviously-fake email domains (typos, made-up domains) before
+    // creating anything. Can't catch a valid domain with a nonexistent
+    // mailbox (e.g. a typo'd Gmail address) — see lib/email-bounce-check.ts
+    // for that half of the problem.
+    if (!(await domainCanReceiveMail(email))) {
+      return NextResponse.json(
+        { message: "That email address doesn't look valid — please double-check it for typos." },
         { status: 400 }
       );
     }

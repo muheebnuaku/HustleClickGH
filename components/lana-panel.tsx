@@ -40,6 +40,7 @@ const TYPE_LABEL: Record<string, string> = {
   suspicious_withdrawal: "Suspicious withdrawal",
   referral_farming: "Referral farming",
   shared_payout_number: "Shared payout number",
+  bounced_email: "Bounced email",
 };
 
 function digestLine(cases: LanaCase[]): string | null {
@@ -58,8 +59,8 @@ export function LanaPanel() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [backfill, setBackfill] = useState<{
     phase: "running" | "done" | "error";
-    totalUsers: number;
-    processedUpTo: number;
+    totalClusters: number;
+    checkedClusters: number;
     casesCreated: number;
     autoSuspended: number;
     sharedPayoutCases: number;
@@ -130,21 +131,17 @@ export function LanaPanel() {
 
   async function runBackfill() {
     if (backfill?.phase === "running") return;
-    if (!confirm("Scan all existing accounts and withdrawal history for the same fraud patterns? This can create several cases at once, and may auto-suspend some existing accounts at high confidence.")) return;
+    if (!confirm("Scan all existing accounts and withdrawal history for the same fraud patterns? This can create several group cases at once, and may auto-suspend some existing accounts at high confidence.")) return;
 
-    setBackfill({ phase: "running", totalUsers: 0, processedUpTo: 0, casesCreated: 0, autoSuspended: 0, sharedPayoutCases: 0 });
+    setBackfill({ phase: "running", totalClusters: 0, checkedClusters: 0, casesCreated: 0, autoSuspended: 0, sharedPayoutCases: 0 });
 
-    let offset = 0;
     let done = false;
     let totals = { casesCreated: 0, autoSuspended: 0, sharedPayoutCases: 0 };
+    let checkedClusters = 0;
 
     while (!done) {
       try {
-        const res = await fetch("/api/admin/lana/backfill", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ offset }),
-        });
+        const res = await fetch("/api/admin/lana/backfill", { method: "POST" });
         const data = await res.json();
         if (!res.ok) {
           setBackfill((prev) => (prev ? { ...prev, phase: "error", error: data.message ?? `Scan failed (HTTP ${res.status}).` } : prev));
@@ -156,13 +153,13 @@ export function LanaPanel() {
           autoSuspended: totals.autoSuspended + data.autoSuspendedThisBatch,
           sharedPayoutCases: totals.sharedPayoutCases + (data.sharedPayout?.distinctSharedNumbers ?? 0),
         };
-        offset = data.processedUpTo;
+        checkedClusters = data.totalClusters - data.remainingClusters;
         done = data.done;
 
         setBackfill({
           phase: done ? "done" : "running",
-          totalUsers: data.totalUsers,
-          processedUpTo: data.processedUpTo,
+          totalClusters: data.totalClusters,
+          checkedClusters,
           ...totals,
         });
 
@@ -272,16 +269,16 @@ export function LanaPanel() {
                       <>
                         <div className="flex items-center justify-between text-[11px] text-zinc-500">
                           <span>
-                            {backfill.totalUsers > 0
-                              ? `${backfill.processedUpTo}/${backfill.totalUsers} accounts checked`
+                            {backfill.totalClusters > 0
+                              ? `${backfill.checkedClusters}/${backfill.totalClusters} similarity groups checked`
                               : "Starting…"}
                           </span>
-                          <span>{backfill.phase === "done" ? "Done" : `${Math.round((backfill.processedUpTo / Math.max(1, backfill.totalUsers)) * 100)}%`}</span>
+                          <span>{backfill.phase === "done" ? "Done" : `${Math.round((backfill.checkedClusters / Math.max(1, backfill.totalClusters)) * 100)}%`}</span>
                         </div>
                         <div className="h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
                           <div
                             className={cn("h-full rounded-full transition-all duration-300", backfill.phase === "done" ? "bg-green-500" : "bg-blue-600")}
-                            style={{ width: `${backfill.totalUsers > 0 ? Math.min(100, (backfill.processedUpTo / backfill.totalUsers) * 100) : 5}%` }}
+                            style={{ width: `${backfill.totalClusters > 0 ? Math.min(100, (backfill.checkedClusters / backfill.totalClusters) * 100) : 5}%` }}
                           />
                         </div>
                         <p className="text-[11px] text-zinc-500">
@@ -294,7 +291,7 @@ export function LanaPanel() {
                     )}
                     {backfill.phase === "error" && (
                       <p className="text-[11px] text-red-600 dark:text-red-400">
-                        Stopped at {backfill.processedUpTo}/{backfill.totalUsers || "?"} accounts: {backfill.error}. Anything already found is in the queue below — safe to click Scan again, already-checked accounts won&apos;t be re-flagged.
+                        Stopped at {backfill.checkedClusters}/{backfill.totalClusters || "?"} groups: {backfill.error}. Anything already found is in the queue below — safe to click Scan again, already-checked groups won&apos;t be re-flagged.
                       </p>
                     )}
                   </div>
@@ -338,12 +335,18 @@ export function LanaPanel() {
                       {c.type === "duplicate_account" && c.status === "auto_actioned" && (
                         <>
                           <ActionButton icon={Check} label="Confirm" onClick={() => act(c.id, "approve")} busy={busyId === c.id} />
-                          <ActionButton icon={Ban} label="Unsuspend" onClick={() => act(c.id, "reject")} busy={busyId === c.id} variant="neutral" />
+                          <ActionButton icon={Ban} label={c.proposedAction === "suspend_others" ? "Unsuspend the others" : "Unsuspend"} onClick={() => act(c.id, "reject")} busy={busyId === c.id} variant="neutral" />
                         </>
                       )}
                       {c.type === "duplicate_account" && c.status !== "auto_actioned" && c.proposedAction === "suspend" && (
                         <>
                           <ActionButton icon={ShieldAlert} label="Suspend" onClick={() => act(c.id, "approve")} busy={busyId === c.id} />
+                          <ActionButton icon={Ban} label="Dismiss" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
+                        </>
+                      )}
+                      {c.type === "duplicate_account" && c.status !== "auto_actioned" && c.proposedAction === "suspend_others" && (
+                        <>
+                          <ActionButton icon={ShieldAlert} label="Suspend the others" onClick={() => act(c.id, "approve")} busy={busyId === c.id} />
                           <ActionButton icon={Ban} label="Dismiss" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
                         </>
                       )}
@@ -353,7 +356,7 @@ export function LanaPanel() {
                           <ActionButton icon={Ban} label="Cancel" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
                         </>
                       )}
-                      {c.type === "duplicate_account" && c.status === "auto_actioned" && (
+                      {c.type === "duplicate_account" && c.proposedAction === "suspend" && c.status === "auto_actioned" && (
                         <ActionButton icon={Trash2} label="Propose deletion instead" onClick={() => proposeDelete(c.subjectUserId)} busy={busyId === c.subjectUserId} variant="danger" />
                       )}
                       {c.type === "suspicious_withdrawal" && (
@@ -362,19 +365,22 @@ export function LanaPanel() {
                           <ActionButton icon={Check} label="Looks legit" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
                         </>
                       )}
-                      {(c.type === "referral_farming" || c.type === "shared_payout_number") && (
+                      {(c.type === "referral_farming" || c.type === "shared_payout_number" || c.type === "bounced_email") && (
                         <ActionButton icon={Check} label="Acknowledge" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
                       )}
                     </div>
 
                     {c.subject && (
                       <p className="text-[11px] text-zinc-400 pt-1">
+                        {c.proposedAction === "suspend_others" ? "Keeping active: " : ""}
                         {c.subject.fullName} · {c.subject.userId} · {c.subject.email}
                       </p>
                     )}
                     {c.relatedUsers.length > 0 && (
                       <div className="pt-1 space-y-0.5">
-                        <p className="text-[11px] text-zinc-400 font-medium">Also involved:</p>
+                        <p className="text-[11px] text-zinc-400 font-medium">
+                          {c.proposedAction === "suspend_others" ? "Suspending:" : "Also involved:"}
+                        </p>
                         {c.relatedUsers.map((u) => (
                           <p key={u.id} className="text-[11px] text-zinc-400">
                             {u.fullName} · {u.userId} · {u.status}
