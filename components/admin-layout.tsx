@@ -7,6 +7,7 @@ import { LogOut, LayoutDashboard, Users, Wallet, MessageSquare, QrCode, Menu, X,
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
+import { LanaPanel } from "@/components/lana-panel";
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -201,6 +202,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           <main className="flex-1 min-w-0">{children}</main>
         </div>
       </div>
+
+      {session?.user?.role === "admin" && <LanaPanel />}
     </div>
   );
 }

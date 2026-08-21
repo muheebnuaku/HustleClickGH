@@ -149,7 +149,7 @@ Decide whether the new signup is likely the SAME PERSON as one of the existing a
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4o-mini", // Lana's judgment model — see lib/lana.ts
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
       max_tokens: 200,

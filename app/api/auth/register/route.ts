@@ -8,6 +8,7 @@ import { encryptField, lastChars, isEncryptionConfigured } from "@/lib/crypto";
 import { CONSENT_VERSION } from "@/lib/legal";
 import { sendEmail, welcomeEmail } from "@/lib/email";
 import { checkDuplicateRisk } from "@/lib/fraud-check";
+import { evaluateRegistration } from "@/lib/lana";
 
 async function generateUserId(): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -198,6 +199,10 @@ export async function POST(request: Request) {
         },
         ip: getIp(request),
       });
+
+      // Opens (and, if high-confidence, immediately auto-actions) a Lana case
+      // so this shows up in the admin panel's queue, not just the log.
+      await evaluateRegistration(user, duplicateRisk);
     }
 
     // Auditable consent record

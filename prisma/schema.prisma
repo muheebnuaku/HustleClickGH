@@ -564,3 +564,43 @@ model Message {
 
   @@index([conversationId, createdAt])
 }
+
+// ---------------------------------------------------------------------------
+// Lana — the admin trust & safety agent (see lib/lana.ts). Evaluates
+// registrations, withdrawals, and referral patterns as they happen, flags
+// anything suspicious for admin review, and can take one narrowly-scoped
+// autonomous action (temporary suspend on a high-confidence duplicate
+// signup) — everything else always waits for an admin decision.
+// ---------------------------------------------------------------------------
+
+model LanaCase {
+  id            String    @id @default(cuid())
+  type          String    // duplicate_account | suspicious_withdrawal | referral_farming
+  subjectUserId String    // the account this case is about
+  relatedUserIds String   @default("[]") // JSON array of other involved user ids (e.g. suspected original account, referrer)
+  riskScore     Int       // 0-100, from the AI/heuristic assessment
+  summary       String    // one-line, shown in the case list
+  reasoning     String    // fuller explanation, shown on expand / used as chat context
+  proposedAction String   // none | suspend | reject_withdrawal | delete_account | investigate
+  status        String    @default("open") // open | auto_actioned | resolved_approved | resolved_rejected | dismissed
+  autoActionTaken String? // what Lana did on her own, if anything (e.g. "suspended")
+  relatedWithdrawalId String? // set for suspicious_withdrawal cases
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
+  resolvedBy    String?   // admin user id
+  adminNote     String?   // admin's decision note, if any
+
+  @@index([status, createdAt])
+  @@index([subjectUserId])
+}
+
+model LanaMessage {
+  id        String   @id @default(cuid())
+  role      String   // admin | lana
+  content   String
+  adminUserId String? // set when role = admin
+  relatedCaseId String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
