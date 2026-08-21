@@ -57,6 +57,8 @@ export function LanaPanel() {
   const [tab, setTab] = useState<"cases" | "chat">("cases");
   const [cases, setCases] = useState<LanaCase[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
   const [backfill, setBackfill] = useState<{
     phase: "running" | "done" | "error";
     totalClusters: number;
@@ -103,13 +105,21 @@ export function LanaPanel() {
 
   async function act(caseId: string, decision: "approve" | "reject" | "dismiss") {
     setBusyId(caseId);
+    setActionError(null);
     try {
       const res = await fetch("/api/admin/lana/cases", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ caseId, decision }),
       });
-      if (res.ok) await fetchCases();
+      if (res.ok) {
+        await fetchCases();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setActionError(data.message ?? `That didn't go through (HTTP ${res.status}).`);
+      }
+    } catch {
+      setActionError("Lost connection to the server — try again.");
     } finally {
       setBusyId(null);
     }
@@ -117,15 +127,50 @@ export function LanaPanel() {
 
   async function proposeDelete(userId: string) {
     setBusyId(userId);
+    setActionError(null);
     try {
       const res = await fetch("/api/admin/lana/cases", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ proposeDeleteForUserId: userId, deleteReasoning: "Admin requested deletion from the Lana panel." }),
       });
-      if (res.ok) await fetchCases();
+      if (res.ok) {
+        await fetchCases();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setActionError(data.message ?? `Couldn't propose deletion (HTTP ${res.status}).`);
+      }
+    } catch {
+      setActionError("Lost connection to the server — try again.");
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function resetLana() {
+    if (resetBusy) return;
+    if (
+      !confirm(
+        "Reset ALL Lana data? This reactivates every account she's suspended (even ones you haven't reviewed yet), clears every fraud flag, and deletes all cases and chat history. Meant for testing after a change — not routine. Continue?"
+      )
+    )
+      return;
+    setResetBusy(true);
+    setActionError(null);
+    try {
+      const res = await fetch("/api/admin/lana/reset", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setBackfill(null);
+        setMessages([]);
+        await fetchCases();
+      } else {
+        setActionError(data.message ?? "Reset failed.");
+      }
+    } catch {
+      setActionError("Lost connection to the server — try again.");
+    } finally {
+      setResetBusy(false);
     }
   }
 
@@ -254,14 +299,33 @@ export function LanaPanel() {
 
             {tab === "cases" ? (
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                <button
-                  onClick={runBackfill}
-                  disabled={backfill?.phase === "running"}
-                  className="w-full flex items-center justify-center gap-2 text-xs font-medium py-2 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50"
-                >
-                  {backfill?.phase === "running" ? <Loader2 size={13} className="animate-spin" /> : <ScanSearch size={13} />}
-                  {backfill?.phase === "running" ? "Scanning…" : "Scan existing accounts & withdrawal history"}
-                </button>
+                {actionError && (
+                  <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/40 p-2.5 text-xs text-red-700 dark:text-red-400 flex items-start justify-between gap-2">
+                    <span>{actionError}</span>
+                    <button onClick={() => setActionError(null)} className="shrink-0 hover:opacity-70" aria-label="Dismiss error">
+                      <X size={13} />
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={runBackfill}
+                    disabled={backfill?.phase === "running"}
+                    className="flex-1 flex items-center justify-center gap-2 text-xs font-medium py-2 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50"
+                  >
+                    {backfill?.phase === "running" ? <Loader2 size={13} className="animate-spin" /> : <ScanSearch size={13} />}
+                    {backfill?.phase === "running" ? "Scanning…" : "Scan existing accounts & withdrawal history"}
+                  </button>
+                  <button
+                    onClick={resetLana}
+                    disabled={resetBusy}
+                    title="Testing utility: reactivates everyone Lana suspended and wipes all cases/chat history"
+                    className="shrink-0 flex items-center justify-center px-2.5 rounded-lg border border-dashed border-red-300 dark:border-red-900/50 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+                  >
+                    {resetBusy ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                  </button>
+                </div>
 
                 {backfill && (
                   <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 space-y-2">

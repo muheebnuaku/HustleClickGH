@@ -283,6 +283,12 @@ export async function resolveCase(caseId: string, decision: "approve" | "reject"
 export async function proposeDeletion(subjectUserId: string, reasoning: string) {
   const user = await prisma.user.findUnique({ where: { id: subjectUserId }, select: { fullName: true, userId: true } });
   if (!user) throw new Error("User not found");
+
+  const existing = await prisma.lanaCase.findFirst({
+    where: { subjectUserId, proposedAction: "delete_account", status: { in: ["open", "auto_actioned"] } },
+  });
+  if (existing) return existing;
+
   return prisma.lanaCase.create({
     data: {
       type: "duplicate_account",
@@ -381,17 +387,78 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: { type: "object", properties: { userIdOrCode: { type: "string" } }, required: ["userIdOrCode"] },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "suspend_accounts",
+      description: "Suspend one or more accounts immediately (reversible). Only call this when the admin has given a clear, explicit instruction to suspend SPECIFIC accounts that are already identified in this conversation (e.g. from a lookup you just did). Never call it speculatively or for a vague request — ask which accounts they mean first if it's not obvious.",
+      parameters: {
+        type: "object",
+        properties: {
+          userIds: { type: "array", items: { type: "string" }, description: "Internal ids or USERxxxx codes of the accounts to suspend" },
+          reason: { type: "string" },
+        },
+        required: ["userIds", "reason"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_accounts",
+      description: "Permanently delete one or more accounts and all their data. IRREVERSIBLE. Only call this when the admin has given a clear, explicit instruction to delete SPECIFIC accounts that are already identified in this conversation. Never call it speculatively.",
+      parameters: {
+        type: "object",
+        properties: {
+          userIds: { type: "array", items: { type: "string" }, description: "Internal ids or USERxxxx codes of the accounts to delete" },
+          reason: { type: "string" },
+        },
+        required: ["userIds", "reason"],
+      },
+    },
+  },
 ];
 
-async function runTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+async function resolveUserRefs(refs: string[]) {
+  if (refs.length === 0) return [];
+  return prisma.user.findMany({
+    where: { OR: refs.flatMap((r) => [{ id: r }, { userId: r }]) },
+    select: { id: true, fullName: true, userId: true, status: true },
+  });
+}
+
+async function toolSuspendAccounts(userIds: string[], reason: string, adminUserId: string) {
+  const users = await resolveUserRefs(userIds);
+  if (users.length === 0) return { error: "No matching accounts found." };
+  await prisma.user.updateMany({ where: { id: { in: users.map((u) => u.id) } }, data: { status: "suspended" } });
+  for (const u of users) {
+    await logActivity({ type: "lana_auto_action", userId: u.id, userName: u.fullName, severity: "warning", metadata: { action: "suspended", reason, source: "chat", adminUserId } });
+  }
+  return { suspended: users.map((u) => `${u.fullName} (${u.userId})`) };
+}
+
+async function toolDeleteAccounts(userIds: string[], reason: string, adminUserId: string) {
+  const users = await resolveUserRefs(userIds);
+  if (users.length === 0) return { error: "No matching accounts found." };
+  const deleted: string[] = [];
+  for (const u of users) {
+    await deleteUserAccount(u.id, { reason: "admin_action", performedByUserId: adminUserId });
+    deleted.push(`${u.fullName} (${u.userId})`);
+  }
+  return { deleted, note: "Each deletion is logged in the activity log (type account_delete_request)." };
+}
+
+async function runTool(name: string, args: Record<string, unknown>, adminUserId: string): Promise<unknown> {
   try {
     if (name === "lookup_by_phone") return await toolLookupByPhone(String(args.phone ?? ""));
     if (name === "lookup_by_name") return await toolLookupByName(String(args.name ?? ""));
     if (name === "get_user_details") return await toolGetUserDetails(String(args.userIdOrCode ?? ""));
+    if (name === "suspend_accounts") return await toolSuspendAccounts(Array.isArray(args.userIds) ? args.userIds.map(String) : [], String(args.reason ?? ""), adminUserId);
+    if (name === "delete_accounts") return await toolDeleteAccounts(Array.isArray(args.userIds) ? args.userIds.map(String) : [], String(args.reason ?? ""), adminUserId);
     return { error: `Unknown tool ${name}` };
   } catch (err) {
     console.error(`[lana] tool ${name} failed:`, err);
-    return { error: "That lookup failed." };
+    return { error: "That failed." };
   }
 }
 
@@ -422,7 +489,9 @@ export async function chatWithLana(adminMessage: string, adminUserId: string) {
 
 Your autonomy is narrow: you may only auto-suspend a brand-new signup on your own, and only when very confident (risk score >= 85). Everything else — deleting accounts, rejecting withdrawals — needs the admin's explicit approval through the case queue; you never claim to have done those on your own.
 
-You have tools to look things up live (by phone, by name, or full detail on one user) — use them whenever the admin asks about a specific number, person, or account rather than saying you don't have access. You do NOT have a tool to take action (suspend/delete/reject) — if the admin wants that, tell them to use the case queue, or that you'll need to flag it first.
+You have tools to look things up live (by phone, by name, or full detail on one user) — use them whenever the admin asks about a specific number, person, or account rather than saying you don't have access.
+
+You also have tools to suspend or delete accounts directly. Use them ONLY when the admin gives a clear, explicit instruction about SPECIFIC accounts already identified earlier in this conversation (e.g. after you've just looked something up and they say "delete them" or "suspend USER1234") — that's their explicit approval, same as clicking a button in the case queue, just through chat. Never call these tools speculatively, on a vague request, or on accounts you haven't actually confirmed the identity of in this conversation — ask a clarifying question instead if there's any ambiguity about which accounts they mean. After using one, briefly confirm exactly what you did (who, and whether it was suspend or delete).
 
 Open cases (need admin attention):
 ${openCases.map((c) => `- [${c.id}] ${c.type} risk=${c.riskScore} status=${c.status} action=${c.autoActionTaken ?? "none yet"} :: ${c.summary} — ${c.reasoning}`).join("\n") || "(none right now)"}
@@ -469,7 +538,7 @@ Keep replies short (a few sentences) unless the admin asks for detail.`;
           } catch {
             // leave args empty — tool implementations validate their own inputs
           }
-          const result = await runTool(call.function.name, args);
+          const result = await runTool(call.function.name, args, adminUserId);
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
         }
         continue; // let the model see the tool results and respond
@@ -489,6 +558,47 @@ Keep replies short (a few sentences) unless the admin asks for detail.`;
     await prisma.lanaMessage.create({ data: { role: "lana", content: reply } });
     return reply;
   }
+}
+
+// --- Reset (testing/demo utility, manual, admin-triggered) --------------------
+// Undoes everything Lana has done: reactivates every account she suspended
+// (live OR backfill, whether or not the admin has reviewed it yet), clears
+// the fraud-flag fields she set, and wipes all cases and chat history. Meant
+// for re-running the backfill scan from a clean slate after a code change —
+// NOT a routine admin action, since it also reverts suspensions an admin
+// may have already independently confirmed.
+export async function resetLanaState() {
+  const cases = await prisma.lanaCase.findMany({ select: { subjectUserId: true, relatedUserIds: true, autoActionTaken: true } });
+  const toReactivate = new Set<string>();
+  for (const c of cases) {
+    if (c.autoActionTaken === "suspended") toReactivate.add(c.subjectUserId);
+    if (c.autoActionTaken === "suspended_others") {
+      try {
+        (JSON.parse(c.relatedUserIds) as string[]).forEach((id) => toReactivate.add(id));
+      } catch {
+        // ignore malformed JSON — nothing to reactivate from this row
+      }
+    }
+  }
+
+  const reactivated = toReactivate.size
+    ? await prisma.user.updateMany({ where: { id: { in: [...toReactivate] }, status: "suspended" }, data: { status: "active" } })
+    : { count: 0 };
+
+  const flagsCleared = await prisma.user.updateMany({
+    where: { OR: [{ fraudRiskScore: { not: null } }, { fraudFlaggedAt: { not: null } }] },
+    data: { fraudRiskScore: null, fraudRiskReason: null, fraudFlaggedAt: null, suspectedDuplicateOfUserId: null },
+  });
+
+  const casesDeleted = await prisma.lanaCase.deleteMany({});
+  const messagesDeleted = await prisma.lanaMessage.deleteMany({});
+
+  return {
+    accountsReactivated: reactivated.count,
+    flagsCleared: flagsCleared.count,
+    casesDeleted: casesDeleted.count,
+    messagesDeleted: messagesDeleted.count,
+  };
 }
 
 // --- Backfill scan (manual, admin-triggered) ----------------------------------
