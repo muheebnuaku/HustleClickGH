@@ -21,14 +21,34 @@ export async function GET() {
     prisma.lanaCase.findMany({ where: { status: { notIn: ["open", "auto_actioned"] } }, orderBy: { resolvedAt: "desc" }, take: 15 }),
   ]);
 
-  const subjectIds = [...new Set([...openCases, ...recentResolved].map((c) => c.subjectUserId))];
+  const allCases = [...openCases, ...recentResolved];
+  const relatedIds = allCases.flatMap((c) => {
+    try {
+      return JSON.parse(c.relatedUserIds) as string[];
+    } catch {
+      return [];
+    }
+  });
+  const allIds = [...new Set([...allCases.map((c) => c.subjectUserId), ...relatedIds])];
   const users = await prisma.user.findMany({
-    where: { id: { in: subjectIds } },
+    where: { id: { in: allIds } },
     select: { id: true, fullName: true, userId: true, email: true, status: true },
   });
   const userMap = new Map(users.map((u) => [u.id, u]));
 
-  const attach = (c: (typeof openCases)[number]) => ({ ...c, subject: userMap.get(c.subjectUserId) ?? null });
+  const attach = (c: (typeof openCases)[number]) => {
+    let related: string[] = [];
+    try {
+      related = JSON.parse(c.relatedUserIds);
+    } catch {
+      // leave empty
+    }
+    return {
+      ...c,
+      subject: userMap.get(c.subjectUserId) ?? null,
+      relatedUsers: related.map((id) => userMap.get(id)).filter((u): u is NonNullable<typeof u> => Boolean(u)),
+    };
+  };
 
   return NextResponse.json({
     openCases: openCases.map(attach),

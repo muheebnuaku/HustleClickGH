@@ -28,16 +28,19 @@ const NO_RISK: DuplicateRiskResult = {
   suspectedDuplicateOfUserId: null,
 };
 
-function normalizePhone(phone: string): string {
+// Exported so lib/lana.ts's backfill scan (pairwise across the whole user
+// base, rather than one new signup against a candidate pool) can reuse the
+// exact same matching primitives instead of drifting out of sync.
+export function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "").slice(-9); // last 9 digits, ignores country-code formatting
 }
 
-function emailLocalPart(email: string): string {
+export function emailLocalPart(email: string): string {
   return (email.split("@")[0] || "").toLowerCase();
 }
 
 // Classic edit distance — small strings only (phone digits / email local parts).
-function levenshtein(a: string, b: string): number {
+export function levenshtein(a: string, b: string): number {
   const m = a.length, n = b.length;
   const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
   for (let i = 0; i <= m; i++) dp[i][0] = i;
@@ -52,7 +55,7 @@ function levenshtein(a: string, b: string): number {
   return dp[m][n];
 }
 
-interface Candidate {
+export interface Candidate {
   id: string;
   fullName: string;
   email: string;
@@ -186,6 +189,17 @@ function assessHeuristically(candidates: Candidate[]): DuplicateRiskResult {
   };
 }
 
+// Exported so the backfill scan (lib/lana.ts) can reuse the same
+// AI-assessment + heuristic-fallback logic against its own candidate list.
+export async function assessDuplicateRisk(
+  input: { fullName: string; email: string; phone: string; city: string; region: string },
+  candidates: Candidate[]
+): Promise<DuplicateRiskResult> {
+  if (candidates.length === 0) return NO_RISK;
+  const aiResult = await assessWithAI(input, candidates);
+  return aiResult ?? assessHeuristically(candidates);
+}
+
 export async function checkDuplicateRisk(input: {
   fullName: string;
   email: string;
@@ -195,10 +209,7 @@ export async function checkDuplicateRisk(input: {
 }): Promise<DuplicateRiskResult> {
   try {
     const candidates = await findCandidates(input);
-    if (candidates.length === 0) return NO_RISK;
-
-    const aiResult = await assessWithAI(input, candidates);
-    return aiResult ?? assessHeuristically(candidates);
+    return await assessDuplicateRisk(input, candidates);
   } catch (err) {
     // Fraud-checking must never block or crash registration.
     console.error("[fraud-check] duplicate risk check failed:", err);
