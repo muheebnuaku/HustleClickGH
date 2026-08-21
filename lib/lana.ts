@@ -478,13 +478,26 @@ Keep replies short (a few sentences) unless the admin asks for detail.`;
 // Everything above only evaluates NEW registrations/withdrawals as they
 // happen. This retroactively scans what already existed before Lana did.
 
-export async function runLanaBackfill() {
-  const duplicates = await backfillDuplicateAccounts();
-  const sharedPayout = await backfillSharedPayoutNumbers();
-  return { duplicates, sharedPayout };
+export interface BackfillBatchResult {
+  totalUsers: number;
+  processedUpTo: number; // pass this back as `offset` on the next call
+  done: boolean;
+  casesCreatedThisBatch: number;
+  autoSuspendedThisBatch: number;
+  sharedPayout: { distinctSharedNumbers: number } | null; // only set on the first call (offset 0)
 }
 
-async function backfillDuplicateAccounts() {
+// Runs one bounded chunk of the backfill scan and returns where it got to,
+// so the caller (the panel) can show real progress and stay comfortably
+// under any serverless request-duration limit instead of one long call that
+// can time out with no feedback. The shared-payout-number pass is cheap
+// (no AI calls) and runs once, on the first batch only.
+const BACKFILL_TIME_BUDGET_MS = 40_000;
+
+export async function runLanaBackfillBatch(offset: number): Promise<BackfillBatchResult> {
+  const started = Date.now();
+  const sharedPayout = offset === 0 ? await backfillSharedPayoutNumbers() : null;
+
   const users = await prisma.user.findMany({
     where: { role: "user" },
     orderBy: { createdAt: "asc" },
@@ -493,8 +506,11 @@ async function backfillDuplicateAccounts() {
 
   let casesCreated = 0;
   let autoSuspended = 0;
+  let i = offset;
 
-  for (let i = 0; i < users.length; i++) {
+  for (; i < users.length; i++) {
+    if (Date.now() - started > BACKFILL_TIME_BUDGET_MS) break; // yield — caller resumes at `i`
+
     const u = users[i];
     if (u.fraudRiskScore != null) continue; // already flagged previously
 
@@ -573,7 +589,14 @@ async function backfillDuplicateAccounts() {
     }
   }
 
-  return { scanned: users.length, casesCreated, autoSuspended };
+  return {
+    totalUsers: users.length,
+    processedUpTo: i,
+    done: i >= users.length,
+    casesCreatedThisBatch: casesCreated,
+    autoSuspendedThisBatch: autoSuspended,
+    sharedPayout,
+  };
 }
 
 async function backfillSharedPayoutNumbers() {

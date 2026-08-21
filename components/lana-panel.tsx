@@ -56,8 +56,15 @@ export function LanaPanel() {
   const [tab, setTab] = useState<"cases" | "chat">("cases");
   const [cases, setCases] = useState<LanaCase[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [backfillBusy, setBackfillBusy] = useState(false);
-  const [backfillResult, setBackfillResult] = useState<string | null>(null);
+  const [backfill, setBackfill] = useState<{
+    phase: "running" | "done" | "error";
+    totalUsers: number;
+    processedUpTo: number;
+    casesCreated: number;
+    autoSuspended: number;
+    sharedPayoutCases: number;
+    error?: string;
+  } | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
@@ -122,25 +129,48 @@ export function LanaPanel() {
   }
 
   async function runBackfill() {
-    if (backfillBusy) return;
+    if (backfill?.phase === "running") return;
     if (!confirm("Scan all existing accounts and withdrawal history for the same fraud patterns? This can create several cases at once, and may auto-suspend some existing accounts at high confidence.")) return;
-    setBackfillBusy(true);
-    setBackfillResult(null);
-    try {
-      const res = await fetch("/api/admin/lana/backfill", { method: "POST" });
-      const data = await res.json();
-      if (res.ok) {
-        setBackfillResult(
-          `Scanned ${data.duplicates.scanned} accounts — ${data.duplicates.casesCreated} duplicate-account case(s) (${data.duplicates.autoSuspended} auto-suspended), ${data.sharedPayout.distinctSharedNumbers} shared-payout-number case(s).`
-        );
-        await fetchCases();
-      } else {
-        setBackfillResult(data.message ?? "Scan failed.");
+
+    setBackfill({ phase: "running", totalUsers: 0, processedUpTo: 0, casesCreated: 0, autoSuspended: 0, sharedPayoutCases: 0 });
+
+    let offset = 0;
+    let done = false;
+    let totals = { casesCreated: 0, autoSuspended: 0, sharedPayoutCases: 0 };
+
+    while (!done) {
+      try {
+        const res = await fetch("/api/admin/lana/backfill", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ offset }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setBackfill((prev) => (prev ? { ...prev, phase: "error", error: data.message ?? `Scan failed (HTTP ${res.status}).` } : prev));
+          return;
+        }
+
+        totals = {
+          casesCreated: totals.casesCreated + data.casesCreatedThisBatch,
+          autoSuspended: totals.autoSuspended + data.autoSuspendedThisBatch,
+          sharedPayoutCases: totals.sharedPayoutCases + (data.sharedPayout?.distinctSharedNumbers ?? 0),
+        };
+        offset = data.processedUpTo;
+        done = data.done;
+
+        setBackfill({
+          phase: done ? "done" : "running",
+          totalUsers: data.totalUsers,
+          processedUpTo: data.processedUpTo,
+          ...totals,
+        });
+
+        await fetchCases(); // keep the queue live-updating as cases are found, not just at the end
+      } catch {
+        setBackfill((prev) => (prev ? { ...prev, phase: "error", error: "Lost connection to the server mid-scan." } : prev));
+        return;
       }
-    } catch {
-      setBackfillResult("Scan failed — try again.");
-    } finally {
-      setBackfillBusy(false);
     }
   }
 
@@ -229,13 +259,46 @@ export function LanaPanel() {
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 <button
                   onClick={runBackfill}
-                  disabled={backfillBusy}
+                  disabled={backfill?.phase === "running"}
                   className="w-full flex items-center justify-center gap-2 text-xs font-medium py-2 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50"
                 >
-                  {backfillBusy ? <Loader2 size={13} className="animate-spin" /> : <ScanSearch size={13} />}
-                  Scan existing accounts &amp; withdrawal history
+                  {backfill?.phase === "running" ? <Loader2 size={13} className="animate-spin" /> : <ScanSearch size={13} />}
+                  {backfill?.phase === "running" ? "Scanning…" : "Scan existing accounts & withdrawal history"}
                 </button>
-                {backfillResult && <p className="text-xs text-zinc-500 text-center">{backfillResult}</p>}
+
+                {backfill && (
+                  <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 space-y-2">
+                    {backfill.phase !== "error" && (
+                      <>
+                        <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                          <span>
+                            {backfill.totalUsers > 0
+                              ? `${backfill.processedUpTo}/${backfill.totalUsers} accounts checked`
+                              : "Starting…"}
+                          </span>
+                          <span>{backfill.phase === "done" ? "Done" : `${Math.round((backfill.processedUpTo / Math.max(1, backfill.totalUsers)) * 100)}%`}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full transition-all duration-300", backfill.phase === "done" ? "bg-green-500" : "bg-blue-600")}
+                            style={{ width: `${backfill.totalUsers > 0 ? Math.min(100, (backfill.processedUpTo / backfill.totalUsers) * 100) : 5}%` }}
+                          />
+                        </div>
+                        <p className="text-[11px] text-zinc-500">
+                          {backfill.casesCreated} duplicate-account case{backfill.casesCreated === 1 ? "" : "s"} found
+                          {backfill.autoSuspended > 0 && <> ({backfill.autoSuspended} auto-suspended)</>}
+                          {backfill.sharedPayoutCases > 0 && <>, {backfill.sharedPayoutCases} shared-payout case{backfill.sharedPayoutCases === 1 ? "" : "s"}</>}
+                          {backfill.phase === "running" && " so far…"}
+                        </p>
+                      </>
+                    )}
+                    {backfill.phase === "error" && (
+                      <p className="text-[11px] text-red-600 dark:text-red-400">
+                        Stopped at {backfill.processedUpTo}/{backfill.totalUsers || "?"} accounts: {backfill.error}. Anything already found is in the queue below — safe to click Scan again, already-checked accounts won&apos;t be re-flagged.
+                      </p>
+                    )}
+                  </div>
+                )}
                 {digest && (
                   <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40 p-3 text-sm text-amber-800 dark:text-amber-300 flex items-start gap-2">
                     <ShieldAlert size={16} className="shrink-0 mt-0.5" />
