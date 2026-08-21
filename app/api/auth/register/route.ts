@@ -7,6 +7,7 @@ import { logActivity, getIp } from "@/lib/activity-log";
 import { encryptField, lastChars, isEncryptionConfigured } from "@/lib/crypto";
 import { CONSENT_VERSION } from "@/lib/legal";
 import { sendEmail, welcomeEmail } from "@/lib/email";
+import { checkDuplicateRisk } from "@/lib/fraud-check";
 
 async function generateUserId(): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -96,6 +97,31 @@ export async function POST(request: Request) {
       );
     }
 
+    // Block re-registration on a phone number that's already tied to an
+    // account — the clearest multi-accounting signal, so it's a hard reject
+    // rather than just a flag.
+    const existingPhone = await prisma.user.findFirst({
+      where: { phone },
+    });
+
+    if (existingPhone) {
+      return NextResponse.json(
+        { message: "This phone number is already registered to an account" },
+        { status: 400 }
+      );
+    }
+
+    // AI-assisted check for near-duplicate accounts (similar phone/email/
+    // location, not an exact match). Never blocks signup — flags the new
+    // account for admin review. See lib/fraud-check.ts.
+    const duplicateRisk = await checkDuplicateRisk({
+      fullName,
+      email,
+      phone,
+      city: String(city).trim(),
+      region: String(region).trim(),
+    });
+
     // Hash password
     const hashedPassword = await hash(password, 12);
 
@@ -147,8 +173,32 @@ export async function POST(request: Request) {
         profileCompleted: true,
         consentSignedAt: new Date(),
         consentVersion: CONSENT_VERSION,
+        ...(duplicateRisk.flagged
+          ? {
+              fraudRiskScore: duplicateRisk.riskScore,
+              fraudRiskReason: duplicateRisk.reason,
+              fraudFlaggedAt: new Date(),
+              suspectedDuplicateOfUserId: duplicateRisk.suspectedDuplicateOfUserId,
+            }
+          : {}),
       },
     });
+
+    if (duplicateRisk.flagged) {
+      logActivity({
+        type: "fraud_flagged",
+        userId: user.id,
+        userName: user.fullName,
+        severity: "warning",
+        metadata: {
+          userId: user.userId,
+          riskScore: duplicateRisk.riskScore,
+          reason: duplicateRisk.reason,
+          suspectedDuplicateOfUserId: duplicateRisk.suspectedDuplicateOfUserId,
+        },
+        ip: getIp(request),
+      });
+    }
 
     // Auditable consent record
     await prisma.consentRecord.create({

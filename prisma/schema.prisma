@@ -51,6 +51,15 @@ model User {
   managerSubmitLimit Int?
   personalCallCode String?      @unique // Permanent 5-char code for voice calls
   lastSeenAt      DateTime?     // heartbeat timestamp; "online" = within the last ~90s
+  // AI-assisted multi-account / fraud detection (see lib/fraud-check.ts). Set
+  // at registration when the signup looks like a duplicate of an existing
+  // account (similar phone/email/location) but isn't an exact match — an
+  // admin reviews and clears it via Verify/Suspend rather than it being
+  // auto-blocked, since fuzzy signals can be false positives.
+  fraudRiskScore  Int?          // 0-100, higher = more suspicious
+  fraudRiskReason String?       // human-readable explanation from the AI/heuristic check
+  fraudFlaggedAt  DateTime?
+  suspectedDuplicateOfUserId String? // id of the existing account this one may duplicate
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
