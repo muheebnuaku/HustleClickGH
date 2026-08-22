@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/activity-log";
 import { deleteUserAccount } from "@/lib/user-deletion";
-import { normalizePhone, emailLocalPart, levenshtein } from "@/lib/fraud-check";
+import { normalizePhone, emailLocalPart, levenshtein, sharesPhonePrefix } from "@/lib/fraud-check";
 import type { DuplicateRiskResult } from "@/lib/fraud-check";
 
 // ---------------------------------------------------------------------------
@@ -49,6 +49,29 @@ export async function evaluateRegistration(user: { id: string; fullName: string;
       metadata: { userId: user.userId, action: "suspended", caseId: kase.id, riskScore: duplicateRisk.riskScore, reason: duplicateRisk.reason },
     });
   }
+}
+
+// A registration burst from one IP that isn't extreme enough to hard-block
+// (see lib/registration-guard.ts) but is well past normal — flagged, never
+// auto-acted on, since a shared network is a real possibility in Ghana and
+// this needs a human to actually look at who these accounts are.
+export async function flagRegistrationVelocity(user: { id: string; fullName: string; userId: string }, count: number, ip: string | null) {
+  const existing = await prisma.lanaCase.findFirst({
+    where: { type: "registration_velocity", subjectUserId: user.id, status: { in: ["open", "auto_actioned"] } },
+  });
+  if (existing) return;
+
+  await prisma.lanaCase.create({
+    data: {
+      type: "registration_velocity",
+      subjectUserId: user.id,
+      relatedUserIds: "[]",
+      riskScore: Math.min(100, count * 12),
+      summary: `${user.fullName} (${user.userId}) is the ${count}th account registered from this network in the last hour`,
+      reasoning: `${count} accounts have registered from IP ${ip ?? "unknown"} within an hour. Could be a busy shared network, or one person/script mass-registering. Worth checking whether these accounts share other similarity (name, phone pattern).`,
+      proposedAction: "investigate",
+    },
+  });
 }
 
 // --- Withdrawals --------------------------------------------------------------
@@ -640,6 +663,9 @@ function pairScore(a: ClusterMember, b: ClusterMember): { score: number; reasons
     } else if (dist <= 2) {
       score += (3 - dist) * 25;
       reasons.push(`phone number differs by ${dist} digit${dist > 1 ? "s" : ""}`);
+    } else if (sharesPhonePrefix(aPhone, bPhone)) {
+      score += 30;
+      reasons.push("shares the same phone number prefix");
     }
   }
 

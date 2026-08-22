@@ -10,6 +10,8 @@ import { sendEmail, welcomeEmail } from "@/lib/email";
 import { checkDuplicateRisk } from "@/lib/fraud-check";
 import { evaluateRegistration } from "@/lib/lana";
 import { domainCanReceiveMail } from "@/lib/email-domain-check";
+import { looksLikeGibberishName, checkRegistrationVelocity, velocityWorthFlagging } from "@/lib/registration-guard";
+import { flagRegistrationVelocity } from "@/lib/lana";
 
 async function generateUserId(): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -95,6 +97,30 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { message: "That email address doesn't look valid — please double-check it for typos." },
         { status: 400 }
+      );
+    }
+
+    // Reject names that are plainly not real (e.g. "Hshjs" — no vowels at
+    // all, or a single meme/troll word). Deliberately conservative to avoid
+    // blocking genuine short/unusual names — see lib/registration-guard.ts.
+    if (looksLikeGibberishName(String(fullName))) {
+      return NextResponse.json(
+        { message: "Please enter your real full name to register." },
+        { status: 400 }
+      );
+    }
+
+    // A burst of registrations from one IP in a short window is either a
+    // busy shared network (common in Ghana — carrier NAT, offices) or a
+    // scripted mass-signup. Only hard-blocks at a level far past normal
+    // shared-network traffic; moderate bursts are flagged for review instead
+    // of blocked, to avoid punishing genuine users behind the same gateway.
+    const ip = getIp(request);
+    const velocity = await checkRegistrationVelocity(ip);
+    if (velocity.block) {
+      return NextResponse.json(
+        { message: "Too many accounts have been created from this network recently. Please try again later or contact support." },
+        { status: 429 }
       );
     }
 
@@ -215,6 +241,14 @@ export async function POST(request: Request) {
       // Opens (and, if high-confidence, immediately auto-actions) a Lana case
       // so this shows up in the admin panel's queue, not just the log.
       await evaluateRegistration(user, duplicateRisk);
+    }
+
+    // Moderate registration bursts from one IP (below the hard-block
+    // threshold above) still get surfaced for review — this is what catches
+    // a wave of first-of-their-kind junk accounts that don't yet resemble
+    // any existing account closely enough to trip the duplicate check.
+    if (velocityWorthFlagging(velocity.count)) {
+      await flagRegistrationVelocity(user, velocity.count, ip);
     }
 
     // Auditable consent record

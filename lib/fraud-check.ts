@@ -39,6 +39,16 @@ export function emailLocalPart(email: string): string {
   return (email.split("@")[0] || "").toLowerCase();
 }
 
+// Catches a family of numbers that scatter digit changes across more than 2
+// positions (e.g. 534604921 vs 534804928) — wide enough apart that edit
+// distance alone misses them, but still an obvious shared block/range when
+// the first 6 of 9 digits match exactly. Weaker signal than a tight edit
+// distance on its own, so it's scored lower, but catches what pure
+// Levenshtein was letting through in a real mass-registration wave.
+export function sharesPhonePrefix(a: string, b: string, len = 6): boolean {
+  return a.length >= len && b.length >= len && a.slice(0, len) === b.slice(0, len);
+}
+
 // Classic edit distance — small strings only (phone digits / email local parts).
 export function levenshtein(a: string, b: string): number {
   const m = a.length, n = b.length;
@@ -98,6 +108,9 @@ async function findCandidates(input: {
       if (dist <= 2) {
         score += (3 - dist) * 25; // dist 1 -> 50, dist 2 -> 25
         reasons.push(`phone number differs by ${dist} digit${dist > 1 ? "s" : ""}`);
+      } else if (sharesPhonePrefix(phoneKey, newPhoneKey)) {
+        score += 30;
+        reasons.push("shares the same phone number prefix");
       }
     }
 

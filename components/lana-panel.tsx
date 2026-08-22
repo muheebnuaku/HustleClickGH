@@ -41,6 +41,7 @@ const TYPE_LABEL: Record<string, string> = {
   referral_farming: "Referral farming",
   shared_payout_number: "Shared payout number",
   bounced_email: "Bounced email",
+  registration_velocity: "Registration burst",
 };
 
 function digestLine(cases: LanaCase[]): string | null {
@@ -429,7 +430,7 @@ export function LanaPanel() {
                           <ActionButton icon={Check} label="Looks legit" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
                         </>
                       )}
-                      {(c.type === "referral_farming" || c.type === "shared_payout_number" || c.type === "bounced_email") && (
+                      {(c.type === "referral_farming" || c.type === "shared_payout_number" || c.type === "bounced_email" || c.type === "registration_velocity") && (
                         <ActionButton icon={Check} label="Acknowledge" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
                       )}
                     </div>
