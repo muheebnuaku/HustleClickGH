@@ -44,6 +44,7 @@ const TYPE_LABEL: Record<string, string> = {
   registration_velocity: "Registration burst",
   unonboarded_deletion: "Auto-deleted (never onboarded)",
   suspicious_login_activity: "Repeated login failures",
+  implausible_identity: "Fake-looking name/email",
 };
 
 function digestLine(cases: LanaCase[]): string | null {
@@ -76,7 +77,11 @@ export function LanaPanel() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const [unreadNotice, setUnreadNotice] = useState<string | null>(null);
+  const [hasUnread, setHasUnread] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const lastSeenMessageId = useRef<string | null>(null);
+  const initialized = useRef(false);
 
   const fetchCases = useCallback(async () => {
     try {
@@ -90,24 +95,55 @@ export function LanaPanel() {
     }
   }, []);
 
+  // Keeps Lana "live" on the page: checks for a new proactive message on the
+  // same cadence regardless of whether the chat tab is even open, and pops a
+  // notification when one shows up unprompted — not just a passive badge.
+  const pollBriefing = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/lana/chat");
+      if (!res.ok) return;
+      const data = await res.json();
+      const msgs: ChatMsg[] = data.messages ?? [];
+      setMessages(msgs);
+
+      const last = msgs[msgs.length - 1];
+      if (!initialized.current) {
+        // First load — just establish the baseline, no toast for old history.
+        lastSeenMessageId.current = last?.id ?? null;
+        initialized.current = true;
+        return;
+      }
+      if (last && last.role === "lana" && last.id !== lastSeenMessageId.current) {
+        lastSeenMessageId.current = last.id;
+        setUnreadNotice(last.content);
+        setHasUnread(true);
+      }
+    } catch {
+      // Silent — background poll.
+    }
+  }, []);
+
   useEffect(() => {
     fetchCases();
-    const interval = setInterval(fetchCases, 30_000);
+    pollBriefing();
+    const interval = setInterval(() => {
+      fetchCases();
+      pollBriefing();
+    }, 30_000);
     return () => clearInterval(interval);
-  }, [fetchCases]);
+  }, [fetchCases, pollBriefing]);
 
   useEffect(() => {
-    if (open && tab === "chat" && messages.length === 0) {
-      fetch("/api/admin/lana/chat")
-        .then((r) => r.json())
-        .then((d) => setMessages(d.messages ?? []))
-        .catch(() => {});
-    }
-  }, [open, tab, messages.length]);
+    if (!unreadNotice) return;
+    const t = setTimeout(() => setUnreadNotice(null), 15_000);
+    return () => clearTimeout(t);
+  }, [unreadNotice]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    // Only auto-scroll when the chat tab is actually open, so a background
+    // 30s poll doesn't yank the view while the admin's reading elsewhere.
+    if (open && tab === "chat") chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, open, tab]);
 
   async function act(caseId: string, decision: "approve" | "reject" | "dismiss") {
     setBusyId(caseId);
@@ -247,6 +283,26 @@ export function LanaPanel() {
 
   return (
     <>
+      {/* Unprompted notification — pops up even if the panel is closed,
+          whenever Lana posts a new proactive briefing on her own. */}
+      {unreadNotice && !open && (
+        <button
+          onClick={() => {
+            setUnreadNotice(null);
+            setHasUnread(false);
+            setOpen(true);
+            setTab("chat");
+          }}
+          className="fixed bottom-20 right-5 z-50 w-[300px] text-left bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl p-4 animate-in fade-in slide-in-from-bottom-2"
+        >
+          <div className="flex items-center gap-2 mb-1.5">
+            <Bot size={16} className="text-blue-600" />
+            <span className="text-xs font-semibold text-blue-600">Lana</span>
+          </div>
+          <p className="text-sm text-foreground line-clamp-4">{unreadNotice}</p>
+        </button>
+      )}
+
       {/* Floating launcher */}
       <button
         onClick={() => setOpen(true)}
@@ -256,7 +312,10 @@ export function LanaPanel() {
         )}
         title="Lana — trust & safety agent"
       >
-        <Bot size={20} />
+        <span className="relative">
+          <Bot size={20} />
+          {hasUnread && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />}
+        </span>
         <span className="hidden sm:inline text-sm font-medium">Lana</span>
         {cases.length > 0 && (
           <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-white text-red-600 text-xs font-bold">
@@ -293,13 +352,18 @@ export function LanaPanel() {
                 <ListChecks size={16} /> Cases {cases.length > 0 && `(${cases.length})`}
               </button>
               <button
-                onClick={() => setTab("chat")}
+                onClick={() => {
+                  setTab("chat");
+                  setHasUnread(false);
+                  setUnreadNotice(null);
+                }}
                 className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium",
+                  "relative flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium",
                   tab === "chat" ? "text-blue-600 border-b-2 border-blue-600" : "text-zinc-500"
                 )}
               >
                 <MessageCircle size={16} /> Chat
+                {hasUnread && <span className="absolute top-1.5 right-[30%] w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
               </button>
             </div>
 
@@ -408,7 +472,7 @@ export function LanaPanel() {
                           <ActionButton icon={Ban} label={c.proposedAction === "suspend_others" ? "Unsuspend the others" : "Unsuspend"} onClick={() => act(c.id, "reject")} busy={busyId === c.id} variant="neutral" />
                         </>
                       )}
-                      {c.type === "duplicate_account" && c.status !== "auto_actioned" && c.proposedAction === "suspend" && (
+                      {(c.type === "duplicate_account" || c.type === "implausible_identity") && c.status !== "auto_actioned" && c.proposedAction === "suspend" && (
                         <>
                           <ActionButton icon={ShieldAlert} label="Suspend" onClick={() => act(c.id, "approve")} busy={busyId === c.id} />
                           <ActionButton icon={Ban} label="Dismiss" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />

@@ -10,7 +10,7 @@ import { sendEmail, welcomeEmail } from "@/lib/email";
 import { checkDuplicateRisk } from "@/lib/fraud-check";
 import { evaluateRegistration } from "@/lib/lana";
 import { domainCanReceiveMail } from "@/lib/email-domain-check";
-import { looksLikeGibberishName, checkRegistrationVelocity, velocityWorthFlagging } from "@/lib/registration-guard";
+import { looksLikeGibberishName, looksLikeGibberishEmail, checkRegistrationVelocity, velocityWorthFlagging } from "@/lib/registration-guard";
 import { flagRegistrationVelocity } from "@/lib/lana";
 
 async function generateUserId(): Promise<string> {
@@ -106,6 +106,18 @@ export async function POST(request: Request) {
     if (looksLikeGibberishName(String(fullName))) {
       return NextResponse.json(
         { message: "Please enter your real full name to register." },
+        { status: 400 }
+      );
+    }
+
+    // Same check on the email's local-part (e.g. "shhd@gmail.com" — a
+    // domain-valid, MX-passing address whose mailbox name is still
+    // keyboard-mash). The domain-existence check above can't catch this;
+    // it only proves gmail.com can receive mail, not that this specific
+    // address is a real person's.
+    if (looksLikeGibberishEmail(String(email))) {
+      return NextResponse.json(
+        { message: "That email address doesn't look valid — please double-check it for typos." },
         { status: 400 }
       );
     }

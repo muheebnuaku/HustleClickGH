@@ -40,6 +40,26 @@ export function looksLikeGibberishName(fullName: string): boolean {
   return false;
 }
 
+// Same logic, applied to the email local-part (before the @) — a real
+// account discovered this was never actually checked: only the NAME was
+// screened for gibberish, so "shhd@gmail.com" (a domain-valid, MX-passing
+// address with a keyboard-mash local part) sailed straight through.
+export function looksLikeGibberishEmail(email: string): boolean {
+  const local = (email.split("@")[0] || "").toLowerCase();
+  if (local.length < 3) return false; // too short to judge either way
+  return !hasVowel(local);
+}
+
+// Combined verdict used both to investigate one specific account (Lana chat
+// tool) and to bulk-scan the existing user base (backfill) — the two things
+// admins actually asked to be able to do, not just gate new signups.
+export function assessIdentityPlausibility(fullName: string, email: string): { implausible: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  if (looksLikeGibberishName(fullName)) reasons.push(`the name "${fullName}" looks like keyboard-mash or a meme word, not a real name`);
+  if (looksLikeGibberishEmail(email)) reasons.push(`the email local-part ("${email.split("@")[0]}") has no vowels at all — looks randomly generated`);
+  return { implausible: reasons.length > 0, reasons };
+}
+
 const VELOCITY_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const IP_FLAG_THRESHOLD = 4; // flag for review past this many from one IP
 const IP_BLOCK_THRESHOLD = 8; // hard-block past this many — Ghana's carrier-level

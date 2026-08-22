@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/activity-log";
 import { deleteUserAccount } from "@/lib/user-deletion";
 import { normalizePhone, emailLocalPart, levenshtein, sharesPhonePrefix } from "@/lib/fraud-check";
+import { assessIdentityPlausibility } from "@/lib/registration-guard";
 import type { DuplicateRiskResult } from "@/lib/fraud-check";
 
 // ---------------------------------------------------------------------------
@@ -406,7 +407,31 @@ async function toolGetUserDetails(userIdOrCode: string) {
     prisma.lanaCase.findMany({ where: { subjectUserId: user.id }, select: { type: true, riskScore: true, status: true, summary: true, createdAt: true } }),
   ]);
 
-  return { user, earnings: breakdown, recentWithdrawals: withdrawals, lanaCaseHistory: cases };
+  // Answers "is the name/email itself fake-looking" directly — this used to
+  // require a tool that didn't exist, so asked-and-answered as "I can't
+  // verify that." Now it's just part of the normal detail lookup.
+  const identityCheck = assessIdentityPlausibility(user.fullName, user.email);
+
+  return { user, earnings: breakdown, recentWithdrawals: withdrawals, lanaCaseHistory: cases, identityCheck };
+}
+
+// Bulk version of the same check, for "find all the fake-looking accounts"
+// rather than one at a time. Heuristic only (no AI call) so it can scan the
+// whole user base cheaply on demand.
+async function toolFindImplausibleAccounts() {
+  const users = await prisma.user.findMany({
+    where: { role: "user" },
+    select: { id: true, userId: true, fullName: true, email: true, status: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const matches = users
+    .map((u) => ({ u, check: assessIdentityPlausibility(u.fullName, u.email) }))
+    .filter((r) => r.check.implausible)
+    .slice(0, 60)
+    .map((r) => ({ userId: r.u.userId, fullName: r.u.fullName, email: r.u.email, status: r.u.status, reasons: r.check.reasons }));
+
+  return { totalAccountsScanned: users.length, implausibleCount: matches.length, accounts: matches };
 }
 
 const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -430,8 +455,16 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "get_user_details",
-      description: "Full detail on one specific user: profile, earnings breakdown (survey/data-submission/referral split), recent withdrawals, and their Lana case history. Accepts either the internal id or the USERxxxx code.",
+      description: "Full detail on one specific user: profile, earnings breakdown (survey/data-submission/referral split), recent withdrawals, Lana case history, AND an identityCheck verdict on whether the name/email itself looks fake (gibberish/keyboard-mash). Use this whenever asked to investigate or judge whether an account is real. Accepts either the internal id or the USERxxxx code.",
       parameters: { type: "object", properties: { userIdOrCode: { type: "string" } }, required: ["userIdOrCode"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "find_fake_looking_accounts",
+      description: "Scans every account for gibberish/keyboard-mash names or email addresses (e.g. a name with no vowels at all, or a single meme word). Use this when the admin asks to find/check/list fake accounts or fake emails across the system, not just one account.",
+      parameters: { type: "object", properties: {} },
     },
   },
   {
@@ -532,6 +565,7 @@ async function runTool(name: string, args: Record<string, unknown>, adminUserId:
     if (name === "lookup_by_phone") return await toolLookupByPhone(String(args.phone ?? ""));
     if (name === "lookup_by_name") return await toolLookupByName(String(args.name ?? ""));
     if (name === "get_user_details") return await toolGetUserDetails(String(args.userIdOrCode ?? ""));
+    if (name === "find_fake_looking_accounts") return await toolFindImplausibleAccounts();
     if (name === "suspend_accounts") return await toolSuspendAccounts(Array.isArray(args.userIds) ? args.userIds.map(String) : [], String(args.reason ?? ""), adminUserId);
     if (name === "delete_accounts") return await toolDeleteAccounts(Array.isArray(args.userIds) ? args.userIds.map(String) : [], String(args.reason ?? ""), adminUserId);
     return { error: `Unknown tool ${name}` };
@@ -596,7 +630,7 @@ export async function chatWithLana(adminMessage: string, adminUserId: string) {
 
 Your autonomy is narrow: you may only auto-suspend a brand-new signup on your own, and only when very confident (risk score >= 85). Everything else — deleting accounts, rejecting withdrawals — needs the admin's explicit approval through the case queue; you never claim to have done those on your own.
 
-You have tools to look things up live (by phone, by name, or full detail on one user) — use them whenever the admin asks about a specific number, person, or account rather than saying you don't have access.
+You have tools to look things up live (by phone, by name, full detail on one user, or a system-wide scan for fake-looking names/emails) — use them whenever the admin asks about a specific number, person, or account, or asks you to investigate/judge whether something is real, rather than saying you don't have access or that it's just a judgment call. get_user_details already includes a concrete identityCheck verdict on whether the name/email itself looks fake — read and report that, don't claim you can't assess it. When asked to check the whole system for fake accounts/emails, call find_fake_looking_accounts.
 
 You also have tools to suspend or delete accounts directly. Use them ONLY when the admin gives a clear, explicit instruction about SPECIFIC accounts already identified earlier in this conversation (e.g. after you've just looked something up and they say "delete them" or "suspend USER1234") — that's their explicit approval, same as clicking a button in the case queue, just through chat. Never call these tools speculatively, on a vague request, or on accounts you haven't actually confirmed the identity of in this conversation — ask a clarifying question instead if there's any ambiguity about which accounts they mean. After using one, briefly confirm exactly what you did (who, and whether it was suspend or delete).
 
@@ -1015,6 +1049,7 @@ export interface BackfillBatchResult {
   casesCreatedThisBatch: number;
   autoSuspendedThisBatch: number;
   sharedPayout: { distinctSharedNumbers: number };
+  implausibleIdentities: { casesCreated: number };
 }
 
 // Runs one bounded chunk of the backfill scan and returns where it got to, so
@@ -1028,6 +1063,7 @@ const BACKFILL_TIME_BUDGET_MS = 40_000;
 export async function runLanaBackfillBatch(): Promise<BackfillBatchResult> {
   const started = Date.now();
   const sharedPayout = await backfillSharedPayoutNumbers();
+  const implausibleIdentities = await backfillImplausibleIdentities();
 
   const allClusters = await buildDuplicateClusters();
   const pending: ClusterMember[][] = [];
@@ -1095,6 +1131,7 @@ export async function runLanaBackfillBatch(): Promise<BackfillBatchResult> {
     casesCreatedThisBatch: casesCreated,
     autoSuspendedThisBatch: autoSuspended,
     sharedPayout,
+    implausibleIdentities,
   };
 }
 
@@ -1138,4 +1175,39 @@ async function backfillSharedPayoutNumbers() {
   }
 
   return { distinctSharedNumbers: casesCreated };
+}
+
+// Applies the same gibberish-name/gibberish-email check used to gate NEW
+// registrations to every EXISTING account — the check only started running
+// going forward, so anything created before it existed (like the account
+// that prompted this) never got screened at all until this ran.
+async function backfillImplausibleIdentities() {
+  const users = await prisma.user.findMany({
+    where: { role: "user", fraudRiskScore: null },
+    select: { id: true, fullName: true, email: true, userId: true },
+  });
+
+  let casesCreated = 0;
+  for (const u of users) {
+    const check = assessIdentityPlausibility(u.fullName, u.email);
+    if (!check.implausible) continue;
+
+    const existing = await prisma.lanaCase.findFirst({ where: { type: "implausible_identity", subjectUserId: u.id } });
+    if (existing) continue;
+
+    await prisma.lanaCase.create({
+      data: {
+        type: "implausible_identity",
+        subjectUserId: u.id,
+        relatedUserIds: "[]",
+        riskScore: 70,
+        summary: `${u.fullName} (${u.userId}) — name/email looks fake`,
+        reasoning: `Found in backfill scan: ${check.reasons.join("; ")}.`,
+        proposedAction: "suspend",
+      },
+    });
+    casesCreated++;
+  }
+
+  return { casesCreated };
 }
