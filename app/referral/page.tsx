@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DashboardLayout } from "@/components/dashboard-layout";
@@ -34,6 +34,38 @@ export default function ReferralPage() {
   const [referralCode, setReferralCode] = useState("");
   const [info, setInfo] = useState<ReferralInfo>({ isManager: false, referralCap: 50, commissionPercent: null, commissionTotal: 0, commissionCount: 0 });
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadData = useCallback((showSpinner = false) => {
+    if (showSpinner) setRefreshing(true);
+    return Promise.all([
+      fetch("/api/referrals"),
+      fetch("/api/profile"),
+    ])
+      .then(([referralsRes, profileRes]) => Promise.all([
+        referralsRes.json(),
+        profileRes.json(),
+      ]))
+      .then(([referralsData, profileData]) => {
+        setReferrals(referralsData.referrals || []);
+        setInfo({
+          isManager: !!referralsData.isManager,
+          referralCap: referralsData.referralCap ?? 50,
+          commissionPercent: referralsData.commissionPercent ?? null,
+          commissionTotal: referralsData.commissionTotal ?? 0,
+          commissionCount: referralsData.commissionCount ?? 0,
+        });
+        setReferralCode(profileData.referralCode || session?.user?.userId || "");
+      })
+      .catch((error) => {
+        console.error("Failed to fetch data:", error);
+      })
+      .finally(() => {
+        setIsLoading(false);
+        setRefreshing(false);
+      });
+  }, [session]);
+
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/login");
@@ -41,33 +73,10 @@ export default function ReferralPage() {
     }
 
     if (status === "authenticated") {
-      Promise.all([
-        fetch("/api/referrals"),
-        fetch("/api/profile"),
-      ])
-        .then(([referralsRes, profileRes]) => Promise.all([
-          referralsRes.json(),
-          profileRes.json(),
-        ]))
-        .then(([referralsData, profileData]) => {
-          setReferrals(referralsData.referrals || []);
-          setInfo({
-            isManager: !!referralsData.isManager,
-            referralCap: referralsData.referralCap ?? 50,
-            commissionPercent: referralsData.commissionPercent ?? null,
-            commissionTotal: referralsData.commissionTotal ?? 0,
-            commissionCount: referralsData.commissionCount ?? 0,
-          });
-          setReferralCode(profileData.referralCode || session?.user?.userId || "");
-        })
-        .catch((error) => {
-          console.error("Failed to fetch data:", error);
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
+      loadData();
     }
-  }, [status, router, session]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, router]);
 
   const referralLink = `https://hustleclickgh.com/register?ref=${referralCode}`;
   const totalReferrals = referrals.length;
@@ -160,8 +169,10 @@ export default function ReferralPage() {
           <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-sm text-green-700 dark:text-green-400">Successful Referrals</p>
-                <p className="text-4xl font-bold text-green-600 my-2">{totalReferrals}</p>
+                <p className="text-sm text-green-700 dark:text-green-400">Referral Limit</p>
+                <p className="text-4xl font-bold text-green-600 my-2">
+                  {info.isManager ? "Unlimited" : `${totalReferrals}/${info.referralCap ?? 50}`}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -283,8 +294,8 @@ export default function ReferralPage() {
                 <CardTitle>Your Referrals</CardTitle>
                 <CardDescription>People who joined using your link</CardDescription>
               </div>
-              <Button variant="outline" size="sm">
-                <RefreshCw size={16} />
+              <Button variant="outline" size="sm" onClick={() => loadData(true)} disabled={refreshing}>
+                <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
                 Refresh
               </Button>
             </div>

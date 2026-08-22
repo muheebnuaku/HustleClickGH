@@ -69,6 +69,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     { href: "/referral", label: "Refer & Earn", icon: Users },
   ];
 
+  // Exact match OR a nested route under it (e.g. /my-surveys/[id],
+  // /data-projects/[id]) — without this, viewing a survey or project's
+  // detail page left the sidebar with no section highlighted at all.
+  const isNavItemActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+
   // Small unread pill shown next to the Messages nav item.
   const navBadge = (href: string) =>
     href === "/messages" && unreadCount > 0 ? (
@@ -221,7 +226,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         <nav className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href;
+            const isActive = isNavItemActive(item.href);
             return (
               <Link
                 key={item.href}
@@ -269,7 +274,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <nav className="bg-white dark:bg-black rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 space-y-2 sticky top-24">
               {navItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = pathname === item.href;
+                const isActive = isNavItemActive(item.href);
                 return (
                   <Link
                     key={item.href}
