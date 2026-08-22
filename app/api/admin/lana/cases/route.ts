@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { resolveCase, proposeDeletion } from "@/lib/lana";
+import { checkForBouncedWelcomeEmails } from "@/lib/email-bounce-check";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -12,9 +13,15 @@ async function requireAdmin() {
 }
 
 // GET: the case queue — open/auto-actioned cases plus a bit of recent history.
+// Also where the bounce-mailbox check gets a chance to run at up to ~30s
+// resolution (throttled internally to once per few minutes) whenever an
+// admin actually has the panel open — the daily cron alone would mean up to
+// a day's delay on an auto-deletable bounce.
 export async function GET() {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
+
+  await checkForBouncedWelcomeEmails({ throttle: true }).catch((err) => console.error("Lana bounce check error:", err));
 
   const [openCases, recentResolved] = await Promise.all([
     prisma.lanaCase.findMany({ where: { status: { in: ["open", "auto_actioned"] } }, orderBy: { createdAt: "desc" } }),

@@ -66,7 +66,7 @@ export async function GET(request: Request) {
 
   const bounceCheck = await checkForBouncedWelcomeEmails().catch((err) => {
     console.error("[lana-sweep] bounce check failed:", err);
-    return { checked: 0, bouncesFound: 0, skipped: "threw" };
+    return { checked: 0, bouncesFound: 0, deleted: 0, skipped: "threw" };
   });
 
   // Runs at most once a day (Hobby-plan cron cadence), so an account is
