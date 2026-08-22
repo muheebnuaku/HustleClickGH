@@ -28,15 +28,21 @@ export async function GET(request: Request) {
       id: true,
       fullName: true,
       userId: true,
-      referrals: { select: { referred: { select: { fraudRiskScore: true, status: true } } } },
+      referrals: { select: { referred: { select: { id: true, fraudRiskScore: true, status: true, totalEarned: true } } } },
     },
   });
 
+  // A real ring found in production had several members whose name/email
+  // looked completely normal ("Newton", "Flex", "Nana") and so never
+  // tripped fraudRiskScore/suspended individually — but 100% of that
+  // referrer's downstream had zero earned activity. Junk is junk whether or
+  // not it happened to also fail the identity-plausibility check, so that's
+  // now part of the ratio, not just an existing flag/suspend status.
   let created = 0;
   for (const r of referrers) {
     if (r.referrals.length < MIN_REFERRALS) continue;
-    const flagged = r.referrals.filter((x) => x.referred.fraudRiskScore != null || x.referred.status === "suspended").length;
-    const ratio = flagged / r.referrals.length;
+    const junk = r.referrals.filter((x) => x.referred.fraudRiskScore != null || x.referred.status === "suspended" || x.referred.totalEarned === 0);
+    const ratio = junk.length / r.referrals.length;
     if (ratio < FLAGGED_RATIO_THRESHOLD) continue;
 
     const existing = await prisma.lanaCase.findFirst({
@@ -48,10 +54,10 @@ export async function GET(request: Request) {
       data: {
         type: "referral_farming",
         subjectUserId: r.id,
-        relatedUserIds: "[]",
+        relatedUserIds: JSON.stringify(junk.map((x) => x.referred.id)),
         riskScore: Math.round(ratio * 100),
-        summary: `${r.fullName} (${r.userId}) has ${flagged}/${r.referrals.length} referred accounts flagged`,
-        reasoning: `${(ratio * 100).toFixed(0)}% of the accounts this user referred are themselves flagged as likely duplicates or suspended — consistent with a referral-farming ring rather than organic growth. Found in the daily sweep.`,
+        summary: `${r.fullName} (${r.userId}) has ${junk.length}/${r.referrals.length} referred accounts with zero activity or already flagged`,
+        reasoning: `${(ratio * 100).toFixed(0)}% of the accounts this user referred have zero earned activity and/or are already flagged/suspended — consistent with a referral-farming ring rather than organic growth. All ${junk.length} affected accounts are listed below; a normal-looking name/email on one of them doesn't mean it's not part of the same ring. Found in the daily sweep.`,
         proposedAction: "investigate",
       },
     });

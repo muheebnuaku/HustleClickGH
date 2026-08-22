@@ -434,6 +434,36 @@ async function toolFindImplausibleAccounts() {
   return { totalAccountsScanned: users.length, implausibleCount: matches.length, accounts: matches };
 }
 
+// Answers "is this referrer running a fake-account farm" directly, by
+// showing the WHOLE downstream at once — the gap that let a real cluster
+// slip through: several of a confirmed fraud referrer's referred accounts
+// ("Flex", "Newton", "Nana"...) don't individually look fake by name/email,
+// but 100% of that referrer's downstream had zero earned activity, which is
+// sufficient on its own. Don't wait for every member to also fail the
+// identity check before treating the whole chain as suspect.
+async function toolGetReferralDownstream(referrerIdOrCode: string) {
+  const referrer = await prisma.user.findFirst({
+    where: { OR: [{ id: referrerIdOrCode }, { userId: referrerIdOrCode }] },
+    select: { id: true, fullName: true, userId: true },
+  });
+  if (!referrer) return { error: "No user found with that id/code." };
+
+  const downstream = await prisma.user.findMany({
+    where: { referredBy: referrer.id },
+    select: { id: true, userId: true, fullName: true, email: true, status: true, totalEarned: true, fraudRiskScore: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const zeroActivityCount = downstream.filter((u) => u.totalEarned === 0).length;
+  return {
+    referrer: { id: referrer.id, fullName: referrer.fullName, userId: referrer.userId },
+    totalReferred: downstream.length,
+    zeroActivityCount,
+    zeroActivityRatio: downstream.length ? zeroActivityCount / downstream.length : 0,
+    downstream: downstream.map((u) => ({ id: u.id, userId: u.userId, fullName: u.fullName, email: u.email, status: u.status, totalEarned: u.totalEarned, alreadyFlagged: u.fraudRiskScore != null })),
+  };
+}
+
 const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
@@ -465,6 +495,14 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       name: "find_fake_looking_accounts",
       description: "Scans every account for gibberish/keyboard-mash names or email addresses (e.g. a name with no vowels at all, or a single meme word). Use this when the admin asks to find/check/list fake accounts or fake emails across the system, not just one account.",
       parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_referral_downstream",
+      description: "Everyone a specific user has referred, with each one's earnings/status. Use this whenever investigating whether a referrer is running a fake-account farm, or after finding even one suspicious referred account — check the WHOLE downstream, don't stop at accounts that individually look fake. If the whole downstream (or nearly all of it) shows zero earned activity, that alone is grounds to treat every account in it as suspect, even ones with normal-looking names/emails.",
+      parameters: { type: "object", properties: { referrerIdOrCode: { type: "string" } }, required: ["referrerIdOrCode"] },
     },
   },
   {
@@ -566,6 +604,7 @@ async function runTool(name: string, args: Record<string, unknown>, adminUserId:
     if (name === "lookup_by_name") return await toolLookupByName(String(args.name ?? ""));
     if (name === "get_user_details") return await toolGetUserDetails(String(args.userIdOrCode ?? ""));
     if (name === "find_fake_looking_accounts") return await toolFindImplausibleAccounts();
+    if (name === "get_referral_downstream") return await toolGetReferralDownstream(String(args.referrerIdOrCode ?? ""));
     if (name === "suspend_accounts") return await toolSuspendAccounts(Array.isArray(args.userIds) ? args.userIds.map(String) : [], String(args.reason ?? ""), adminUserId);
     if (name === "delete_accounts") return await toolDeleteAccounts(Array.isArray(args.userIds) ? args.userIds.map(String) : [], String(args.reason ?? ""), adminUserId);
     return { error: `Unknown tool ${name}` };
@@ -630,7 +669,9 @@ export async function chatWithLana(adminMessage: string, adminUserId: string) {
 
 Your autonomy is narrow: you may only auto-suspend a brand-new signup on your own, and only when very confident (risk score >= 85). Everything else — deleting accounts, rejecting withdrawals — needs the admin's explicit approval through the case queue; you never claim to have done those on your own.
 
-You have tools to look things up live (by phone, by name, full detail on one user, or a system-wide scan for fake-looking names/emails) — use them whenever the admin asks about a specific number, person, or account, or asks you to investigate/judge whether something is real, rather than saying you don't have access or that it's just a judgment call. get_user_details already includes a concrete identityCheck verdict on whether the name/email itself looks fake — read and report that, don't claim you can't assess it. When asked to check the whole system for fake accounts/emails, call find_fake_looking_accounts.
+You have tools to look things up live (by phone, by name, full detail on one user, a referrer's whole downstream, or a system-wide scan for fake-looking names/emails) — use them whenever the admin asks about a specific number, person, or account, or asks you to investigate/judge whether something is real, rather than saying you don't have access or that it's just a judgment call. get_user_details already includes a concrete identityCheck verdict on whether the name/email itself looks fake — read and report that, don't claim you can't assess it. When asked to check the whole system for fake accounts/emails, call find_fake_looking_accounts.
+
+IMPORTANT pattern: an individual account's name/email can look completely normal ("Newton", "Flex", "Nana") while still being part of a fake-account farm. The moment ANY account looks suspicious and has a referrer, call get_referral_downstream on that referrer and look at the WHOLE chain — if that referrer's downstream is entirely or almost entirely zero-activity accounts, treat every account in it as suspect and say so explicitly, even the ones that individually pass the name/email check. Don't stop your investigation at the one account you were asked about if it has a referrer worth checking.
 
 You also have tools to suspend or delete accounts directly. Use them ONLY when the admin gives a clear, explicit instruction about SPECIFIC accounts already identified earlier in this conversation (e.g. after you've just looked something up and they say "delete them" or "suspend USER1234") — that's their explicit approval, same as clicking a button in the case queue, just through chat. Never call these tools speculatively, on a vague request, or on accounts you haven't actually confirmed the identity of in this conversation — ask a clarifying question instead if there's any ambiguity about which accounts they mean. After using one, briefly confirm exactly what you did (who, and whether it was suspend or delete).
 
