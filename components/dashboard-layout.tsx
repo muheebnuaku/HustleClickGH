@@ -269,9 +269,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex flex-col lg:flex-row gap-8">
-          {/* Desktop Sidebar Navigation */}
+          {/* Desktop Sidebar Navigation — max-h + overflow-y-auto so a
+              shorter/laptop-height viewport scrolls the nav list itself
+              instead of clipping the last items below the fold (matches the
+              same fix on the admin layout's sidebar). */}
           <aside className="hidden lg:block w-64 shrink-0">
-            <nav className="bg-white dark:bg-black rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 space-y-2 sticky top-24">
+            <nav className="bg-white dark:bg-black rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 space-y-2 sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = isNavItemActive(item.href);
