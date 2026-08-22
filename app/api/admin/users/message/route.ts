@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
@@ -35,15 +35,20 @@ export async function POST(request: Request) {
     return m;
   });
 
-  sendPushToAll(
-    { title: "Message from HustleClickGH", body: text.length > 120 ? text.slice(0, 117) + "…" : text, url: `/messages?c=${conv.id}`, tag: `dm-${conv.id}` },
-    [userId]
-  ).catch(() => {});
+  // Push + email are both best-effort notifications, run after the response
+  // via after() so Vercel keeps the function alive long enough to actually
+  // attempt them instead of racing a possible freeze.
+  after(() =>
+    sendPushToAll(
+      { title: "Message from HustleClickGH", body: text.length > 120 ? text.slice(0, 117) + "…" : text, url: `/messages?c=${conv.id}`, tag: `dm-${conv.id}` },
+      [userId]
+    ).catch(() => {})
+  );
 
   // Admin → user messages are also emailed (user → user are not).
   if (target.email) {
     const mail = adminMessageEmail(target.fullName, text);
-    sendEmail({ to: target.email, subject: mail.subject, html: mail.html }).catch(() => {});
+    after(() => sendEmail({ to: target.email, subject: mail.subject, html: mail.html }).catch(() => {}));
   }
 
   logActivity({

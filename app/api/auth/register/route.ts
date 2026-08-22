@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { hash } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { SITE_CONFIG, REFERRAL_CAP } from "@/lib/constants";
@@ -308,17 +308,25 @@ export async function POST(request: Request) {
       }
     }
 
-    // Welcome email with their User ID (fire-and-forget — never blocks signup)
+    // Welcome email with their User ID — the ONLY place it's ever sent (see
+    // the registration success screen, which deliberately doesn't show it).
+    // Using after() rather than a bare unawaited call: a plain fire-and-
+    // forget promise here risks Vercel freezing the function before the
+    // send actually completes, which would be a real problem given the
+    // whole bounce-detection/unclaimed-account cleanup system assumes this
+    // email genuinely gets attempted.
     const welcome = welcomeEmail(user.fullName, user.userId);
-    sendEmail({ to: user.email, subject: welcome.subject, html: welcome.html }).catch(() => {});
-
-    logActivity({
-      type: "register",
-      userId: user.id,
-      userName: user.fullName,
-      severity: "success",
-      metadata: { userId: user.userId, email: user.email, referredBy: referredBy ?? undefined },
-      ip: getIp(request),
+    const registerIp = getIp(request);
+    after(async () => {
+      await sendEmail({ to: user.email, subject: welcome.subject, html: welcome.html }).catch(() => {});
+      await logActivity({
+        type: "register",
+        userId: user.id,
+        userName: user.fullName,
+        severity: "success",
+        metadata: { userId: user.userId, email: user.email, referredBy: referredBy ?? undefined },
+        ip: registerIp,
+      });
     });
 
     return NextResponse.json({

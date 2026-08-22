@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
@@ -84,18 +84,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     prisma.conversation.update({ where: { id }, data: { lastMessageAt: new Date() } }),
   ]);
 
-  // Notify the recipient's devices (offline delivery). Fire-and-forget.
+  // Notify the recipient's devices (offline delivery), via after() so the
+  // push actually gets a chance to complete rather than racing a possible
+  // function freeze once the response below is sent.
   const senderName = session.user.name || "Someone";
   const fromAdmin = session.user.role === "admin";
-  sendPushToAll(
-    {
-      title: fromAdmin ? "Message from HustleClickGH" : senderName,
-      body: text.length > 120 ? text.slice(0, 117) + "…" : text,
-      url: `/messages?c=${id}`,
-      tag: `dm-${id}`,
-    },
-    [recipientId]
-  ).catch(() => {});
+  after(() =>
+    sendPushToAll(
+      {
+        title: fromAdmin ? "Message from HustleClickGH" : senderName,
+        body: text.length > 120 ? text.slice(0, 117) + "…" : text,
+        url: `/messages?c=${id}`,
+        tag: `dm-${id}`,
+      },
+      [recipientId]
+    ).catch(() => {})
+  );
 
   // Only admin → user messages are emailed; user → user are not.
   if (fromAdmin) {
@@ -105,7 +109,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     });
     if (recipient?.email && recipient.role === "user") {
       const mail = adminMessageEmail(recipient.fullName, text);
-      sendEmail({ to: recipient.email, subject: mail.subject, html: mail.html }).catch(() => {});
+      after(() => sendEmail({ to: recipient.email, subject: mail.subject, html: mail.html }).catch(() => {}));
     }
   }
 
