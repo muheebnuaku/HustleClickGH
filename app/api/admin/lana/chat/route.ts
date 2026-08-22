@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { chatWithLana } from "@/lib/lana";
+import { chatWithLana, getProactiveBriefing } from "@/lib/lana";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -11,10 +11,14 @@ async function requireAdmin() {
   return session;
 }
 
-// GET: recent chat history (so the panel has context on open/reload).
+// GET: recent chat history (so the panel has context on open/reload). Also
+// where Lana's unprompted briefing gets posted, if enough has happened
+// since she last spoke — see lib/lana.ts getProactiveBriefing().
 export async function GET() {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
+
+  await getProactiveBriefing().catch((err) => console.error("Lana briefing error:", err));
 
   const messages = await prisma.lanaMessage.findMany({ orderBy: { createdAt: "asc" }, take: 50 });
   return NextResponse.json({ messages });

@@ -41,18 +41,28 @@ export function looksLikeGibberishName(fullName: string): boolean {
 }
 
 const VELOCITY_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-const VELOCITY_FLAG_THRESHOLD = 4; // flag for review past this many from one IP
-const VELOCITY_BLOCK_THRESHOLD = 8; // hard-block past this many — Ghana's carrier-level
+const IP_FLAG_THRESHOLD = 4; // flag for review past this many from one IP
+const IP_BLOCK_THRESHOLD = 8; // hard-block past this many — Ghana's carrier-level
 
 // NAT means many genuine users can share an IP, so this stays high enough
 // to avoid catching a busy shared network, only a clear scripted burst.
-export async function checkRegistrationVelocity(ip: string | null): Promise<{ count: number; block: boolean }> {
-  if (!ip) return { count: 0, block: false };
+//
+// User-agent is the second half of this check: registrations from many
+// DIFFERENT IPs (rotating proxies, mobile data) can still share one exact
+// browser/device fingerprint if they all come from the same script — real
+// distinct people essentially never report byte-identical UA strings at
+// volume, even on the same phone model, since OS/browser patch versions
+// vary. Skipped entirely when the header is missing rather than treated as
+// a match, since an absent UA says nothing.
+export async function checkRegistrationVelocity(ip: string | null, userAgent: string | null): Promise<{ ipCount: number; uaCount: number; block: boolean }> {
   const since = new Date(Date.now() - VELOCITY_WINDOW_MS);
-  const count = await prisma.activityLog.count({ where: { type: "register", ip, createdAt: { gte: since } } });
-  return { count, block: count >= VELOCITY_BLOCK_THRESHOLD };
+  const [ipCount, uaCount] = await Promise.all([
+    ip ? prisma.activityLog.count({ where: { type: "register", ip, createdAt: { gte: since } } }) : Promise.resolve(0),
+    userAgent ? prisma.consentRecord.count({ where: { userAgent, signedAt: { gte: since } } }) : Promise.resolve(0),
+  ]);
+  return { ipCount, uaCount, block: ipCount >= IP_BLOCK_THRESHOLD || uaCount >= IP_BLOCK_THRESHOLD };
 }
 
-export function velocityWorthFlagging(count: number): boolean {
-  return count >= VELOCITY_FLAG_THRESHOLD && count < VELOCITY_BLOCK_THRESHOLD;
+export function velocityWorthFlagging(ipCount: number, uaCount: number): boolean {
+  return (ipCount >= IP_FLAG_THRESHOLD || uaCount >= IP_FLAG_THRESHOLD) && ipCount < IP_BLOCK_THRESHOLD && uaCount < IP_BLOCK_THRESHOLD;
 }

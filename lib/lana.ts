@@ -16,7 +16,7 @@ import type { DuplicateRiskResult } from "@/lib/fraud-check";
 // ---------------------------------------------------------------------------
 
 const AUTO_SUSPEND_THRESHOLD = 85;
-const LANA_MODEL = "gpt-4o-mini";
+const LANA_MODEL = "gpt-4o"; // upgraded from gpt-4o-mini for real judgment-call quality
 
 // --- Registration -----------------------------------------------------------
 
@@ -55,20 +55,24 @@ export async function evaluateRegistration(user: { id: string; fullName: string;
 // (see lib/registration-guard.ts) but is well past normal — flagged, never
 // auto-acted on, since a shared network is a real possibility in Ghana and
 // this needs a human to actually look at who these accounts are.
-export async function flagRegistrationVelocity(user: { id: string; fullName: string; userId: string }, count: number, ip: string | null) {
+export async function flagRegistrationVelocity(user: { id: string; fullName: string; userId: string }, ipCount: number, uaCount: number, ip: string | null) {
   const existing = await prisma.lanaCase.findFirst({
     where: { type: "registration_velocity", subjectUserId: user.id, status: { in: ["open", "auto_actioned"] } },
   });
   if (existing) return;
+
+  const parts: string[] = [];
+  if (ipCount >= 4) parts.push(`${ipCount} accounts from IP ${ip ?? "unknown"}`);
+  if (uaCount >= 4) parts.push(`${uaCount} accounts sharing the exact same browser fingerprint`);
 
   await prisma.lanaCase.create({
     data: {
       type: "registration_velocity",
       subjectUserId: user.id,
       relatedUserIds: "[]",
-      riskScore: Math.min(100, count * 12),
-      summary: `${user.fullName} (${user.userId}) is the ${count}th account registered from this network in the last hour`,
-      reasoning: `${count} accounts have registered from IP ${ip ?? "unknown"} within an hour. Could be a busy shared network, or one person/script mass-registering. Worth checking whether these accounts share other similarity (name, phone pattern).`,
+      riskScore: Math.min(100, Math.max(ipCount, uaCount) * 12),
+      summary: `${user.fullName} (${user.userId}) is part of a registration burst — ${parts.join(" and ")} in the last hour`,
+      reasoning: `${parts.join("; ")} within an hour. Could be a busy shared network, or one person/script mass-registering. Worth checking whether these accounts share other similarity (name, phone pattern).`,
       proposedAction: "investigate",
     },
   });
@@ -128,29 +132,42 @@ async function getUserEarningsBreakdown(userId: string): Promise<EarningsBreakdo
   };
 }
 
-// Other accounts that have withdrawn to the SAME Mobile Money number — a
-// strong signal independent of registration phone, since it's the actual
-// cash-out destination. Caught the real cluster this feature was built
-// after: three different "people" all paying out to one MoMo number.
-async function findOtherAccountsSharingPayoutNumber(mobileNumber: string, excludeUserId: string) {
-  const key = normalizePhone(mobileNumber);
-  if (!key) return [];
+// Other accounts that have withdrawn to the SAME Mobile Money number OR the
+// same registered MoMo account name (different numbers, same real person) —
+// two independent signals, since one person can hold several MoMo numbers
+// all registered under their own name. Caught the real cluster this feature
+// was built after: three different "people" all paying out to one number.
+function normalizeAccountName(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+async function findOtherAccountsSharingPayout(mobileNumber: string, accountName: string, excludeUserId: string) {
+  const phoneKey = normalizePhone(mobileNumber);
+  const nameKey = normalizeAccountName(accountName);
   const all = await prisma.withdrawal.findMany({
     where: { userId: { not: excludeUserId } },
-    select: { userId: true, mobileNumber: true, user: { select: { fullName: true, userId: true } } },
+    select: { userId: true, mobileNumber: true, accountName: true, user: { select: { fullName: true, userId: true } } },
   });
-  const matches = all.filter((w) => normalizePhone(w.mobileNumber) === key);
-  const byUser = new Map(matches.map((w) => [w.userId, w.user]));
-  return [...byUser.entries()].map(([id, u]) => ({ id, fullName: u.fullName, userId: u.userId }));
+
+  const byNumber = new Map<string, { fullName: string; userId: string }>();
+  const byName = new Map<string, { fullName: string; userId: string }>();
+  for (const w of all) {
+    if (phoneKey && normalizePhone(w.mobileNumber) === phoneKey) byNumber.set(w.userId, w.user);
+    if (nameKey && normalizeAccountName(w.accountName) === nameKey) byName.set(w.userId, w.user);
+  }
+
+  const sharedNumber = [...byNumber.entries()].map(([id, u]) => ({ id, fullName: u.fullName, userId: u.userId }));
+  const sharedName = [...byName.entries()].filter(([id]) => !byNumber.has(id)).map(([id, u]) => ({ id, fullName: u.fullName, userId: u.userId }));
+  return { sharedNumber, sharedName };
 }
 
 export async function evaluateWithdrawal(
-  withdrawal: { id: string; userId: string; amount: number; mobileNumber: string },
+  withdrawal: { id: string; userId: string; amount: number; mobileNumber: string; accountName: string },
   user: { fullName: string; userId: string }
 ) {
-  const [breakdown, sharedPayoutAccounts] = await Promise.all([
+  const [breakdown, { sharedNumber: sharedPayoutAccounts, sharedName: sharedNameAccounts }] = await Promise.all([
     getUserEarningsBreakdown(withdrawal.userId),
-    findOtherAccountsSharingPayoutNumber(withdrawal.mobileNumber, withdrawal.userId),
+    findOtherAccountsSharingPayout(withdrawal.mobileNumber, withdrawal.accountName, withdrawal.userId),
   ]);
 
   // Cheap pre-filter — only bother Lana (and spend an AI call) when there's
@@ -161,13 +178,20 @@ export async function evaluateWithdrawal(
     breakdown.referrerFlagged ||
     breakdown.flaggedReferredCount > 0 ||
     sharedPayoutAccounts.length > 0 ||
+    sharedNameAccounts.length > 0 ||
     (referralShare > 0.4 && breakdown.referralCount >= 3);
 
   if (!worthChecking) return;
 
-  const payoutLine = sharedPayoutAccounts.length
-    ? `This withdrawal's Mobile Money number is ALSO used by ${sharedPayoutAccounts.length} other account(s): ${sharedPayoutAccounts.map((a) => `${a.fullName} (${a.userId})`).join(", ")}.`
-    : "No other account has withdrawn to this same Mobile Money number.";
+  const allSharedAccounts = [...sharedPayoutAccounts, ...sharedNameAccounts];
+  const payoutLine = [
+    sharedPayoutAccounts.length
+      ? `This withdrawal's Mobile Money NUMBER is also used by: ${sharedPayoutAccounts.map((a) => `${a.fullName} (${a.userId})`).join(", ")}.`
+      : "No other account shares this exact Mobile Money number.",
+    sharedNameAccounts.length
+      ? `The registered MoMo account NAME ("${withdrawal.accountName}") is also used (on a DIFFERENT number) by: ${sharedNameAccounts.map((a) => `${a.fullName} (${a.userId})`).join(", ")} — could be one person holding several SIM/MoMo numbers.`
+      : "No other account shares this MoMo account name on a different number.",
+  ].join(" ");
 
   if (!process.env.OPENAI_API_KEY) {
     // No AI available — fall back to a plain flag for manual review rather
@@ -177,9 +201,9 @@ export async function evaluateWithdrawal(
         type: "suspicious_withdrawal",
         subjectUserId: withdrawal.userId,
         relatedWithdrawalId: withdrawal.id,
-        relatedUserIds: JSON.stringify(sharedPayoutAccounts.map((a) => a.id)),
-        riskScore: sharedPayoutAccounts.length ? 70 : 50,
-        summary: `${user.fullName} (${user.userId}) requested GH₵${withdrawal.amount.toFixed(2)} — ${sharedPayoutAccounts.length ? "shared payout number" : "earnings mix looks referral-heavy"}`,
+        relatedUserIds: JSON.stringify(allSharedAccounts.map((a) => a.id)),
+        riskScore: allSharedAccounts.length ? 70 : 50,
+        summary: `${user.fullName} (${user.userId}) requested GH₵${withdrawal.amount.toFixed(2)} — ${allSharedAccounts.length ? "shared payout number/name" : "earnings mix looks referral-heavy"}`,
         reasoning: `Referral share of total earnings is ${(referralShare * 100).toFixed(0)}%, with ${breakdown.flaggedReferredCount} flagged referred account(s). ${payoutLine} AI review unavailable (no API key) — flagged by heuristic pre-filter.`,
         proposedAction: "investigate",
       },
@@ -221,7 +245,7 @@ Respond with ONLY a JSON object, no other text:
         type: "suspicious_withdrawal",
         subjectUserId: withdrawal.userId,
         relatedWithdrawalId: withdrawal.id,
-        relatedUserIds: JSON.stringify(sharedPayoutAccounts.map((a) => a.id)),
+        relatedUserIds: JSON.stringify(allSharedAccounts.map((a) => a.id)),
         riskScore: Math.max(0, Math.min(100, Number(parsed.riskScore) || 50)),
         summary: `${user.fullName} (${user.userId}) requested GH₵${withdrawal.amount.toFixed(2)} — earnings look referral-farmed`,
         reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "Flagged by AI review.",
@@ -457,6 +481,23 @@ async function toolSuspendAccounts(userIds: string[], reason: string, adminUserI
   for (const u of users) {
     await logActivity({ type: "lana_auto_action", userId: u.id, userName: u.fullName, severity: "warning", metadata: { action: "suspended", reason, source: "chat", adminUserId } });
   }
+  // Completed report, same as any other resolved case — shows up in the
+  // panel's history, not just buried in this one chat conversation.
+  await prisma.lanaCase.create({
+    data: {
+      type: "duplicate_account",
+      subjectUserId: users[0].id,
+      relatedUserIds: JSON.stringify(users.slice(1).map((u) => u.id)),
+      riskScore: 100,
+      summary: `Suspended via chat: ${users.map((u) => `${u.fullName} (${u.userId})`).join(", ")}`,
+      reasoning: reason,
+      proposedAction: "suspend_others",
+      status: "resolved_approved",
+      resolvedAt: new Date(),
+      resolvedBy: adminUserId,
+      autoActionTaken: "suspended_others",
+    },
+  });
   return { suspended: users.map((u) => `${u.fullName} (${u.userId})`) };
 }
 
@@ -468,7 +509,22 @@ async function toolDeleteAccounts(userIds: string[], reason: string, adminUserId
     await deleteUserAccount(u.id, { reason: "admin_action", performedByUserId: adminUserId });
     deleted.push(`${u.fullName} (${u.userId})`);
   }
-  return { deleted, note: "Each deletion is logged in the activity log (type account_delete_request)." };
+  await prisma.lanaCase.create({
+    data: {
+      type: "duplicate_account",
+      subjectUserId: users[0].id,
+      relatedUserIds: JSON.stringify(users.slice(1).map((u) => u.id)),
+      riskScore: 100,
+      summary: `Deleted via chat: ${deleted.join(", ")}`,
+      reasoning: reason,
+      proposedAction: "delete_account",
+      status: "resolved_approved",
+      resolvedAt: new Date(),
+      resolvedBy: adminUserId,
+      autoActionTaken: "deleted",
+    },
+  });
+  return { deleted, note: "Each deletion is logged in the activity log (type account_delete_request) and recorded as a case." };
 }
 
 async function runTool(name: string, args: Record<string, unknown>, adminUserId: string): Promise<unknown> {
@@ -483,6 +539,34 @@ async function runTool(name: string, args: Record<string, unknown>, adminUserId:
     console.error(`[lana] tool ${name} failed:`, err);
     return { error: "That failed." };
   }
+}
+
+// --- Proactive briefing ------------------------------------------------------
+// The original ask was "when I log in, she should report to me" — a passive
+// badge count doesn't really do that. This actually posts a message from
+// Lana, unprompted, the first time the chat is opened after enough new
+// activity has piled up since she last said anything.
+const BRIEFING_MIN_GAP_HOURS = 2;
+
+export async function getProactiveBriefing(): Promise<string | null> {
+  const lastLanaMessage = await prisma.lanaMessage.findFirst({ where: { role: "lana" }, orderBy: { createdAt: "desc" } });
+  const since = lastLanaMessage?.createdAt ?? new Date(0);
+  const hoursSinceLast = lastLanaMessage ? (Date.now() - lastLanaMessage.createdAt.getTime()) / (60 * 60 * 1000) : Infinity;
+  if (hoursSinceLast < BRIEFING_MIN_GAP_HOURS) return null; // already briefed recently, don't spam every panel open
+
+  const [newCases, autoActioned, openTotal] = await Promise.all([
+    prisma.lanaCase.count({ where: { createdAt: { gt: since } } }),
+    prisma.lanaCase.count({ where: { createdAt: { gt: since }, status: "auto_actioned" } }),
+    prisma.lanaCase.count({ where: { status: { in: ["open", "auto_actioned"] } } }),
+  ]);
+  if (newCases === 0) return null; // nothing happened, no reason to speak up
+
+  const parts = [`While you were away, I found ${newCases} new case${newCases === 1 ? "" : "s"}`];
+  if (autoActioned > 0) parts.push(`auto-suspended ${autoActioned} account${autoActioned === 1 ? "" : "s"} at high confidence`);
+  const text = `${parts.join(" and ")}. ${openTotal} case${openTotal === 1 ? "" : "s"} waiting on you in total — check the queue, or ask me about any of it.`;
+
+  await prisma.lanaMessage.create({ data: { role: "lana", content: text } });
+  return text;
 }
 
 // --- Chat ------------------------------------------------------------------
@@ -581,6 +665,53 @@ Keep replies short (a few sentences) unless the admin asks for detail.`;
     await prisma.lanaMessage.create({ data: { role: "lana", content: reply } });
     return reply;
   }
+}
+
+// --- Activity-log pattern scan (daily sweep) ----------------------------------
+// Registrations and withdrawals get checked as they happen; this is the
+// broader pass over whatever ELSE shows up in the activity log — currently
+// repeated login failures against one account, which NextAuth's authorize()
+// callback doesn't have request/IP context to check inline. More activity
+// types (submissions, calls) are natural next additions to this same scan
+// rather than needing their own bespoke hook everywhere.
+const LOGIN_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const LOGIN_FAILURE_THRESHOLD = 8;
+
+export async function scanLoginFailurePatterns() {
+  const since = new Date(Date.now() - LOGIN_FAILURE_WINDOW_MS);
+  const failures = await prisma.activityLog.groupBy({
+    by: ["userId"],
+    where: { type: "login_failed", userId: { not: null }, createdAt: { gte: since } },
+    _count: { userId: true },
+    having: { userId: { _count: { gte: LOGIN_FAILURE_THRESHOLD } } },
+  });
+
+  let casesCreated = 0;
+  for (const f of failures) {
+    if (!f.userId) continue;
+    const existing = await prisma.lanaCase.findFirst({
+      where: { type: "suspicious_login_activity", subjectUserId: f.userId, status: { in: ["open", "auto_actioned"] } },
+    });
+    if (existing) continue;
+
+    const user = await prisma.user.findUnique({ where: { id: f.userId }, select: { fullName: true, userId: true } });
+    if (!user) continue;
+
+    await prisma.lanaCase.create({
+      data: {
+        type: "suspicious_login_activity",
+        subjectUserId: f.userId,
+        relatedUserIds: "[]",
+        riskScore: Math.min(100, f._count.userId * 8),
+        summary: `${user.fullName} (${user.userId}) had ${f._count.userId} failed login attempts in the last 24h`,
+        reasoning: "Could be the account owner having password trouble, or someone else attempting to guess in. Worth a look, especially if this account has a balance or referral activity worth protecting.",
+        proposedAction: "investigate",
+      },
+    });
+    casesCreated++;
+  }
+
+  return { accountsChecked: failures.length, casesCreated };
 }
 
 // --- Unonboarded-account cleanup (daily sweep) --------------------------------

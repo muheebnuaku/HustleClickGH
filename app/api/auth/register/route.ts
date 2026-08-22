@@ -115,8 +115,12 @@ export async function POST(request: Request) {
     // scripted mass-signup. Only hard-blocks at a level far past normal
     // shared-network traffic; moderate bursts are flagged for review instead
     // of blocked, to avoid punishing genuine users behind the same gateway.
+    // Also checks the browser's exact user-agent string, which is a tighter
+    // signal than IP alone (survives IP-rotating scripts, since real
+    // distinct people essentially never share a byte-identical UA at volume).
     const ip = getIp(request);
-    const velocity = await checkRegistrationVelocity(ip);
+    const userAgent = request.headers.get("user-agent");
+    const velocity = await checkRegistrationVelocity(ip, userAgent);
     if (velocity.block) {
       return NextResponse.json(
         { message: "Too many accounts have been created from this network recently. Please try again later or contact support." },
@@ -243,12 +247,13 @@ export async function POST(request: Request) {
       await evaluateRegistration(user, duplicateRisk);
     }
 
-    // Moderate registration bursts from one IP (below the hard-block
-    // threshold above) still get surfaced for review — this is what catches
-    // a wave of first-of-their-kind junk accounts that don't yet resemble
-    // any existing account closely enough to trip the duplicate check.
-    if (velocityWorthFlagging(velocity.count)) {
-      await flagRegistrationVelocity(user, velocity.count, ip);
+    // Moderate registration bursts (below the hard-block threshold above,
+    // by IP or by shared browser fingerprint) still get surfaced for review
+    // — this is what catches a wave of first-of-their-kind junk accounts
+    // that don't yet resemble any existing account closely enough to trip
+    // the duplicate check.
+    if (velocityWorthFlagging(velocity.ipCount, velocity.uaCount)) {
+      await flagRegistrationVelocity(user, velocity.ipCount, velocity.uaCount, ip);
     }
 
     // Auditable consent record

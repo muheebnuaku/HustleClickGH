@@ -3,7 +3,7 @@ export const maxDuration = 60;
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { checkForBouncedWelcomeEmails } from "@/lib/email-bounce-check";
-import { deleteUnonboardedAccounts } from "@/lib/lana";
+import { deleteUnonboardedAccounts, scanLoginFailurePatterns } from "@/lib/lana";
 
 // Daily sweep (see vercel.json) for patterns only visible in aggregate — a
 // referral "ring" can look fine account-by-account (each referral passes the
@@ -72,5 +72,10 @@ export async function GET(request: Request) {
     return { checked: 0, deleted: 0 };
   });
 
-  return NextResponse.json({ scanned: referrers.length, casesCreated: created, bounceCheck, unonboardedCleanup });
+  const loginActivity = await scanLoginFailurePatterns().catch((err) => {
+    console.error("[lana-sweep] login-failure scan failed:", err);
+    return { accountsChecked: 0, casesCreated: 0 };
+  });
+
+  return NextResponse.json({ scanned: referrers.length, casesCreated: created, bounceCheck, unonboardedCleanup, loginActivity });
 }
