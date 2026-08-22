@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
@@ -103,8 +103,17 @@ export async function POST(request: Request) {
     // Fire-and-forget — never let Lana's review block or slow the withdrawal
     // request itself; she only ever flags for admin review on this path,
     // never auto-rejects.
-    evaluateWithdrawal(withdrawal, { fullName: session.user.name ?? "", userId: session.user.userId ?? "" }).catch((err) =>
-      console.error("[lana] withdrawal evaluation failed:", err)
+    //
+    // Uses after() rather than a bare unawaited call: once this handler
+    // returns its response, Vercel's serverless runtime can freeze/kill the
+    // function — a plain fire-and-forget promise here (DB queries plus an
+    // OpenAI call) risked never actually completing. after() keeps the
+    // function alive until this settles, while still not making the admin
+    // wait for it.
+    after(() =>
+      evaluateWithdrawal(withdrawal, { fullName: session.user.name ?? "", userId: session.user.userId ?? "" }).catch((err) =>
+        console.error("[lana] withdrawal evaluation failed:", err)
+      )
     );
 
     return NextResponse.json({
