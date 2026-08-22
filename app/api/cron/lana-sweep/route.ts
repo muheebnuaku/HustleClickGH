@@ -3,6 +3,7 @@ export const maxDuration = 60;
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { checkForBouncedWelcomeEmails } from "@/lib/email-bounce-check";
+import { deleteUnonboardedAccounts } from "@/lib/lana";
 
 // Daily sweep (see vercel.json) for patterns only visible in aggregate — a
 // referral "ring" can look fine account-by-account (each referral passes the
@@ -62,5 +63,14 @@ export async function GET(request: Request) {
     return { checked: 0, bouncesFound: 0, skipped: "threw" };
   });
 
-  return NextResponse.json({ scanned: referrers.length, casesCreated: created, bounceCheck });
+  // Runs at most once a day (Hobby-plan cron cadence), so an account is
+  // actually removed anywhere from 24-48h after registering, not exactly
+  // at the 24h mark — a reasonable trade-off for a cleanup job, not a
+  // security boundary.
+  const unonboardedCleanup = await deleteUnonboardedAccounts().catch((err) => {
+    console.error("[lana-sweep] unonboarded cleanup failed:", err);
+    return { checked: 0, deleted: 0 };
+  });
+
+  return NextResponse.json({ scanned: referrers.length, casesCreated: created, bounceCheck, unonboardedCleanup });
 }

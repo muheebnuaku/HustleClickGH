@@ -583,6 +583,50 @@ Keep replies short (a few sentences) unless the admin asks for detail.`;
   }
 }
 
+// --- Unonboarded-account cleanup (daily sweep) --------------------------------
+// A registered account that never actually shows up (no dashboard activity —
+// see app/api/presence/heartbeat) within 24h of signing up is either
+// abandoned or was never real to begin with (a fake email that could never
+// retrieve the User ID sent to it, for instance — see the registration page,
+// which deliberately no longer shows the ID on-screen for this reason).
+// lastSeenAt is used rather than an ActivityLog "login" check because a
+// brand-new OAuth signup's first successful sign-in logs as "register", not
+// "login" — lastSeenAt is the one signal that's the same regardless of how
+// the account was created.
+const ONBOARDING_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export async function deleteUnonboardedAccounts() {
+  const cutoff = new Date(Date.now() - ONBOARDING_WINDOW_MS);
+  const candidates = await prisma.user.findMany({
+    where: { role: "user", verified: false, lastSeenAt: null, createdAt: { lt: cutoff } },
+    select: { id: true, fullName: true, userId: true, email: true, createdAt: true },
+  });
+
+  let deleted = 0;
+  for (const u of candidates) {
+    await deleteUserAccount(u.id, { reason: "admin_action" });
+    // A completed report, not an open case — nothing for the admin to
+    // decide, just a record of what Lana already did.
+    await prisma.lanaCase.create({
+      data: {
+        type: "unonboarded_deletion",
+        subjectUserId: u.id,
+        relatedUserIds: "[]",
+        riskScore: 0,
+        summary: `${u.fullName} (${u.userId}, ${u.email}) auto-deleted — never logged in within 24h of registering`,
+        reasoning: `Registered ${u.createdAt.toISOString()} and never showed any dashboard activity. Automatic cleanup of abandoned/never-verified-real signups.`,
+        proposedAction: "delete_account",
+        status: "resolved_approved",
+        resolvedAt: new Date(),
+        autoActionTaken: "deleted",
+      },
+    });
+    deleted++;
+  }
+
+  return { checked: candidates.length, deleted };
+}
+
 // --- Reset (testing/demo utility, manual, admin-triggered) --------------------
 // Undoes everything Lana has done: reactivates every account she suspended
 // (live OR backfill, whether or not the admin has reviewed it yet), clears

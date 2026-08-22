@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { ConsentAgreement } from "@/components/consent-agreement";
 import { GHANA_REGIONS, ID_TYPES } from "@/lib/constants";
 import { startAuthentication } from "@simplewebauthn/browser";
-import { LogIn, Eye, EyeOff, Sparkles, ArrowLeft, ArrowRight, CheckCircle2, UserPlus, Gift, Wallet, TrendingUp, Users, Home, Copy, PartyPopper, Fingerprint } from "lucide-react";
+import { LogIn, Eye, EyeOff, Sparkles, ArrowLeft, ArrowRight, CheckCircle2, UserPlus, Gift, Wallet, TrendingUp, Users, Home, Mail, PartyPopper, Fingerprint } from "lucide-react";
 
 const loginSchema = z.object({
   userId: z.string().min(1, "User ID is required"),
@@ -55,9 +55,8 @@ export default function AuthPage() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [registeredUserId, setRegisteredUserId] = useState("");
+  const [registeredEmail, setRegisteredEmail] = useState("");
   const [showCongrats, setShowCongrats] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [consentAgreed, setConsentAgreed] = useState(false);
   const [consentName, setConsentName] = useState("");
   const [bioLoading, setBioLoading] = useState(false);
@@ -202,9 +201,12 @@ export default function AuthPage() {
         throw new Error(result.message || "Registration failed");
       }
 
-      // Show congratulations screen with the new User ID
+      // Show congratulations screen — the User ID itself is emailed, not
+      // shown here, so a fake/mistyped email can never actually be used to
+      // log in (see lib/lana.ts deleteUnonboardedAccounts for the other
+      // half of this: unclaimed accounts are removed after 24h).
       try { localStorage.removeItem("hc_ref"); } catch {}
-      setRegisteredUserId(result.userId);
+      setRegisteredEmail(data.email);
       setShowCongrats(true);
       registerForm.reset();
     } catch (err) {
@@ -215,15 +217,11 @@ export default function AuthPage() {
   };
 
   const handleCongratsOk = () => {
-    loginForm.setValue("userId", registeredUserId);
+    // Deliberately does NOT pre-fill the login form with the User ID — the
+    // whole point is that it only exists in their email, so they have to
+    // actually go check it (proves the address is real and reachable).
     setShowCongrats(false);
     setIsFlipped(false);
-  };
-
-  const handleCopyId = async () => {
-    await navigator.clipboard.writeText(registeredUserId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   const flipToRegister = () => {
@@ -853,23 +851,17 @@ export default function AuthPage() {
             </div>
 
             <h2 className="text-2xl font-bold text-foreground mb-1">Registration Successful!</h2>
-            <p className="text-zinc-500 text-sm mb-6">Welcome to HustleClickGH. Your account is ready.</p>
+            <p className="text-zinc-500 text-sm mb-6">Welcome to HustleClickGH.</p>
 
-            {/* User ID display */}
             <div className="bg-zinc-50 dark:bg-zinc-800 border-2 border-dashed border-green-300 dark:border-green-700 rounded-2xl p-5 mb-4">
-              <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">Your User ID</p>
-              <p className="text-3xl font-bold text-green-600 tracking-widest mb-3">{registeredUserId}</p>
-              <button
-                onClick={handleCopyId}
-                className="flex items-center gap-2 mx-auto text-xs font-medium text-zinc-500 hover:text-green-600 transition-colors"
-              >
-                <Copy size={13} />
-                {copied ? "Copied!" : "Copy ID"}
-              </button>
+              <Mail size={28} className="text-green-600 mx-auto mb-3" />
+              <p className="text-sm text-foreground">
+                Your User ID has been sent to <span className="font-semibold">{registeredEmail}</span>.
+              </p>
             </div>
 
             <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 mb-6">
-              Save your User ID — you will need it along with your password to log in.
+              Check your email for your User ID, then log in within 24 hours — accounts that never log in are automatically removed.
             </p>
 
             <Button

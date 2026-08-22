@@ -42,6 +42,7 @@ const TYPE_LABEL: Record<string, string> = {
   shared_payout_number: "Shared payout number",
   bounced_email: "Bounced email",
   registration_velocity: "Registration burst",
+  unonboarded_deletion: "Auto-deleted (never onboarded)",
 };
 
 function digestLine(cases: LanaCase[]): string | null {
@@ -57,6 +58,8 @@ export function LanaPanel() {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"cases" | "chat">("cases");
   const [cases, setCases] = useState<LanaCase[]>([]);
+  const [recentResolved, setRecentResolved] = useState<LanaCase[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [resetBusy, setResetBusy] = useState(false);
@@ -80,6 +83,7 @@ export function LanaPanel() {
       if (!res.ok) return;
       const data = await res.json();
       setCases(data.openCases ?? []);
+      setRecentResolved(data.recentResolved ?? []);
     } catch {
       // Silent — this is a background poll, not a user-initiated action.
     }
@@ -455,6 +459,31 @@ export function LanaPanel() {
                     )}
                   </div>
                 ))}
+
+                {recentResolved.length > 0 && (
+                  <div className="pt-2">
+                    <button
+                      onClick={() => setShowHistory((v) => !v)}
+                      className="text-[11px] font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                    >
+                      {showHistory ? "Hide" : "Show"} recent history ({recentResolved.length})
+                    </button>
+                    {showHistory && (
+                      <div className="mt-2 space-y-2">
+                        {recentResolved.map((c) => (
+                          <div key={c.id} className="rounded-lg border border-zinc-100 dark:border-zinc-900 p-2.5 text-[11px] text-zinc-500">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-zinc-600 dark:text-zinc-400">{TYPE_LABEL[c.type] ?? c.type}</span>
+                              <span>{c.status.replace("_", " ")}</span>
+                            </div>
+                            <p className="mt-0.5">{c.summary}</p>
+                            <p className="text-zinc-400">{formatDate(c.createdAt)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex-1 flex flex-col min-h-0">
