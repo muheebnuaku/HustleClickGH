@@ -81,8 +81,11 @@ export default function ReferralPage() {
   const referralLink = `https://hustleclickgh.com/register?ref=${referralCode}`;
   const totalReferrals = referrals.length;
   const totalEarnings = referrals.reduce((sum, r) => sum + r.earned, 0);
-  // Contributors cap the list at 50; managers see everyone (unlimited).
-  const displayedReferrals = info.isManager ? referrals : referrals.slice(0, 50);
+  // Contributors' list is capped to match their actual referral cap (so the
+  // display can never show more than they're really allowed); managers see
+  // everyone (unlimited). Was previously hardcoded to 50 here even though
+  // the backend cap is a shared, changeable constant — see REFERRAL_CAP.
+  const displayedReferrals = info.isManager ? referrals : referrals.slice(0, info.referralCap ?? 50);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(referralLink);
@@ -310,13 +313,13 @@ export default function ReferralPage() {
                 {displayedReferrals.map((referral) => (
                   <div
                     key={referral.id}
-                    className="flex items-center justify-between p-4 rounded-lg border border-zinc-200 dark:border-zinc-800"
+                    className="flex items-center justify-between gap-3 p-4 rounded-lg border border-zinc-200 dark:border-zinc-800"
                   >
-                    <div>
-                      <p className="font-medium text-foreground">{referral.name || "New member"}</p>
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground truncate">{referral.name || "New member"}</p>
                       <p className="text-sm text-zinc-500">Joined on {formatDate(referral.date)}</p>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <p className="font-bold text-green-600">+{formatCurrency(referral.earned)}</p>
                     </div>
                   </div>

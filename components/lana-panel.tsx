@@ -293,7 +293,7 @@ export function LanaPanel() {
             setOpen(true);
             setTab("chat");
           }}
-          className="fixed bottom-20 right-5 z-50 w-[300px] text-left bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl p-4 animate-in fade-in slide-in-from-bottom-2"
+          className="fixed bottom-20 right-5 z-50 w-[calc(100vw-2.5rem)] max-w-[300px] text-left bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl p-4 animate-in fade-in slide-in-from-bottom-2"
         >
           <div className="flex items-center gap-2 mb-1.5">
             <Bot size={16} className="text-blue-600" />
