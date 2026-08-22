@@ -60,6 +60,10 @@ export async function GET() {
       referralCount: user._count.referrals,
       createdAt: user.createdAt,
       duplicatePhone: (() => { const p = (user.phone || "").replace(/\s+/g, ""); return Boolean(p) && (phoneCounts.get(p) || 0) > 1; })(),
+      fraudRiskScore: user.fraudRiskScore,
+      fraudRiskReason: user.fraudRiskReason,
+      fraudFlaggedAt: user.fraudFlaggedAt,
+      suspectedDuplicateOfUserId: user.suspectedDuplicateOfUserId,
     }));
 
     // Calculate stats
@@ -69,6 +73,7 @@ export async function GET() {
     const verifiedUsers = users.filter(u => u.verified).length;
     const missingLocation = users.filter(u => !u.country?.trim()).length;
     const duplicatePhoneUsers = formattedUsers.filter(u => u.duplicatePhone).length;
+    const fraudFlaggedUsers = formattedUsers.filter(u => u.fraudRiskScore != null).length;
     const totalBalance = users.reduce((sum, u) => sum + u.balance, 0);
     const totalPaidOut = users.reduce((sum, u) => {
       const paidOut = u.withdrawals.reduce((s, w) => s + w.amount, 0);
@@ -84,6 +89,7 @@ export async function GET() {
         verifiedUsers,
         missingLocation,
         duplicatePhoneUsers,
+        fraudFlaggedUsers,
         totalPaidOut,
         totalBalance,
       },

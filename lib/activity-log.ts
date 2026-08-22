@@ -32,7 +32,10 @@ export type LogType =
   | "email_broadcast"
   | "admin_message"
   | "password_reset_requested"
-  | "password_reset_completed";
+  | "password_reset_completed"
+  | "fraud_flagged"
+  | "lana_auto_action"
+  | "lana_case_resolved";
 
 export type LogSeverity = "info" | "success" | "warning" | "error";
 

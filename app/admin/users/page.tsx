@@ -7,7 +7,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users, Lock, Unlock, MapPin, BadgeCheck, MessageCircle, Send, X, Loader2 } from "lucide-react";
+import { Download, Mail, Phone, Search, User, Wallet, TrendingUp, Users, Lock, Unlock, MapPin, BadgeCheck, MessageCircle, Send, X, Loader2, ShieldAlert } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { DEFAULT_MANAGER_COMMISSION } from "@/lib/constants";
 import { VerifiedBadge } from "@/components/verified-badge";
@@ -33,6 +33,10 @@ interface UserData {
   region: string | null;
   city: string | null;
   duplicatePhone?: boolean;
+  fraudRiskScore?: number | null;
+  fraudRiskReason?: string | null;
+  fraudFlaggedAt?: string | null;
+  suspectedDuplicateOfUserId?: string | null;
 }
 
 interface UserStats {
@@ -41,6 +45,7 @@ interface UserStats {
   suspendedUsers: number;
   verifiedUsers: number;
   missingLocation: number;
+  fraudFlaggedUsers: number;
   totalPaidOut: number;
   totalBalance: number;
 }
@@ -51,6 +56,7 @@ const EMPTY_STATS: UserStats = {
   suspendedUsers: 0,
   verifiedUsers: 0,
   missingLocation: 0,
+  fraudFlaggedUsers: 0,
   totalPaidOut: 0,
   totalBalance: 0,
 };
@@ -291,6 +297,7 @@ export default function AdminUsersPage() {
     { label: "Suspended", value: stats.suspendedUsers, icon: Lock, color: "red" },
     { label: "Verified", value: stats.verifiedUsers, icon: BadgeCheck, color: "sky" },
     { label: "No Location", value: stats.missingLocation, icon: MapPin, color: "slate" },
+    { label: "AI Flagged", value: stats.fraudFlaggedUsers, icon: ShieldAlert, color: "red" },
     { label: "Total Paid Out", value: formatCurrency(stats.totalPaidOut), icon: TrendingUp, color: "purple" },
     { label: "Total Balance", value: formatCurrency(stats.totalBalance), icon: Wallet, color: "orange" },
   ] as const;
@@ -537,6 +544,14 @@ export default function AdminUsersPage() {
                             <p className="text-xs text-zinc-500 flex items-center gap-1.5">
                               {user.phone}
                               {user.duplicatePhone && <span title="This phone number is used by more than one account" className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">shared phone</span>}
+                              {user.fraudRiskScore != null && (
+                                <span
+                                  title={`AI duplicate-account risk: ${user.fraudRiskScore}/100 — ${user.fraudRiskReason ?? "no reason given"}`}
+                                  className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                >
+                                  <ShieldAlert size={10} /> AI flagged ({user.fraudRiskScore})
+                                </span>
+                              )}
                             </p>
                           </td>
                           <td className="py-3 px-4">
@@ -580,6 +595,14 @@ export default function AdminUsersPage() {
                         <p className="text-zinc-500 flex items-center gap-1.5">
                           {user.phone}
                           {user.duplicatePhone && <span title="Used by more than one account" className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">shared</span>}
+                          {user.fraudRiskScore != null && (
+                            <span
+                              title={`AI duplicate-account risk: ${user.fraudRiskScore}/100 — ${user.fraudRiskReason ?? "no reason given"}`}
+                              className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                            >
+                              <ShieldAlert size={10} /> AI flagged
+                            </span>
+                          )}
                         </p>
                         <p className="text-zinc-500 flex items-center gap-1"><MapPin size={13} /> {locationLabel(user)}</p>
                       </div>

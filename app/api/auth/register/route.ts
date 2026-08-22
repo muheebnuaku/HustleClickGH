@@ -7,6 +7,11 @@ import { logActivity, getIp } from "@/lib/activity-log";
 import { encryptField, lastChars, isEncryptionConfigured } from "@/lib/crypto";
 import { CONSENT_VERSION } from "@/lib/legal";
 import { sendEmail, welcomeEmail } from "@/lib/email";
+import { checkDuplicateRisk } from "@/lib/fraud-check";
+import { evaluateRegistration } from "@/lib/lana";
+import { domainCanReceiveMail } from "@/lib/email-domain-check";
+import { looksLikeGibberishName, looksLikeGibberishEmail, checkRegistrationVelocity, velocityWorthFlagging } from "@/lib/registration-guard";
+import { flagRegistrationVelocity } from "@/lib/lana";
 
 async function generateUserId(): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -84,6 +89,57 @@ export async function POST(request: Request) {
       );
     }
 
+    // Reject obviously-fake email domains (typos, made-up domains) before
+    // creating anything. Can't catch a valid domain with a nonexistent
+    // mailbox (e.g. a typo'd Gmail address) — see lib/email-bounce-check.ts
+    // for that half of the problem.
+    if (!(await domainCanReceiveMail(email))) {
+      return NextResponse.json(
+        { message: "That email address doesn't look valid — please double-check it for typos." },
+        { status: 400 }
+      );
+    }
+
+    // Reject names that are plainly not real (e.g. "Hshjs" — no vowels at
+    // all, or a single meme/troll word). Deliberately conservative to avoid
+    // blocking genuine short/unusual names — see lib/registration-guard.ts.
+    if (looksLikeGibberishName(String(fullName))) {
+      return NextResponse.json(
+        { message: "Please enter your real full name to register." },
+        { status: 400 }
+      );
+    }
+
+    // Same check on the email's local-part (e.g. "shhd@gmail.com" — a
+    // domain-valid, MX-passing address whose mailbox name is still
+    // keyboard-mash). The domain-existence check above can't catch this;
+    // it only proves gmail.com can receive mail, not that this specific
+    // address is a real person's.
+    if (looksLikeGibberishEmail(String(email))) {
+      return NextResponse.json(
+        { message: "That email address doesn't look valid — please double-check it for typos." },
+        { status: 400 }
+      );
+    }
+
+    // A burst of registrations from one IP in a short window is either a
+    // busy shared network (common in Ghana — carrier NAT, offices) or a
+    // scripted mass-signup. Only hard-blocks at a level far past normal
+    // shared-network traffic; moderate bursts are flagged for review instead
+    // of blocked, to avoid punishing genuine users behind the same gateway.
+    // Also checks the browser's exact user-agent string, which is a tighter
+    // signal than IP alone (survives IP-rotating scripts, since real
+    // distinct people essentially never share a byte-identical UA at volume).
+    const ip = getIp(request);
+    const userAgent = request.headers.get("user-agent");
+    const velocity = await checkRegistrationVelocity(ip, userAgent);
+    if (velocity.block) {
+      return NextResponse.json(
+        { message: "Too many accounts have been created from this network recently. Please try again later or contact support." },
+        { status: 429 }
+      );
+    }
+
     // Check if user exists
     const existingUser = await prisma.user.findUnique({
       where: { email },
@@ -95,6 +151,31 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    // Block re-registration on a phone number that's already tied to an
+    // account — the clearest multi-accounting signal, so it's a hard reject
+    // rather than just a flag.
+    const existingPhone = await prisma.user.findFirst({
+      where: { phone },
+    });
+
+    if (existingPhone) {
+      return NextResponse.json(
+        { message: "This phone number is already registered to an account" },
+        { status: 400 }
+      );
+    }
+
+    // AI-assisted check for near-duplicate accounts (similar phone/email/
+    // location, not an exact match). Never blocks signup — flags the new
+    // account for admin review. See lib/fraud-check.ts.
+    const duplicateRisk = await checkDuplicateRisk({
+      fullName,
+      email,
+      phone,
+      city: String(city).trim(),
+      region: String(region).trim(),
+    });
 
     // Hash password
     const hashedPassword = await hash(password, 12);
@@ -147,8 +228,45 @@ export async function POST(request: Request) {
         profileCompleted: true,
         consentSignedAt: new Date(),
         consentVersion: CONSENT_VERSION,
+        ...(duplicateRisk.flagged
+          ? {
+              fraudRiskScore: duplicateRisk.riskScore,
+              fraudRiskReason: duplicateRisk.reason,
+              fraudFlaggedAt: new Date(),
+              suspectedDuplicateOfUserId: duplicateRisk.suspectedDuplicateOfUserId,
+            }
+          : {}),
       },
     });
+
+    if (duplicateRisk.flagged) {
+      logActivity({
+        type: "fraud_flagged",
+        userId: user.id,
+        userName: user.fullName,
+        severity: "warning",
+        metadata: {
+          userId: user.userId,
+          riskScore: duplicateRisk.riskScore,
+          reason: duplicateRisk.reason,
+          suspectedDuplicateOfUserId: duplicateRisk.suspectedDuplicateOfUserId,
+        },
+        ip: getIp(request),
+      });
+
+      // Opens (and, if high-confidence, immediately auto-actions) a Lana case
+      // so this shows up in the admin panel's queue, not just the log.
+      await evaluateRegistration(user, duplicateRisk);
+    }
+
+    // Moderate registration bursts (below the hard-block threshold above,
+    // by IP or by shared browser fingerprint) still get surfaced for review
+    // — this is what catches a wave of first-of-their-kind junk accounts
+    // that don't yet resemble any existing account closely enough to trip
+    // the duplicate check.
+    if (velocityWorthFlagging(velocity.ipCount, velocity.uaCount)) {
+      await flagRegistrationVelocity(user, velocity.ipCount, velocity.uaCount, ip);
+    }
 
     // Auditable consent record
     await prisma.consentRecord.create({

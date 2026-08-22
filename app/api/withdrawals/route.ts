@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { evaluateWithdrawal } from "@/lib/lana";
 
 export async function GET() {
   try {
@@ -98,6 +99,13 @@ export async function POST(request: Request) {
       }
       throw err;
     }
+
+    // Fire-and-forget — never let Lana's review block or slow the withdrawal
+    // request itself; she only ever flags for admin review on this path,
+    // never auto-rejects.
+    evaluateWithdrawal(withdrawal, { fullName: session.user.name ?? "", userId: session.user.userId ?? "" }).catch((err) =>
+      console.error("[lana] withdrawal evaluation failed:", err)
+    );
 
     return NextResponse.json({
       message: "Withdrawal request submitted successfully",
