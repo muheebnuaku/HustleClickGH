@@ -32,7 +32,7 @@ export default function ReferralPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [referralCode, setReferralCode] = useState("");
-  const [info, setInfo] = useState<ReferralInfo>({ isManager: false, referralCap: 50, commissionPercent: null, commissionTotal: 0, commissionCount: 0 });
+  const [info, setInfo] = useState<ReferralInfo>({ isManager: false, referralCap: 15, commissionPercent: null, commissionTotal: 0, commissionCount: 0 });
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -50,7 +50,7 @@ export default function ReferralPage() {
         setReferrals(referralsData.referrals || []);
         setInfo({
           isManager: !!referralsData.isManager,
-          referralCap: referralsData.referralCap ?? 50,
+          referralCap: referralsData.referralCap ?? 15,
           commissionPercent: referralsData.commissionPercent ?? null,
           commissionTotal: referralsData.commissionTotal ?? 0,
           commissionCount: referralsData.commissionCount ?? 0,
@@ -85,7 +85,7 @@ export default function ReferralPage() {
   // display can never show more than they're really allowed); managers see
   // everyone (unlimited). Was previously hardcoded to 50 here even though
   // the backend cap is a shared, changeable constant — see REFERRAL_CAP.
-  const displayedReferrals = info.isManager ? referrals : referrals.slice(0, info.referralCap ?? 50);
+  const displayedReferrals = info.isManager ? referrals : referrals.slice(0, info.referralCap ?? 15);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(referralLink);
@@ -181,7 +181,7 @@ export default function ReferralPage() {
             <CardContent className="p-4 text-center">
               <p className="text-xs sm:text-sm text-green-700 dark:text-green-400">Referral Limit</p>
               <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-green-600 my-2">
-                {info.isManager ? "Unlimited" : `${totalReferrals}/${info.referralCap ?? 50}`}
+                {info.isManager ? "Unlimited" : `${totalReferrals}/${info.referralCap ?? 15}`}
               </p>
             </CardContent>
           </Card>

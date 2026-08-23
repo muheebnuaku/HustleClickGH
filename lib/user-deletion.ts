@@ -6,7 +6,7 @@ import { logActivity } from "@/lib/activity-log";
 // Related records are removed via the schema's onDelete: Cascade relations.
 export async function deleteUserAccount(
   userId: string,
-  opts: { reason: "self_request" | "admin_action"; performedByUserId?: string | null; ip?: string | null }
+  opts: { reason: "self_request" | "admin_action"; performedByUserId?: string | null; ip?: string | null; clawbackReferralBonus?: boolean }
 ) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return null;
@@ -25,6 +25,35 @@ export async function deleteUserAccount(
     },
     ip: opts.ip ?? null,
   });
+
+  // Reverse the referral bonus paid out for this account, when the deletion
+  // is a confirmed-fraud removal rather than a legitimate self-request —
+  // otherwise a referral-farming ring keeps its payout even after the fake
+  // downstream account that earned it is gone. Never applied to a genuine
+  // self-requested deletion. Clamped so this can never push the referrer's
+  // balance/totalEarned negative if they've already spent or reported it.
+  if (opts.clawbackReferralBonus && user.referredBy) {
+    const referral = await prisma.referral.findUnique({
+      where: { referrerId_referredId: { referrerId: user.referredBy, referredId: user.id } },
+    });
+    if (referral && referral.earned > 0) {
+      const referrer = await prisma.user.findUnique({ where: { id: user.referredBy }, select: { id: true, userId: true, balance: true, totalEarned: true } });
+      if (referrer) {
+        const clawback = Math.min(referral.earned, referrer.balance);
+        const totalEarnedClawback = Math.min(referral.earned, referrer.totalEarned);
+        await prisma.user.update({
+          where: { id: referrer.id },
+          data: { balance: { decrement: clawback }, totalEarned: { decrement: totalEarnedClawback } },
+        });
+        await logActivity({
+          type: "lana_auto_action",
+          userId: referrer.id,
+          severity: "warning",
+          metadata: { action: "referral_bonus_clawback", clawedBackFromUserId: user.userId, amount: clawback },
+        });
+      }
+    }
+  }
 
   // Erasure propagation: this user's approved data in *organization* projects has
   // likely been delivered to a buyer. Write a PII-free tombstone per item so the

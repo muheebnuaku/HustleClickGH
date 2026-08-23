@@ -283,7 +283,7 @@ export async function resolveCase(caseId: string, decision: "approve" | "reject"
       if (relatedIds.length) await prisma.user.updateMany({ where: { id: { in: relatedIds } }, data: { status: "suspended" } });
       actionTaken = "suspended_others";
     } else if (kase.proposedAction === "delete_account") {
-      await deleteUserAccount(kase.subjectUserId, { reason: "admin_action", performedByUserId: adminUserId });
+      await deleteUserAccount(kase.subjectUserId, { reason: "admin_action", performedByUserId: adminUserId, clawbackReferralBonus: true });
       actionTaken = "deleted";
     } else if (kase.proposedAction === "reject_withdrawal" && kase.relatedWithdrawalId) {
       await prisma.withdrawal.updateMany({
@@ -420,7 +420,7 @@ export async function bulkDeleteConfirmedDuplicates(adminUserId: string): Promis
         continue;
       }
       try {
-        await deleteUserAccount(user.id, { reason: "admin_action", performedByUserId: adminUserId });
+        await deleteUserAccount(user.id, { reason: "admin_action", performedByUserId: adminUserId, clawbackReferralBonus: true });
         result.accountsDeleted++;
         deletedInThisCase++;
       } catch (err) {
@@ -681,7 +681,7 @@ async function toolDeleteAccounts(userIds: string[], reason: string, adminUserId
   if (users.length === 0) return { error: "No matching accounts found." };
   const deleted: string[] = [];
   for (const u of users) {
-    await deleteUserAccount(u.id, { reason: "admin_action", performedByUserId: adminUserId });
+    await deleteUserAccount(u.id, { reason: "admin_action", performedByUserId: adminUserId, clawbackReferralBonus: true });
     deleted.push(`${u.fullName} (${u.userId})`);
   }
   await prisma.lanaCase.create({
@@ -1193,6 +1193,7 @@ export interface BackfillBatchResult {
   done: boolean;
   casesCreatedThisBatch: number;
   autoSuspendedThisBatch: number;
+  autoDeletedThisBatch: number;
   sharedPayout: { distinctSharedNumbers: number };
   implausibleIdentities: { casesCreated: number };
 }
@@ -1219,6 +1220,7 @@ export async function runLanaBackfillBatch(): Promise<BackfillBatchResult> {
 
   let casesCreated = 0;
   let autoSuspended = 0;
+  let autoDeleted = 0;
   let processed = 0;
 
   for (const cluster of pending) {
@@ -1240,7 +1242,20 @@ export async function runLanaBackfillBatch(): Promise<BackfillBatchResult> {
       await prisma.user.update({ where: { id: m.id }, data: { fraudRiskScore: assessment.riskScore, fraudRiskReason: assessment.reasoning, fraudFlaggedAt: new Date(), suspectedDuplicateOfUserId: subject.id } });
     }
 
+    // A candidate with genuinely zero approved activity (surveys/submissions/
+    // withdrawals) has nothing legitimate to lose — that's the bar for
+    // skipping straight to permanent deletion instead of suspend-and-review.
+    // Anyone with even partial real activity still gets the safer
+    // suspend-only treatment, same as before. This auto-delete step is a
+    // deliberate, explicit policy expansion past pure suspend-on-suspicion —
+    // made only after a real backfill wave produced more auto-suspended
+    // cases than was practical to review one click at a time, and only for
+    // this already-narrow bar (not extended to the live single-signup path
+    // in evaluateRegistration(), which still only ever auto-suspends).
+    const allZeroActivity = suspendCandidates.every((m) => m.approvedSurveys + m.approvedSubmissions + m.approvedWithdrawals === 0);
     const highConfidence = assessment.riskScore >= AUTO_SUSPEND_THRESHOLD;
+    const autoDelete = highConfidence && allZeroActivity;
+
     const kase = await prisma.lanaCase.create({
       data: {
         type: "duplicate_account",
@@ -1251,12 +1266,28 @@ export async function runLanaBackfillBatch(): Promise<BackfillBatchResult> {
         reasoning: `${assessment.reasoning} (found in backfill scan)`,
         proposedAction: "suspend_others",
         status: highConfidence ? "auto_actioned" : "open",
-        autoActionTaken: highConfidence ? "suspended_others" : null,
+        autoActionTaken: highConfidence ? (autoDelete ? "deleted_others" : "suspended_others") : null,
       },
     });
     casesCreated++;
 
-    if (highConfidence) {
+    if (autoDelete) {
+      for (const m of suspendCandidates) {
+        await deleteUserAccount(m.id, { reason: "admin_action", clawbackReferralBonus: true });
+      }
+      autoDeleted += suspendCandidates.length;
+      await prisma.lanaCase.update({
+        where: { id: kase.id },
+        data: { status: "resolved_approved", resolvedAt: new Date(), adminNote: "Auto-deleted: zero approved activity across every account being removed." },
+      });
+      await logActivity({
+        type: "lana_auto_action",
+        userId: subject.id,
+        userName: subject.fullName,
+        severity: "warning",
+        metadata: { action: "deleted_others", caseId: kase.id, deletedUserIds: suspendCandidates.map((m) => m.id), riskScore: assessment.riskScore, reason: assessment.reasoning, source: "backfill" },
+      });
+    } else if (highConfidence) {
       await prisma.user.updateMany({ where: { id: { in: suspendCandidates.map((m) => m.id) } }, data: { status: "suspended" } });
       autoSuspended += suspendCandidates.length;
       await logActivity({
@@ -1275,6 +1306,7 @@ export async function runLanaBackfillBatch(): Promise<BackfillBatchResult> {
     done: processed >= pending.length,
     casesCreatedThisBatch: casesCreated,
     autoSuspendedThisBatch: autoSuspended,
+    autoDeletedThisBatch: autoDeleted,
     sharedPayout,
     implausibleIdentities,
   };
