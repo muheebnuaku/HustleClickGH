@@ -351,6 +351,110 @@ export async function proposeDeletion(subjectUserId: string, reasoning: string) 
   });
 }
 
+// --- Bulk cleanup for already-confirmed duplicate accounts ------------------
+// A backfill scan (or a fraud wave) can produce a dozen-plus duplicate-account
+// cases in one go, each already auto-suspended. Working through them with one
+// approve/propose-deletion click per account doesn't scale to a real wave —
+// this is the admin-triggered "actually delete the ones you've already
+// confirmed" action. It never trusts a case's cached reasoning text as proof
+// by itself: every account is re-checked for approved activity fresh, right
+// before deleting, since activity could have changed (or an admin could have
+// already reactivated one) since the case was created.
+export interface BulkCleanupResult {
+  casesProcessed: number;
+  accountsDeleted: number;
+  accountsSkipped: { userId: string; fullName: string; reason: string }[];
+  errors: { userId: string; error: string }[];
+}
+
+async function hasApprovedActivity(userId: string): Promise<boolean> {
+  const [approvedSurveys, approvedSubmissions, approvedWithdrawals] = await Promise.all([
+    prisma.surveyResponse.count({ where: { userId, rewarded: true } }),
+    prisma.dataSubmission.count({ where: { userId, status: "approved" } }),
+    prisma.withdrawal.count({ where: { userId, status: "approved" } }),
+  ]);
+  return approvedSurveys + approvedSubmissions + approvedWithdrawals > 0;
+}
+
+export async function bulkDeleteConfirmedDuplicates(adminUserId: string): Promise<BulkCleanupResult> {
+  // Only cases Lana already auto-suspended on her own high-confidence
+  // duplicate-account judgment — never touches shared_payout_number,
+  // registration_velocity, implausible_identity, or anything still awaiting
+  // a first human decision (status "open").
+  const cases = await prisma.lanaCase.findMany({
+    where: { type: "duplicate_account", status: "auto_actioned", proposedAction: { in: ["suspend", "suspend_others"] } },
+  });
+
+  const result: BulkCleanupResult = { casesProcessed: 0, accountsDeleted: 0, accountsSkipped: [], errors: [] };
+
+  for (const kase of cases) {
+    // "suspend": the subject itself is the suspended duplicate to remove.
+    // "suspend_others": the subject is the one being KEPT active — only the
+    // relatedUserIds (the ones actually suspended) are delete candidates.
+    const targetIds = kase.proposedAction === "suspend"
+      ? [kase.subjectUserId]
+      : (() => {
+          try {
+            return JSON.parse(kase.relatedUserIds) as string[];
+          } catch {
+            return [];
+          }
+        })();
+    if (targetIds.length === 0) continue;
+
+    let deletedInThisCase = 0;
+    let skippedInThisCase = 0;
+
+    for (const userId of targetIds) {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (!user) continue; // already gone (e.g. deleted in an earlier run)
+
+      if (user.status !== "suspended") {
+        result.accountsSkipped.push({ userId: user.userId, fullName: user.fullName, reason: `status is now "${user.status}", not suspended — an admin likely already reviewed this one` });
+        skippedInThisCase++;
+        continue;
+      }
+      if (await hasApprovedActivity(user.id)) {
+        result.accountsSkipped.push({ userId: user.userId, fullName: user.fullName, reason: "now has real approved activity — no longer safe to bulk-delete" });
+        skippedInThisCase++;
+        continue;
+      }
+      try {
+        await deleteUserAccount(user.id, { reason: "admin_action", performedByUserId: adminUserId });
+        result.accountsDeleted++;
+        deletedInThisCase++;
+      } catch (err) {
+        result.errors.push({ userId: user.userId, error: err instanceof Error ? err.message : "unknown error" });
+      }
+    }
+
+    if (deletedInThisCase > 0) {
+      result.casesProcessed++;
+      await prisma.lanaCase.update({
+        where: { id: kase.id },
+        data: {
+          status: "resolved_approved",
+          resolvedAt: new Date(),
+          resolvedBy: adminUserId,
+          autoActionTaken: "deleted",
+          adminNote: skippedInThisCase > 0
+            ? `Bulk cleanup: ${deletedInThisCase} deleted, ${skippedInThisCase} skipped (see activity log).`
+            : `Bulk cleanup: ${deletedInThisCase} deleted (zero activity re-verified at delete time).`,
+        },
+      });
+    }
+  }
+
+  await logActivity({
+    type: "lana_case_resolved",
+    userId: adminUserId,
+    severity: "warning",
+    metadata: { action: "bulk_cleanup", ...result },
+  });
+
+  return result;
+}
+
 // --- Chat tools --------------------------------------------------------------
 // Real database lookups Lana can run mid-conversation, instead of only being
 // able to discuss cases she already has. Read-only — nothing here mutates

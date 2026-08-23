@@ -65,6 +65,13 @@ export function LanaPanel() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [resetBusy, setResetBusy] = useState(false);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<{
+    casesProcessed: number;
+    accountsDeleted: number;
+    accountsSkipped: { userId: string; fullName: string; reason: string }[];
+    errors: { userId: string; error: string }[];
+  } | null>(null);
   const [backfill, setBackfill] = useState<{
     phase: "running" | "done" | "error";
     totalClusters: number;
@@ -213,6 +220,34 @@ export function LanaPanel() {
       setActionError("Lost connection to the server — try again.");
     } finally {
       setResetBusy(false);
+    }
+  }
+
+  async function runBulkCleanup() {
+    if (cleanupBusy) return;
+    const autoActionedCount = cases.filter((c) => c.status === "auto_actioned" && c.type === "duplicate_account").length;
+    if (
+      !confirm(
+        `Permanently delete every account Lana has already auto-suspended as a high-confidence duplicate (${autoActionedCount} case${autoActionedCount === 1 ? "" : "s"} right now)? Each one is re-checked for real activity immediately before deleting — anything no longer safe to remove is skipped and reported back, not deleted. This cannot be undone.`
+      )
+    )
+      return;
+    setCleanupBusy(true);
+    setActionError(null);
+    setCleanupResult(null);
+    try {
+      const res = await fetch("/api/admin/lana/bulk-cleanup", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setCleanupResult(data);
+        await fetchCases();
+      } else {
+        setActionError(data.message ?? "Bulk cleanup failed.");
+      }
+    } catch {
+      setActionError("Lost connection to the server — try again.");
+    } finally {
+      setCleanupBusy(false);
     }
   }
 
@@ -434,6 +469,42 @@ export function LanaPanel() {
                   <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40 p-3 text-sm text-amber-800 dark:text-amber-300 flex items-start gap-2">
                     <ShieldAlert size={16} className="shrink-0 mt-0.5" />
                     <span>{digest}</span>
+                  </div>
+                )}
+
+                {cases.some((c) => c.status === "auto_actioned" && c.type === "duplicate_account") && (
+                  <button
+                    onClick={runBulkCleanup}
+                    disabled={cleanupBusy}
+                    title="Deletes every account already auto-suspended as a high-confidence duplicate, after re-checking each one is still safe to remove"
+                    className="w-full flex items-center justify-center gap-2 text-xs font-medium py-2 rounded-lg border border-dashed border-red-300 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+                  >
+                    {cleanupBusy ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                    {cleanupBusy ? "Deleting…" : "Delete all confirmed duplicates"}
+                  </button>
+                )}
+                {cleanupResult && (
+                  <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 space-y-1.5 text-[11px]">
+                    <p className="text-foreground font-medium">
+                      Deleted {cleanupResult.accountsDeleted} account{cleanupResult.accountsDeleted === 1 ? "" : "s"} across {cleanupResult.casesProcessed} case{cleanupResult.casesProcessed === 1 ? "" : "s"}.
+                    </p>
+                    {cleanupResult.accountsSkipped.length > 0 && (
+                      <div className="text-amber-600 dark:text-amber-400">
+                        <p className="font-medium">{cleanupResult.accountsSkipped.length} skipped (still there, needs your review):</p>
+                        {cleanupResult.accountsSkipped.map((s) => (
+                          <p key={s.userId}>{s.fullName} ({s.userId}) — {s.reason}</p>
+                        ))}
+                      </div>
+                    )}
+                    {cleanupResult.errors.length > 0 && (
+                      <div className="text-red-600 dark:text-red-400">
+                        <p className="font-medium">{cleanupResult.errors.length} failed:</p>
+                        {cleanupResult.errors.map((e) => (
+                          <p key={e.userId}>{e.userId} — {e.error}</p>
+                        ))}
+                      </div>
+                    )}
+                    <button onClick={() => setCleanupResult(null)} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">Dismiss</button>
                   </div>
                 )}
                 {cases.length === 0 && (

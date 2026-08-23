@@ -281,31 +281,40 @@ export async function POST(request: Request) {
       },
     });
 
-    // If user was referred, check if referrer can accept more referrals (max 50)
+    // If user was referred, check if referrer can accept more referrals
+    // (REFERRAL_CAP for contributors; managers are unlimited).
+    //
+    // This used to be a plain count-then-create with no lock: read
+    // referralCount, then separately create if under REFERRAL_CAP. That's a
+    // race — a burst of near-simultaneous registrations under the same
+    // referral code (exactly what a scripted mass-registration wave looks
+    // like) can all run their count check before any of them commits, so
+    // every one of them sees the same "still under the cap" count and all
+    // proceed, blowing straight through it. Fixed by locking the referrer's
+    // row for the duration of an interactive transaction, so concurrent
+    // registrations under the same code serialize instead of racing.
     if (referredBy) {
-      const referralCount = await prisma.referral.count({
-        where: { referrerId: referredBy },
-      });
+      await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${referredBy} FOR UPDATE`;
 
-      // Contributors are capped at REFERRAL_CAP; managers are unlimited.
-      if (referrerIsManager || referralCount < REFERRAL_CAP) {
-        await prisma.$transaction([
-          prisma.referral.create({
-            data: {
-              referrerId: referredBy,
-              referredId: user.id,
-              earned: SITE_CONFIG.survey.referralBonus,
-            },
-          }),
-          prisma.user.update({
-            where: { id: referredBy },
-            data: {
-              balance: { increment: SITE_CONFIG.survey.referralBonus },
-              totalEarned: { increment: SITE_CONFIG.survey.referralBonus },
-            },
-          }),
-        ]);
-      }
+        const referralCount = await tx.referral.count({ where: { referrerId: referredBy } });
+        if (!referrerIsManager && referralCount >= REFERRAL_CAP) return;
+
+        await tx.referral.create({
+          data: {
+            referrerId: referredBy,
+            referredId: user.id,
+            earned: SITE_CONFIG.survey.referralBonus,
+          },
+        });
+        await tx.user.update({
+          where: { id: referredBy },
+          data: {
+            balance: { increment: SITE_CONFIG.survey.referralBonus },
+            totalEarned: { increment: SITE_CONFIG.survey.referralBonus },
+          },
+        });
+      });
     }
 
     // Welcome email with their User ID — the ONLY place it's ever sent (see
