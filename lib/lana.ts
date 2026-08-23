@@ -57,21 +57,59 @@ export async function evaluateRegistration(user: { id: string; fullName: string;
 // auto-acted on, since a shared network is a real possibility in Ghana and
 // this needs a human to actually look at who these accounts are.
 export async function flagRegistrationVelocity(user: { id: string; fullName: string; userId: string }, ipCount: number, uaCount: number, ip: string | null) {
-  const existing = await prisma.lanaCase.findFirst({
-    where: { type: "registration_velocity", subjectUserId: user.id, status: { in: ["open", "auto_actioned"] } },
-  });
-  if (existing) return;
-
   const parts: string[] = [];
   if (ipCount >= 4) parts.push(`${ipCount} accounts from IP ${ip ?? "unknown"}`);
   if (uaCount >= 4) parts.push(`${uaCount} accounts sharing the exact same browser fingerprint`);
+  if (parts.length === 0) return;
+
+  const riskScore = Math.min(100, Math.max(ipCount, uaCount) * 12);
+  const recentWindow = new Date(Date.now() - 60 * 60 * 1000);
+
+  // One burst (same IP) within the last hour should grow as ONE case, not
+  // spawn a fresh near-duplicate case per new account that joins it — a real
+  // 7-account burst used to produce up to 7 separate cases, all describing
+  // the same incident from a slightly different angle, which is exactly the
+  // click-fatigue "group cases" complaint this was fixed after. There's no
+  // dedicated group-key column on LanaCase, so this reuses relatedWithdrawalId
+  // (always null for this case type) to stash the IP — purely internal
+  // bookkeeping so a later registration from the same IP can find and extend
+  // this exact case; it's never surfaced to the admin.
+  const existing = ip
+    ? await prisma.lanaCase.findFirst({
+        where: { type: "registration_velocity", status: { in: ["open", "auto_actioned"] }, createdAt: { gt: recentWindow }, relatedWithdrawalId: ip },
+        orderBy: { createdAt: "desc" },
+      })
+    : null;
+
+  if (existing) {
+    let relatedIds: string[] = [];
+    try {
+      relatedIds = JSON.parse(existing.relatedUserIds);
+    } catch {
+      relatedIds = [];
+    }
+    if (existing.subjectUserId !== user.id && !relatedIds.includes(user.id)) relatedIds.push(user.id);
+    const totalInGroup = relatedIds.length + 1;
+
+    await prisma.lanaCase.update({
+      where: { id: existing.id },
+      data: {
+        relatedUserIds: JSON.stringify(relatedIds),
+        riskScore: Math.max(existing.riskScore, riskScore),
+        summary: `${totalInGroup} accounts are part of a registration burst — ${parts.join(" and ")} in the last hour`,
+        reasoning: `${parts.join("; ")} within an hour, now ${totalInGroup} accounts total in this burst. Could be a busy shared network, or one person/script mass-registering. Worth checking whether these accounts share other similarity (name, phone pattern).`,
+      },
+    });
+    return;
+  }
 
   await prisma.lanaCase.create({
     data: {
       type: "registration_velocity",
       subjectUserId: user.id,
       relatedUserIds: "[]",
-      riskScore: Math.min(100, Math.max(ipCount, uaCount) * 12),
+      relatedWithdrawalId: ip,
+      riskScore,
       summary: `${user.fullName} (${user.userId}) is part of a registration burst — ${parts.join(" and ")} in the last hour`,
       reasoning: `${parts.join("; ")} within an hour. Could be a busy shared network, or one person/script mass-registering. Worth checking whether these accounts share other similarity (name, phone pattern).`,
       proposedAction: "investigate",

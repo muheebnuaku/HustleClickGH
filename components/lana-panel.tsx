@@ -47,6 +47,37 @@ const TYPE_LABEL: Record<string, string> = {
   implausible_identity: "Fake-looking name/email",
 };
 
+// Cases are grouped by type in the queue instead of one flat chronological
+// list — mixing a duplicate-account case between two unrelated registration
+// bursts made a wave of same-type cases (which is exactly when there's the
+// most of them) the hardest thing to scan and act on together. This is also
+// the priority order groups render in: needs-a-real-decision types first,
+// pure-acknowledgment types last.
+const GROUP_ORDER = [
+  "duplicate_account",
+  "implausible_identity",
+  "suspicious_withdrawal",
+  "referral_farming",
+  "shared_payout_number",
+  "registration_velocity",
+  "suspicious_login_activity",
+  "bounced_email",
+];
+
+function groupCases(cases: LanaCase[]): { type: string; items: LanaCase[] }[] {
+  const byType = new Map<string, LanaCase[]>();
+  for (const c of cases) {
+    (byType.get(c.type) ?? byType.set(c.type, []).get(c.type)!).push(c);
+  }
+  const orderOf = (type: string) => {
+    const i = GROUP_ORDER.indexOf(type);
+    return i === -1 ? GROUP_ORDER.length : i;
+  };
+  return [...byType.entries()]
+    .sort((a, b) => orderOf(a[0]) - orderOf(b[0]))
+    .map(([type, items]) => ({ type, items }));
+}
+
 function digestLine(cases: LanaCase[]): string | null {
   if (cases.length === 0) return null;
   const autoActioned = cases.filter((c) => c.status === "auto_actioned").length;
@@ -172,6 +203,36 @@ export function LanaPanel() {
     } finally {
       setBusyId(null);
     }
+  }
+
+  const BULK_BUSY = "__bulk__";
+
+  // Runs the same PATCH the per-case buttons use, once per case in a group —
+  // this is what lets a group header's "Acknowledge all" (etc.) button clear
+  // a whole batch of same-type cases (a registration burst, a wave of
+  // fake-identity flags) in one click instead of one per case.
+  async function bulkAct(caseIds: string[], decision: "approve" | "reject" | "dismiss") {
+    if (caseIds.length === 0) return;
+    setBusyId(BULK_BUSY);
+    setActionError(null);
+    let failures = 0;
+    for (const id of caseIds) {
+      try {
+        const res = await fetch("/api/admin/lana/cases", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caseId: id, decision }),
+        });
+        if (!res.ok) failures++;
+      } catch {
+        failures++;
+      }
+    }
+    if (failures > 0) {
+      setActionError(`${failures} of ${caseIds.length} actions in that batch didn't go through — the rest did. Try again for the ones still showing.`);
+    }
+    await fetchCases();
+    setBusyId(null);
   }
 
   async function proposeDelete(userId: string) {
@@ -510,91 +571,55 @@ export function LanaPanel() {
                 {cases.length === 0 && (
                   <p className="text-sm text-zinc-500 text-center py-8">Nothing needs your attention right now.</p>
                 )}
-                {cases.map((c) => (
-                  <div key={c.id} className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-3.5 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400">
-                        {TYPE_LABEL[c.type] ?? c.type}
-                      </span>
-                      <span
-                        className={cn(
-                          "text-[11px] font-bold px-2 py-0.5 rounded-full",
-                          c.riskScore >= 80
-                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                        )}
-                      >
-                        risk {c.riskScore}
-                      </span>
-                    </div>
-                    <p className="text-sm font-medium text-foreground">{c.summary}</p>
-                    <p className="text-xs text-zinc-500">{c.reasoning}</p>
-                    {c.status === "auto_actioned" && (
-                      <p className="text-xs font-medium text-red-600 dark:text-red-400">
-                        ⚡ Lana already {c.autoActionTaken} this account — review below.
-                      </p>
-                    )}
-                    <p className="text-[11px] text-zinc-400">{formatDate(c.createdAt)}</p>
+                {groupCases(cases).map(({ type, items }) => {
+                  // Bulk actions per group — same PATCH each per-case button
+                  // already uses, just run once per case in the group.
+                  const implausibleOpenIds = type === "implausible_identity" ? items.filter((c) => c.status !== "auto_actioned").map((c) => c.id) : [];
+                  const acknowledgeAllTypes = ["referral_farming", "shared_payout_number", "bounced_email", "registration_velocity", "suspicious_login_activity"];
+                  const allIds = items.map((c) => c.id);
 
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {c.type === "duplicate_account" && c.status === "auto_actioned" && (
-                        <>
-                          <ActionButton icon={Check} label="Confirm" onClick={() => act(c.id, "approve")} busy={busyId === c.id} />
-                          <ActionButton icon={Ban} label={c.proposedAction === "suspend_others" ? "Unsuspend the others" : "Unsuspend"} onClick={() => act(c.id, "reject")} busy={busyId === c.id} variant="neutral" />
-                        </>
-                      )}
-                      {(c.type === "duplicate_account" || c.type === "implausible_identity") && c.status !== "auto_actioned" && c.proposedAction === "suspend" && (
-                        <>
-                          <ActionButton icon={ShieldAlert} label="Suspend" onClick={() => act(c.id, "approve")} busy={busyId === c.id} />
-                          <ActionButton icon={Ban} label="Dismiss" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
-                        </>
-                      )}
-                      {c.type === "duplicate_account" && c.status !== "auto_actioned" && c.proposedAction === "suspend_others" && (
-                        <>
-                          <ActionButton icon={ShieldAlert} label="Suspend the others" onClick={() => act(c.id, "approve")} busy={busyId === c.id} />
-                          <ActionButton icon={Ban} label="Dismiss" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
-                        </>
-                      )}
-                      {c.type === "duplicate_account" && c.proposedAction === "delete_account" && (
-                        <>
-                          <ActionButton icon={Trash2} label="Delete account" onClick={() => act(c.id, "approve")} busy={busyId === c.id} variant="danger" />
-                          <ActionButton icon={Ban} label="Cancel" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
-                        </>
-                      )}
-                      {c.type === "duplicate_account" && c.proposedAction === "suspend" && c.status === "auto_actioned" && (
-                        <ActionButton icon={Trash2} label="Propose deletion instead" onClick={() => proposeDelete(c.subjectUserId)} busy={busyId === c.subjectUserId} variant="danger" />
-                      )}
-                      {c.type === "suspicious_withdrawal" && (
-                        <>
-                          <ActionButton icon={Ban} label="Reject withdrawal" onClick={() => act(c.id, "approve")} busy={busyId === c.id} variant="danger" />
-                          <ActionButton icon={Check} label="Looks legit" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
-                        </>
-                      )}
-                      {(c.type === "referral_farming" || c.type === "shared_payout_number" || c.type === "bounced_email" || c.type === "registration_velocity" || c.type === "suspicious_login_activity") && (
-                        <ActionButton icon={Check} label="Acknowledge" onClick={() => act(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
-                      )}
-                    </div>
-
-                    {c.subject && (
-                      <p className="text-[11px] text-zinc-400 pt-1">
-                        {c.proposedAction === "suspend_others" ? "Keeping active: " : ""}
-                        {c.subject.fullName} · {c.subject.userId} · {c.subject.email}
-                      </p>
-                    )}
-                    {c.relatedUsers.length > 0 && (
-                      <div className="pt-1 space-y-0.5">
-                        <p className="text-[11px] text-zinc-400 font-medium">
-                          {c.proposedAction === "suspend_others" ? "Suspending:" : "Also involved:"}
-                        </p>
-                        {c.relatedUsers.map((u) => (
-                          <p key={u.id} className="text-[11px] text-zinc-400">
-                            {u.fullName} · {u.userId} · {u.status}
-                          </p>
-                        ))}
+                  return (
+                    <div key={type} className="space-y-2">
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">
+                          {TYPE_LABEL[type] ?? type} ({items.length})
+                        </span>
+                        <div className="flex gap-1.5">
+                          {acknowledgeAllTypes.includes(type) && items.length > 1 && (
+                            <button
+                              onClick={() => bulkAct(allIds, "dismiss")}
+                              disabled={busyId === BULK_BUSY}
+                              className="text-[11px] font-medium px-2 py-1 rounded-md bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 disabled:opacity-50"
+                            >
+                              Acknowledge all
+                            </button>
+                          )}
+                          {implausibleOpenIds.length > 1 && (
+                            <>
+                              <button
+                                onClick={() => bulkAct(implausibleOpenIds, "approve")}
+                                disabled={busyId === BULK_BUSY}
+                                className="text-[11px] font-medium px-2 py-1 rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                              >
+                                Suspend all
+                              </button>
+                              <button
+                                onClick={() => bulkAct(implausibleOpenIds, "dismiss")}
+                                disabled={busyId === BULK_BUSY}
+                                className="text-[11px] font-medium px-2 py-1 rounded-md bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 disabled:opacity-50"
+                              >
+                                Dismiss all
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {items.map((c) => (
+                        <CaseCard key={c.id} c={c} busyId={busyId} onAct={act} onProposeDelete={proposeDelete} />
+                      ))}
+                    </div>
+                  );
+                })}
 
                 {recentResolved.length > 0 && (
                   <div className="pt-2">
@@ -670,6 +695,104 @@ export function LanaPanel() {
         </div>
       )}
     </>
+  );
+}
+
+function CaseCard({
+  c,
+  busyId,
+  onAct,
+  onProposeDelete,
+}: {
+  c: LanaCase;
+  busyId: string | null;
+  onAct: (caseId: string, decision: "approve" | "reject" | "dismiss") => void;
+  onProposeDelete: (userId: string) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-3.5 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400">
+          {TYPE_LABEL[c.type] ?? c.type}
+        </span>
+        <span
+          className={cn(
+            "text-[11px] font-bold px-2 py-0.5 rounded-full",
+            c.riskScore >= 80
+              ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+              : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+          )}
+        >
+          risk {c.riskScore}
+        </span>
+      </div>
+      <p className="text-sm font-medium text-foreground">{c.summary}</p>
+      <p className="text-xs text-zinc-500">{c.reasoning}</p>
+      {c.status === "auto_actioned" && (
+        <p className="text-xs font-medium text-red-600 dark:text-red-400">
+          ⚡ Lana already {c.autoActionTaken} this account — review below.
+        </p>
+      )}
+      <p className="text-[11px] text-zinc-400">{formatDate(c.createdAt)}</p>
+
+      <div className="flex flex-wrap gap-2 pt-1">
+        {c.type === "duplicate_account" && c.status === "auto_actioned" && (
+          <>
+            <ActionButton icon={Check} label="Confirm" onClick={() => onAct(c.id, "approve")} busy={busyId === c.id} />
+            <ActionButton icon={Ban} label={c.proposedAction === "suspend_others" ? "Unsuspend the others" : "Unsuspend"} onClick={() => onAct(c.id, "reject")} busy={busyId === c.id} variant="neutral" />
+          </>
+        )}
+        {(c.type === "duplicate_account" || c.type === "implausible_identity") && c.status !== "auto_actioned" && c.proposedAction === "suspend" && (
+          <>
+            <ActionButton icon={ShieldAlert} label="Suspend" onClick={() => onAct(c.id, "approve")} busy={busyId === c.id} />
+            <ActionButton icon={Ban} label="Dismiss" onClick={() => onAct(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
+          </>
+        )}
+        {c.type === "duplicate_account" && c.status !== "auto_actioned" && c.proposedAction === "suspend_others" && (
+          <>
+            <ActionButton icon={ShieldAlert} label="Suspend the others" onClick={() => onAct(c.id, "approve")} busy={busyId === c.id} />
+            <ActionButton icon={Ban} label="Dismiss" onClick={() => onAct(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
+          </>
+        )}
+        {c.type === "duplicate_account" && c.proposedAction === "delete_account" && (
+          <>
+            <ActionButton icon={Trash2} label="Delete account" onClick={() => onAct(c.id, "approve")} busy={busyId === c.id} variant="danger" />
+            <ActionButton icon={Ban} label="Cancel" onClick={() => onAct(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
+          </>
+        )}
+        {c.type === "duplicate_account" && c.proposedAction === "suspend" && c.status === "auto_actioned" && (
+          <ActionButton icon={Trash2} label="Propose deletion instead" onClick={() => onProposeDelete(c.subjectUserId)} busy={busyId === c.subjectUserId} variant="danger" />
+        )}
+        {c.type === "suspicious_withdrawal" && (
+          <>
+            <ActionButton icon={Ban} label="Reject withdrawal" onClick={() => onAct(c.id, "approve")} busy={busyId === c.id} variant="danger" />
+            <ActionButton icon={Check} label="Looks legit" onClick={() => onAct(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
+          </>
+        )}
+        {(c.type === "referral_farming" || c.type === "shared_payout_number" || c.type === "bounced_email" || c.type === "registration_velocity" || c.type === "suspicious_login_activity") && (
+          <ActionButton icon={Check} label="Acknowledge" onClick={() => onAct(c.id, "dismiss")} busy={busyId === c.id} variant="neutral" />
+        )}
+      </div>
+
+      {c.subject && (
+        <p className="text-[11px] text-zinc-400 pt-1">
+          {c.proposedAction === "suspend_others" ? "Keeping active: " : ""}
+          {c.subject.fullName} · {c.subject.userId} · {c.subject.email}
+        </p>
+      )}
+      {c.relatedUsers.length > 0 && (
+        <div className="pt-1 space-y-0.5">
+          <p className="text-[11px] text-zinc-400 font-medium">
+            {c.proposedAction === "suspend_others" ? "Suspending:" : "Also involved:"}
+          </p>
+          {c.relatedUsers.map((u) => (
+            <p key={u.id} className="text-[11px] text-zinc-400">
+              {u.fullName} · {u.userId} · {u.status}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
