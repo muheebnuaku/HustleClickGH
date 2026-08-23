@@ -88,9 +88,12 @@ interface EarningsBreakdown {
   approvedDataSubmissionEarnings: number;
   referralEarnings: number;
   referralCount: number;
+  managerCommissionEarnings: number; // % of a referred contributor's reward, paid to a manager — see ManagerCommission
+  managerCommissionCount: number;
   flaggedReferredCount: number; // how many people they referred are themselves flagged/suspended
   isFlagged: boolean; // is this user themselves flagged
   referrerFlagged: boolean; // is whoever referred THEM flagged/suspended
+  unaccountedBalance: number; // balance minus every earning channel above — should be ~0; a nonzero value here is itself worth investigating
 }
 
 async function getUserEarningsBreakdown(userId: string): Promise<EarningsBreakdown> {
@@ -100,7 +103,13 @@ async function getUserEarningsBreakdown(userId: string): Promise<EarningsBreakdo
   });
   if (!user) throw new Error("User not found");
 
-  const [surveyResponses, dataSubmissions, referralsGiven, referredUsers] = await Promise.all([
+  // Every code path in the app that ever credits User.balance, so this
+  // breakdown can genuinely account for 100% of it instead of silently
+  // missing a legitimate channel and making a real earner look suspicious
+  // (this is exactly what happened before manager commission was added here
+  // — an admin asked where a manager's balance came from, and the honest
+  // answer at the time was "can't tell," which reads just like fraud).
+  const [surveyResponses, dataSubmissions, referralsGiven, managerCommissions, referredUsers] = await Promise.all([
     prisma.surveyResponse.findMany({
       where: { userId, rewarded: true },
       select: { survey: { select: { reward: true } } },
@@ -110,6 +119,7 @@ async function getUserEarningsBreakdown(userId: string): Promise<EarningsBreakdo
       select: { project: { select: { reward: true } } },
     }),
     prisma.referral.findMany({ where: { referrerId: userId }, select: { earned: true, referredId: true } }),
+    prisma.managerCommission.findMany({ where: { managerId: userId }, select: { amount: true } }),
     prisma.user.findMany({
       where: { referredBy: userId },
       select: { fraudRiskScore: true, status: true },
@@ -120,16 +130,24 @@ async function getUserEarningsBreakdown(userId: string): Promise<EarningsBreakdo
     ? await prisma.user.findUnique({ where: { id: user.referredBy }, select: { fraudRiskScore: true, status: true } })
     : null;
 
+  const approvedSurveyEarnings = surveyResponses.reduce((s, r) => s + r.survey.reward, 0);
+  const approvedDataSubmissionEarnings = dataSubmissions.reduce((s, d) => s + d.project.reward, 0);
+  const referralEarnings = referralsGiven.reduce((s, r) => s + r.earned, 0);
+  const managerCommissionEarnings = managerCommissions.reduce((s, c) => s + c.amount, 0);
+
   return {
     totalEarned: user.totalEarned,
     balance: user.balance,
-    approvedSurveyEarnings: surveyResponses.reduce((s, r) => s + r.survey.reward, 0),
-    approvedDataSubmissionEarnings: dataSubmissions.reduce((s, d) => s + d.project.reward, 0),
-    referralEarnings: referralsGiven.reduce((s, r) => s + r.earned, 0),
+    approvedSurveyEarnings,
+    approvedDataSubmissionEarnings,
+    referralEarnings,
     referralCount: referralsGiven.length,
+    managerCommissionEarnings,
+    managerCommissionCount: managerCommissions.length,
     flaggedReferredCount: referredUsers.filter((u) => u.fraudRiskScore != null || u.status === "suspended").length,
     isFlagged: user.fraudRiskScore != null,
     referrerFlagged: Boolean(referrer && (referrer.fraudRiskScore != null || referrer.status === "suspended")),
+    unaccountedBalance: Math.round((user.totalEarned - (approvedSurveyEarnings + approvedDataSubmissionEarnings + referralEarnings + managerCommissionEarnings)) * 100) / 100,
   };
 }
 
@@ -223,6 +241,8 @@ Earnings breakdown:
 - From approved survey completions: GH₵${breakdown.approvedSurveyEarnings.toFixed(2)}
 - From approved data-submission tasks: GH₵${breakdown.approvedDataSubmissionEarnings.toFixed(2)}
 - From referral bonuses: GH₵${breakdown.referralEarnings.toFixed(2)} (${breakdown.referralCount} referrals, ${breakdown.flaggedReferredCount} of those referred accounts are themselves flagged as likely duplicates)
+- From manager commission (a % of a referred contributor's reward, only applies to manager accounts): GH₵${breakdown.managerCommissionEarnings.toFixed(2)} (${breakdown.managerCommissionCount} commission payouts)
+- Balance not explained by any of the above categories: GH₵${breakdown.unaccountedBalance.toFixed(2)} — should be ~0; a nonzero figure here is itself a signal worth weighing (could mean an earning channel isn't being tracked, or something needs a closer look)
 - This user is themselves flagged as a likely duplicate account: ${breakdown.isFlagged}
 - Whoever referred this user is flagged/suspended: ${breakdown.referrerFlagged}
 - Payout number check: ${payoutLine}
