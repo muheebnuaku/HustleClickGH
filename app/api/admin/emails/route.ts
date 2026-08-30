@@ -19,6 +19,10 @@ interface Recipient {
 // the 60s serverless limit even on slow SMTP.
 const BATCH = 15;
 
+// How many rate-limit-shaped failures in a row before we treat it as the
+// provider actually blocking us, rather than one recipient's own issue.
+const RATE_LIMIT_STREAK_TO_ABORT = 3;
+
 /** Build the recipient list for a target selection. */
 async function resolveRecipients(
   target: Target,
@@ -232,6 +236,7 @@ export async function POST(request: Request) {
       let sent = 0;
       let failed = 0;
       let aborted: string | null = null;
+      let rateLimitStreak = 0;
 
       // Sequential — shared SMTP mailboxes rate-limit parallel connections.
       for (const r of batch) {
@@ -239,6 +244,7 @@ export async function POST(request: Request) {
         const result = await sendEmail({ to: r.email, subject: mail.subject, html: mail.html });
         if (result.ok) {
           sent++;
+          rateLimitStreak = 0;
           await prisma.emailRecipient.update({
             where: { id: r.id },
             data: { status: "sent", error: null, attempts: { increment: 1 } },
@@ -253,11 +259,18 @@ export async function POST(request: Request) {
               attempts: { increment: 1 },
             },
           });
-          // A usage/rate block hits every remaining recipient too — stop and
-          // leave the rest pending so they can be resent once it clears.
+          // One flagged recipient can just be that mailbox (bad address, its
+          // own block) — don't let it stop everyone else. Only a run of these
+          // in a row looks like the provider actually cutting us off, so stop
+          // and leave the rest pending rather than hammering a real block.
           if (isRateLimitError(result.error)) {
-            aborted = result.error || "Sending limit reached";
-            break;
+            rateLimitStreak++;
+            if (rateLimitStreak >= RATE_LIMIT_STREAK_TO_ABORT) {
+              aborted = result.error || "Sending limit reached";
+              break;
+            }
+          } else {
+            rateLimitStreak = 0;
           }
         }
       }
