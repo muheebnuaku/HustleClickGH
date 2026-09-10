@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
@@ -90,8 +90,11 @@ export async function POST(request: Request) {
     data: { ownerUserId: user.id, name, workEmail: email, phone: phone || null, country: country || null },
   });
 
+  // The org's owner has no other way to get their login credentials, so this
+  // send is load-bearing — use after() rather than a bare unawaited call so
+  // Vercel doesn't freeze the function before it actually completes.
   const mail = orgInviteEmail(name, loginId, tempPassword);
-  sendEmail({ to: email, subject: mail.subject, html: mail.html }).catch(() => {});
+  after(() => sendEmail({ to: email, subject: mail.subject, html: mail.html }).catch(() => {}));
 
   logActivity({
     type: "admin_message",

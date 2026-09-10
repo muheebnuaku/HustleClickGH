@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DashboardLayout } from "@/components/dashboard-layout";
@@ -32,7 +32,39 @@ export default function ReferralPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [referralCode, setReferralCode] = useState("");
-  const [info, setInfo] = useState<ReferralInfo>({ isManager: false, referralCap: 50, commissionPercent: null, commissionTotal: 0, commissionCount: 0 });
+  const [info, setInfo] = useState<ReferralInfo>({ isManager: false, referralCap: 15, commissionPercent: null, commissionTotal: 0, commissionCount: 0 });
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadData = useCallback((showSpinner = false) => {
+    if (showSpinner) setRefreshing(true);
+    return Promise.all([
+      fetch("/api/referrals"),
+      fetch("/api/profile"),
+    ])
+      .then(([referralsRes, profileRes]) => Promise.all([
+        referralsRes.json(),
+        profileRes.json(),
+      ]))
+      .then(([referralsData, profileData]) => {
+        setReferrals(referralsData.referrals || []);
+        setInfo({
+          isManager: !!referralsData.isManager,
+          referralCap: referralsData.referralCap ?? 15,
+          commissionPercent: referralsData.commissionPercent ?? null,
+          commissionTotal: referralsData.commissionTotal ?? 0,
+          commissionCount: referralsData.commissionCount ?? 0,
+        });
+        setReferralCode(profileData.referralCode || session?.user?.userId || "");
+      })
+      .catch((error) => {
+        console.error("Failed to fetch data:", error);
+      })
+      .finally(() => {
+        setIsLoading(false);
+        setRefreshing(false);
+      });
+  }, [session]);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -41,39 +73,19 @@ export default function ReferralPage() {
     }
 
     if (status === "authenticated") {
-      Promise.all([
-        fetch("/api/referrals"),
-        fetch("/api/profile"),
-      ])
-        .then(([referralsRes, profileRes]) => Promise.all([
-          referralsRes.json(),
-          profileRes.json(),
-        ]))
-        .then(([referralsData, profileData]) => {
-          setReferrals(referralsData.referrals || []);
-          setInfo({
-            isManager: !!referralsData.isManager,
-            referralCap: referralsData.referralCap ?? 50,
-            commissionPercent: referralsData.commissionPercent ?? null,
-            commissionTotal: referralsData.commissionTotal ?? 0,
-            commissionCount: referralsData.commissionCount ?? 0,
-          });
-          setReferralCode(profileData.referralCode || session?.user?.userId || "");
-        })
-        .catch((error) => {
-          console.error("Failed to fetch data:", error);
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
+      loadData();
     }
-  }, [status, router, session]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, router]);
 
   const referralLink = `https://hustleclickgh.com/register?ref=${referralCode}`;
   const totalReferrals = referrals.length;
   const totalEarnings = referrals.reduce((sum, r) => sum + r.earned, 0);
-  // Contributors cap the list at 50; managers see everyone (unlimited).
-  const displayedReferrals = info.isManager ? referrals : referrals.slice(0, 50);
+  // Contributors' list is capped to match their actual referral cap (so the
+  // display can never show more than they're really allowed); managers see
+  // everyone (unlimited). Was previously hardcoded to 50 here even though
+  // the backend cap is a shared, changeable constant — see REFERRAL_CAP.
+  const displayedReferrals = info.isManager ? referrals : referrals.slice(0, info.referralCap ?? 15);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(referralLink);
@@ -121,57 +133,72 @@ export default function ReferralPage() {
           </p>
         </div>
 
-        {/* Manager commission summary */}
+        {/* Manager commission summary — 2x2 grid on phones/tablets (fits
+            without crowding), one row on large screens. Compact padding and
+            responsive text sizing so the numbers never fight the card for
+            room at 2-per-row widths. */}
         {info.isManager && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <Card className="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800">
-              <CardContent className="pt-6 text-center">
-                <p className="text-sm text-emerald-700 dark:text-emerald-400 flex items-center justify-center gap-1"><Percent size={14} /> Your commission rate</p>
-                <p className="text-4xl font-bold text-emerald-600 my-2">{info.commissionPercent}%</p>
+              <CardContent className="p-4 text-center">
+                <p className="text-xs sm:text-sm text-emerald-700 dark:text-emerald-400 flex items-center justify-center gap-1"><Percent size={13} className="shrink-0" /> <span>Commission rate</span></p>
+                <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-emerald-600 my-2">{info.commissionPercent}%</p>
               </CardContent>
             </Card>
             <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
-              <CardContent className="pt-6 text-center">
-                <p className="text-sm text-green-700 dark:text-green-400">Commission earned</p>
-                <p className="text-4xl font-bold text-green-600 my-2">{formatCurrency(info.commissionTotal)}</p>
-                <p className="text-xs text-zinc-500">from {info.commissionCount} approval{info.commissionCount === 1 ? "" : "s"}</p>
+              <CardContent className="p-4 text-center">
+                <p className="text-xs sm:text-sm text-green-700 dark:text-green-400">Commission earned</p>
+                <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-green-600 my-2">{formatCurrency(info.commissionTotal)}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-teal-50 dark:bg-teal-900/20 border-teal-200 dark:border-teal-800">
+              <CardContent className="p-4 text-center">
+                <p className="text-xs sm:text-sm text-teal-700 dark:text-teal-400">Approvals</p>
+                <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-teal-600 my-2">{info.commissionCount}</p>
               </CardContent>
             </Card>
             <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
-              <CardContent className="pt-6 text-center">
-                <p className="text-sm text-blue-700 dark:text-blue-400 flex items-center justify-center gap-1"><InfinityIcon size={14} /> Referral limit</p>
-                <p className="text-4xl font-bold text-blue-600 my-2">Unlimited</p>
+              <CardContent className="p-4 text-center">
+                <p className="text-xs sm:text-sm text-blue-700 dark:text-blue-400 flex items-center justify-center gap-1"><InfinityIcon size={13} className="shrink-0" /> <span>Referral limit</span></p>
+                <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-blue-600 my-2">Unlimited</p>
               </CardContent>
             </Card>
           </div>
         )}
 
-        {/* Referral Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Referral Stats — 2x2 grid on phones/tablets, one row on large
+            screens. Compact padding and responsive text sizing so the
+            numbers never fight the card for room at 2-per-row widths. */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-blue-700 dark:text-blue-400">Total Referrals</p>
-                <p className="text-4xl font-bold text-blue-600 my-2">{totalReferrals}</p>
-              </div>
+            <CardContent className="p-4 text-center">
+              <p className="text-xs sm:text-sm text-blue-700 dark:text-blue-400">Total Referrals</p>
+              <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-blue-600 my-2">{totalReferrals}</p>
             </CardContent>
           </Card>
 
           <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-green-700 dark:text-green-400">Successful Referrals</p>
-                <p className="text-4xl font-bold text-green-600 my-2">{totalReferrals}</p>
-              </div>
+            <CardContent className="p-4 text-center">
+              <p className="text-xs sm:text-sm text-green-700 dark:text-green-400">Referral Limit</p>
+              <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-green-600 my-2">
+                {info.isManager ? "Unlimited" : `${totalReferrals}/${info.referralCap ?? 15}`}
+              </p>
             </CardContent>
           </Card>
 
           <Card className="bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800">
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-purple-700 dark:text-purple-400">Total Earnings</p>
-                <p className="text-4xl font-bold text-purple-600 my-2">{formatCurrency(totalEarnings)}</p>
-              </div>
+            <CardContent className="p-4 text-center">
+              <p className="text-xs sm:text-sm text-purple-700 dark:text-purple-400">Total Earnings</p>
+              <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-purple-600 my-2">{formatCurrency(totalEarnings)}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
+            <CardContent className="p-4 text-center">
+              <p className="text-xs sm:text-sm text-amber-700 dark:text-amber-400 flex items-center justify-center gap-1"><Gift size={13} className="shrink-0" /> <span>{info.isManager ? "Bonus" : "To Bonus"}</span></p>
+              <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-amber-600 my-2">
+                {info.isManager ? "—" : `${Math.min(totalReferrals, SITE_CONFIG.survey.referralMilestone)}/${SITE_CONFIG.survey.referralMilestone}`}
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -283,8 +310,8 @@ export default function ReferralPage() {
                 <CardTitle>Your Referrals</CardTitle>
                 <CardDescription>People who joined using your link</CardDescription>
               </div>
-              <Button variant="outline" size="sm">
-                <RefreshCw size={16} />
+              <Button variant="outline" size="sm" onClick={() => loadData(true)} disabled={refreshing}>
+                <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
                 Refresh
               </Button>
             </div>
@@ -299,13 +326,13 @@ export default function ReferralPage() {
                 {displayedReferrals.map((referral) => (
                   <div
                     key={referral.id}
-                    className="flex items-center justify-between p-4 rounded-lg border border-zinc-200 dark:border-zinc-800"
+                    className="flex items-center justify-between gap-3 p-4 rounded-lg border border-zinc-200 dark:border-zinc-800"
                   >
-                    <div>
-                      <p className="font-medium text-foreground">{referral.name || "New member"}</p>
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground truncate">{referral.name || "New member"}</p>
                       <p className="text-sm text-zinc-500">Joined on {formatDate(referral.date)}</p>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <p className="font-bold text-green-600">+{formatCurrency(referral.earned)}</p>
                     </div>
                   </div>

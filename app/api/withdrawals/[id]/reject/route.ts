@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
@@ -58,15 +58,18 @@ export async function PUT(
       },
     });
 
-    // Tell the user why, and that their balance is untouched (fire-and-forget)
+    // Tell the user why, and that their balance is untouched, via after() so
+    // the send actually gets a chance to complete rather than racing a
+    // possible function freeze once the response below is sent.
     if (withdrawal.user?.email) {
       const mail = withdrawalRejectedEmail(
         withdrawal.user.fullName,
         withdrawal.amount,
         notes
       );
-      sendEmail({ to: withdrawal.user.email, subject: mail.subject, html: mail.html })
-        .catch(() => {});
+      after(() =>
+        sendEmail({ to: withdrawal.user.email, subject: mail.subject, html: mail.html }).catch(() => {})
+      );
     }
 
     return NextResponse.json({

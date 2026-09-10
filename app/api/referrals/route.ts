@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { DEFAULT_MANAGER_COMMISSION } from "@/lib/constants";
+import { DEFAULT_MANAGER_COMMISSION, REFERRAL_CAP } from "@/lib/constants";
 
 export async function GET() {
   try {
@@ -61,7 +61,7 @@ export async function GET() {
       totalReferrals,
       totalEarnings,
       isManager,
-      referralCap: isManager ? null : 50,
+      referralCap: isManager ? null : REFERRAL_CAP,
       commissionPercent: isManager ? (user.commissionPercent ?? DEFAULT_MANAGER_COMMISSION) : null,
       commissionTotal,
       commissionCount,

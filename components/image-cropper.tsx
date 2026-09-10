@@ -1,10 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ZoomIn, RotateCcw, Check, X } from "lucide-react";
 
-const VIEWPORT = 280; // on-screen crop area (px)
+// On-screen crop area (px). Kept small enough to still fit inside the modal
+// card on a 320px-wide phone screen (outer overlay padding + card padding
+// both eat into that budget) -- 280 used to genuinely overflow the card on
+// the narrowest real devices, which matters here given how many users are on
+// budget Android phones.
+const VIEWPORT = 240;
 const OUTPUT = 400; // exported image size (px)
 
 interface ImageCropperProps {
@@ -42,11 +47,26 @@ export function ImageCropper({ src, onCancel, onCropComplete }: ImageCropperProp
     [dw, dh]
   );
 
-  // center the image whenever the image loads or zoom changes
-  useEffect(() => {
+  // Re-clamp the offset whenever zoom changes — zooming in/out shrinks or
+  // grows the valid drag range, and a position that was valid before may no
+  // longer be. Computed inline (using the *new* zoom's scale directly,
+  // rather than via an effect re-running after render) since a bare setState
+  // in an effect body is a lint error here, and re-deriving it here avoids
+  // the stale-closure trap of calling the render's `clamp` — which is still
+  // keyed to the *old* zoom — right after calling setZoom.
+  const handleZoomChange = (newZoom: number) => {
+    setZoom(newZoom);
     if (!natural) return;
-    setOffset((prev) => clamp(prev.x, prev.y));
-  }, [natural, zoom, clamp]);
+    const newScale = baseScale * newZoom;
+    const newDw = natural.w * newScale;
+    const newDh = natural.h * newScale;
+    const minX = VIEWPORT - newDw;
+    const minY = VIEWPORT - newDh;
+    setOffset((prev) => ({
+      x: Math.min(0, Math.max(minX, prev.x)),
+      y: Math.min(0, Math.max(minY, prev.y)),
+    }));
+  };
 
   const handleImgLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const el = e.currentTarget;
@@ -94,7 +114,7 @@ export function ImageCropper({ src, onCancel, onCropComplete }: ImageCropperProp
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-sm p-6">
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-sm p-4 sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-foreground">Adjust your photo</h3>
           <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="Close">
@@ -147,7 +167,7 @@ export function ImageCropper({ src, onCancel, onCropComplete }: ImageCropperProp
             max={3}
             step={0.01}
             value={zoom}
-            onChange={(e) => setZoom(parseFloat(e.target.value))}
+            onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
             className="w-full accent-green-600"
           />
           <button onClick={reset} className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 shrink-0" aria-label="Reset" title="Reset">

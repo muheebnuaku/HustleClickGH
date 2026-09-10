@@ -255,8 +255,8 @@ export default function DashboardPage() {
 
         {/* Welcome Header */}
         <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-lg">
-          <div className="flex items-center justify-between">
-            <h1 className="text-lg md:text-xl font-bold" style={{ marginTop: '-10px' }}>
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-lg md:text-xl font-bold min-w-0 truncate">
               Welcome back, {session?.user?.name?.split(" ")[0] || "User"}!
             </h1>
             <Button
@@ -264,8 +264,7 @@ export default function DashboardPage() {
               variant="secondary"
               disabled={isRefreshing}
               size="sm"
-              className="bg-white/20 hover:bg-white/30 text-white border-0 h-9 w-9 p-0"
-              style={{ marginTop: '-13px' }}
+              className="bg-white/20 hover:bg-white/30 text-white border-0 h-9 w-9 p-0 shrink-0"
               title="Refresh"
             >
               <RefreshCw size={18} className={isRefreshing ? "animate-spin" : ""} />

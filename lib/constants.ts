@@ -18,7 +18,7 @@ export const SITE_CONFIG = {
 } as const;
 
 // Contributors can refer up to this many people; managers are unlimited.
-export const REFERRAL_CAP = 50;
+export const REFERRAL_CAP = 15;
 // Default % a manager earns when someone they referred is rewarded on a project.
 // Per-manager override lives in User.commissionPercent; admin can edit it.
 export const DEFAULT_MANAGER_COMMISSION = 25;

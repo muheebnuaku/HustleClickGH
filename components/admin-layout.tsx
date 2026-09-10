@@ -7,6 +7,7 @@ import { LogOut, LayoutDashboard, Users, Wallet, MessageSquare, QrCode, Menu, X,
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
+import { LanaPanel } from "@/components/lana-panel";
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -48,6 +49,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const navItems = session?.user?.role === "manager"
     ? allNavItems.filter(item => item.href.includes("call-recordings"))
     : allNavItems;
+
+  // Exact match OR a nested route under it (e.g. /admin/data-projects/[id])
+  // — without this, viewing a project's detail page left the sidebar with
+  // no section highlighted at all.
+  const isNavItemActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
@@ -129,7 +135,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         <nav className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href;
+            const isActive = isNavItemActive(item.href);
             return (
               <Link
                 key={item.href}
@@ -171,12 +177,15 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex flex-col lg:flex-row gap-8">
-          {/* Desktop Sidebar Navigation */}
+          {/* Desktop Sidebar Navigation — max-h + overflow-y-auto so a
+              shorter/laptop-height viewport scrolls the nav list itself
+              instead of clipping the last items below the fold with no way
+              to reach them (sticky alone doesn't shrink to fit). */}
           <aside className="hidden lg:block w-64 shrink-0">
-            <nav className="bg-white dark:bg-black rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 space-y-2 sticky top-24">
+            <nav className="bg-white dark:bg-black rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 space-y-2 sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto">
               {navItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = pathname === item.href;
+                const isActive = isNavItemActive(item.href);
                 return (
                   <Link
                     key={item.href}
@@ -201,6 +210,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           <main className="flex-1 min-w-0">{children}</main>
         </div>
       </div>
+
+      {session?.user?.role === "admin" && <LanaPanel />}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
@@ -73,10 +73,12 @@ export async function PUT(
       throw err;
     }
 
-    // Let the user know the money is on its way (fire-and-forget)
+    // Let the user know the money is on its way, via after() so the send
+    // actually gets a chance to complete rather than racing a possible
+    // function freeze once the response below is sent.
     if (user?.email) {
       const mail = withdrawalApprovedEmail(user.fullName, approved.amount, approved.paymentMethod, approved.mobileNumber);
-      sendEmail({ to: user.email, subject: mail.subject, html: mail.html }).catch(() => {});
+      after(() => sendEmail({ to: user.email, subject: mail.subject, html: mail.html }).catch(() => {}));
     }
 
     return NextResponse.json({

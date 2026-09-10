@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
@@ -60,6 +60,10 @@ export async function GET() {
       referralCount: user._count.referrals,
       createdAt: user.createdAt,
       duplicatePhone: (() => { const p = (user.phone || "").replace(/\s+/g, ""); return Boolean(p) && (phoneCounts.get(p) || 0) > 1; })(),
+      fraudRiskScore: user.fraudRiskScore,
+      fraudRiskReason: user.fraudRiskReason,
+      fraudFlaggedAt: user.fraudFlaggedAt,
+      suspectedDuplicateOfUserId: user.suspectedDuplicateOfUserId,
     }));
 
     // Calculate stats
@@ -69,6 +73,7 @@ export async function GET() {
     const verifiedUsers = users.filter(u => u.verified).length;
     const missingLocation = users.filter(u => !u.country?.trim()).length;
     const duplicatePhoneUsers = formattedUsers.filter(u => u.duplicatePhone).length;
+    const fraudFlaggedUsers = formattedUsers.filter(u => u.fraudRiskScore != null).length;
     const totalBalance = users.reduce((sum, u) => sum + u.balance, 0);
     const totalPaidOut = users.reduce((sum, u) => {
       const paidOut = u.withdrawals.reduce((s, w) => s + w.amount, 0);
@@ -84,6 +89,7 @@ export async function GET() {
         verifiedUsers,
         missingLocation,
         duplicatePhoneUsers,
+        fraudFlaggedUsers,
         totalPaidOut,
         totalBalance,
       },
@@ -176,14 +182,16 @@ export async function PATCH(request: Request) {
 
     const updated = await prisma.user.update({ where: { id: userId }, data });
 
-    // Keep the user informed by email (fire-and-forget)
+    // Keep the user informed by email, via after() so the send actually gets
+    // a chance to complete rather than racing the function freezing once the
+    // response below is sent.
     if (action === "verify" && updated.email) {
       const mail = accountVerifiedEmail(updated.fullName);
-      sendEmail({ to: updated.email, subject: mail.subject, html: mail.html }).catch(() => {});
+      after(() => sendEmail({ to: updated.email, subject: mail.subject, html: mail.html }).catch(() => {}));
     }
     if (action === "request_location" && updated.email) {
       const mail = locationRequestEmail(updated.fullName);
-      sendEmail({ to: updated.email, subject: mail.subject, html: mail.html }).catch(() => {});
+      after(() => sendEmail({ to: updated.email, subject: mail.subject, html: mail.html }).catch(() => {}));
     }
 
     return NextResponse.json({
@@ -237,15 +245,18 @@ export async function POST(request: Request) {
       data: { locationRequested: true },
     });
 
-    // Email each of them a reminder (fire-and-forget, sent sequentially so we
-    // don't hammer the SMTP connection limit)
-    (async () => {
+    // Email each of them a reminder, sent sequentially so we don't hammer the
+    // SMTP connection limit. This loop can run long for a big batch, so it
+    // needs after() — the previous bare unawaited IIFE had no guarantee
+    // Vercel would keep the function alive long enough to send more than the
+    // first one or two before freezing/killing it.
+    after(async () => {
       for (const u of targets) {
         if (!u.email) continue;
         const mail = locationRequestEmail(u.fullName);
         await sendEmail({ to: u.email, subject: mail.subject, html: mail.html }).catch(() => {});
       }
-    })().catch(() => {});
+    });
 
     return NextResponse.json({
       message: `Location requested from ${result.count} user${result.count === 1 ? "" : "s"} (reminder emails sent).`,
