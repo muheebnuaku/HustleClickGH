@@ -319,7 +319,7 @@ export default function Home() {
               { number: "GH₵50K+", label: "Paid to Contributors" },
             ].map((stat) => (
               <div key={stat.label}>
-                <div className="text-3xl sm:text-5xl font-bold mb-2">{stat.number}</div>
+                <div className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-2">{stat.number}</div>
                 <div className="text-blue-100 text-sm sm:text-base">{stat.label}</div>
               </div>
             ))}
