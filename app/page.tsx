@@ -15,6 +15,15 @@ import {
   PhoneCall,
   Building2,
   ArrowRight,
+  Sparkles,
+  Tags,
+  MessageSquareText,
+  ScanEye,
+  BadgeCheck,
+  AudioLines,
+  Headphones,
+  PackageCheck,
+  Glasses,
 } from "lucide-react";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
@@ -121,6 +130,75 @@ export default function Home() {
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce">
           <div className="w-6 h-10 border-2 border-slate-500 rounded-full flex items-start justify-center p-1">
             <div className="w-1.5 h-3 bg-slate-400 rounded-full animate-pulse"></div>
+          </div>
+        </div>
+      </section>
+
+      {/* What We Do — Human + AI Data Services */}
+      <section className="py-16 sm:py-24 bg-slate-50 dark:bg-slate-900">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-10 sm:mb-16">
+            <div className="inline-flex items-center gap-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-4 py-2 rounded-full text-sm font-medium mb-4">
+              <Sparkles size={16} />
+              <span>What We Do</span>
+            </div>
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 dark:text-white mb-4">
+              Human + AI Data Services
+            </h2>
+            <p className="text-base sm:text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
+              From raw data collection to production-ready datasets — our expert workforce and ML tools handle the entire pipeline so you can focus on building great AI.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-5">
+            {[
+              { icon: Database, title: "Data Collection", description: "High-quality data gathering for AI training", image: "https://images.unsplash.com/photo-1589903308904-1010c2294adc?q=80&w=800&auto=format&fit=crop", alt: "Studio microphone and headphones set up for voice recording" },
+              { icon: Tags, title: "Data Labeling & Annotation", description: "Precise labeling for machine learning models", image: "https://images.unsplash.com/photo-1531482615713-2afd69097998?q=80&w=800&auto=format&fit=crop", alt: "Two annotators reviewing data together on a laptop" },
+              { icon: MessageSquareText, title: "Natural Language Processing", description: "Advanced text and language understanding", image: "https://images.unsplash.com/photo-1677442136019-21780ecad995?q=80&w=800&auto=format&fit=crop", alt: "3D illustration of the letters AI on a network grid" },
+              { icon: ScanEye, title: "Computer Vision", description: "Image and video analysis solutions", image: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?q=80&w=800&auto=format&fit=crop", alt: "Camera body and lenses on a dark surface" },
+              { icon: BadgeCheck, title: "Data Curation & Validation", description: "Ensuring data quality and accuracy", image: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=800&auto=format&fit=crop", alt: "Laptop showing a data quality analytics dashboard" },
+              { icon: AudioLines, title: "Transcription", description: "Audio to text conversion services", image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?q=80&w=800&auto=format&fit=crop", alt: "Headphones on a bright yellow background" },
+              { icon: Languages, title: "AI Translation & Localization", description: "Specialized MT/AI and human translation", image: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=800&auto=format&fit=crop", alt: "Earth at night seen from space, lit by connected cities" },
+              { icon: Headphones, title: "Interpretation", description: "Professional interpretation services", image: "https://images.unsplash.com/photo-1475721027785-f74eccf877e2?q=80&w=800&auto=format&fit=crop", alt: "Microphone in front of a conference audience" },
+              { icon: PackageCheck, title: "Off-the-Shelf Datasets", description: "Pre-built, expert-curated datasets ready to ingest", image: "https://images.unsplash.com/photo-1573164713988-8665fc963095?q=80&w=800&auto=format&fit=crop", alt: "Engineer with a tablet in a data center server aisle" },
+              { icon: Glasses, title: "Egocentric Data Collection", description: "First-person data for embodied AI, robotics & wearables", image: "https://images.unsplash.com/photo-1593508512255-86ab42a8e620?q=80&w=800&auto=format&fit=crop", alt: "Person wearing a head-mounted headset with motion controllers" },
+            ].map((service, i) => (
+              <div
+                key={service.title}
+                className={`group relative aspect-[4/5] overflow-hidden rounded-2xl bg-slate-900 shadow-sm ring-1 ring-slate-900/5 dark:ring-white/10 hover:shadow-xl hover:shadow-blue-500/10 transition-shadow duration-300 ${
+                  i === 9 ? "md:col-start-2 lg:col-start-auto" : ""
+                }`}
+              >
+                <Image
+                  src={service.image}
+                  alt={service.alt}
+                  fill
+                  sizes="(min-width: 1024px) 20vw, (min-width: 768px) 33vw, 50vw"
+                  className="object-cover group-hover:scale-110 transition-transform duration-700"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-slate-950/5" />
+                <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-slate-950/40 to-transparent" />
+
+                <div className="absolute top-3 left-3 w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center">
+                  <service.icon size={18} className="text-white" />
+                </div>
+                <span className="absolute top-3.5 right-3.5 text-[11px] font-semibold tracking-wider text-white/80 tabular-nums">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+
+                <div className="absolute inset-x-0 bottom-0 p-3 sm:p-4">
+                  <h3 className="text-sm sm:text-base font-bold text-white leading-snug mb-1">{service.title}</h3>
+                  <p className="text-xs sm:text-sm text-slate-300 leading-snug line-clamp-3 sm:line-clamp-2">{service.description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-10 sm:mt-12 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 text-center">
+            <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base">Need a custom dataset or service?</p>
+            <Link href="/partners" className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-semibold text-sm sm:text-base">
+              Talk to our data team <ArrowRight size={16} />
+            </Link>
           </div>
         </div>
       </section>
