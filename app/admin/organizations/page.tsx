@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Suspense } from "react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader, Notice } from "@/components/admin/admin-ui";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,15 +79,14 @@ function OrganizationsContent() {
   return (
     <AdminLayout>
       <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-foreground flex items-center gap-2"><Building2 size={26} /> Organizations</h1>
-            <p className="text-zinc-600 dark:text-zinc-400 mt-1">Buyer accounts that fund projects and download datasets</p>
-          </div>
-          <Button onClick={() => setShowForm((s) => !s)}><Plus size={18} className="mr-1" />{showForm ? "Cancel" : "New organization"}</Button>
-        </div>
+        <PageHeader
+          icon={Building2}
+          title="Organizations"
+          description="Buyer accounts that fund projects and download datasets."
+          actions={<Button onClick={() => setShowForm((s) => !s)} className="bg-blue-600 hover:bg-blue-700 text-white"><Plus size={18} />{showForm ? "Cancel" : "New organization"}</Button>}
+        />
 
-        {result && <div className={`p-3 rounded-lg text-sm ${result.startsWith("✓") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>{result}</div>}
+        {result && <Notice tone={result.startsWith("✓") ? "success" : "error"}>{result}</Notice>}
 
         {showForm && (
           <Card>

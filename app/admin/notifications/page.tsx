@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader, StatCard } from "@/components/admin/admin-ui";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,15 +63,8 @@ export default function AdminNotificationsPage() {
 
   return (
     <AdminLayout>
-      <div className="space-y-6 max-w-2xl">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground flex items-center gap-2">
-            <Bell size={26} /> Notifications
-          </h1>
-          <p className="text-zinc-600 dark:text-zinc-400 mt-1">
-            Reach your users by browser push or email.
-          </p>
-        </div>
+      <div className="space-y-6 max-w-3xl">
+        <PageHeader icon={Bell} title="Notifications" description="Reach your users by browser push or email." />
 
         {!stats.configured && (
           <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 p-4 rounded-xl text-sm">
@@ -79,29 +73,9 @@ export default function AdminNotificationsPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4">
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center">
-                <Smartphone size={20} />
-              </div>
-              <div>
-                <p className="text-xs text-zinc-500">Subscribed devices</p>
-                <p className="text-2xl font-bold text-foreground">{stats.devices}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-green-100 dark:bg-green-900/30 text-green-600 flex items-center justify-center">
-                <Users size={20} />
-              </div>
-              <div>
-                <p className="text-xs text-zinc-500">Reachable users</p>
-                <p className="text-2xl font-bold text-foreground">{stats.users}</p>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard icon={Smartphone} tone="blue" label="Subscribed devices" value={stats.devices} />
+          <StatCard icon={Users} tone="green" label="Reachable users" value={stats.users} />
         </div>
 
         <Card>

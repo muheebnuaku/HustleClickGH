@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader, StatCard, Notice } from "@/components/admin/admin-ui";
+import { Newspaper } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -155,65 +157,26 @@ export default function AdminBlogPage() {
   return (
     <AdminLayout>
       <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Blog Management</h1>
-            <p className="text-zinc-600 dark:text-zinc-400 mt-1">Create and manage blog posts</p>
-          </div>
-          {!showEditor && (
-            <Button onClick={() => setShowEditor(true)}>
+        <PageHeader
+          icon={Newspaper}
+          title="Blog"
+          description="Write and publish posts for the public site."
+          actions={!showEditor && (
+            <Button onClick={() => setShowEditor(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
               <Plus size={18} />
-              New Post
+              New post
             </Button>
           )}
-        </div>
+        />
 
         {message && (
-          <div className={`p-4 rounded-lg ${message.type === "success" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
-            {message.text}
-          </div>
+          <Notice tone={message.type === "success" ? "success" : "error"}>{message.text}</Notice>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
-                  <BookOpen className="text-blue-600" size={24} />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-500">Total Posts</p>
-                  <p className="text-2xl font-bold text-foreground">{posts.length}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
-                  <Eye className="text-green-600" size={24} />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-500">Published</p>
-                  <p className="text-2xl font-bold text-foreground">{posts.filter(p => p.published).length}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
-                  <PenTool className="text-purple-600" size={24} />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-500">Drafts</p>
-                  <p className="text-2xl font-bold text-foreground">{posts.filter(p => !p.published).length}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <StatCard icon={BookOpen} tone="blue" label="Total posts" value={posts.length} />
+          <StatCard icon={Eye} tone="green" label="Published" value={posts.filter(p => p.published).length} />
+          <StatCard icon={PenTool} tone="purple" label="Drafts" value={posts.filter(p => !p.published).length} className="col-span-2 md:col-span-1" />
         </div>
 
         {showEditor && (

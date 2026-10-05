@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader } from "@/components/admin/admin-ui";
 import { SurveysTabs } from "@/components/admin/surveys-tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -302,20 +303,17 @@ function AdminResponsesPageContent() {
     <AdminLayout>
       <div className="space-y-6">
         <SurveysTabs active="responses" />
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Survey Analytics</h1>
-            <p className="text-zinc-600 dark:text-zinc-400 mt-1">
-              Visual insights and response analytics
-            </p>
-          </div>
-          {selectedSurvey && (
-            <Button variant="outline" onClick={() => { setSelectedSurvey(null); setResponses([]); setQuestions([]); setSelectedQuestion(null); }}>
-              <ArrowLeft size={18} />
-              Back to Surveys
+        <PageHeader
+          icon={BarChart3}
+          title="Survey Analytics"
+          description="Visual insights and response analytics."
+          actions={selectedSurvey && (
+            <Button variant="outline" size="sm" onClick={() => { setSelectedSurvey(null); setResponses([]); setQuestions([]); setSelectedQuestion(null); }}>
+              <ArrowLeft size={16} />
+              Back to surveys
             </Button>
           )}
-        </div>
+        />
 
         {!selectedSurvey ? (
           /* Survey Selection */

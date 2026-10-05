@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useRef } from "react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader, StatCard, Notice } from "@/components/admin/admin-ui";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatUsd, formatDate } from "@/lib/utils";
 import { convertUsdToGhs, fallbackRate } from "@/lib/fx";
-import { Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload, Pencil, Building2, Check, X, MapPin, Search, Camera, Tag } from "lucide-react";
+import { Database, Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload, Pencil, Building2, Check, X, MapPin, Search, Camera, Tag } from "lucide-react";
 import Link from "next/link";
 import { uploadFile } from "@/lib/upload-file";
 import { GHANA_REGIONS } from "@/lib/constants";
@@ -377,22 +378,23 @@ export default function AdminDataProjectsPage() {
     <AdminLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Dataset Collection</h1>
-            <p className="text-sm text-zinc-500 mt-1">Create and manage AI data collection projects</p>
-          </div>
-          <Button onClick={() => { closeForm(); setShowForm(!showForm); }} className="bg-blue-600 hover:bg-blue-700 text-white">
-            <Plus size={16} className="mr-2" />
-            New Project
-          </Button>
-        </div>
+        <PageHeader
+          icon={Database}
+          title="Data Projects"
+          description="Create, target and review AI data collection projects."
+          actions={
+            <Button onClick={() => { closeForm(); setShowForm(!showForm); }} className="bg-blue-600 hover:bg-blue-700 text-white">
+              <Plus size={16} />
+              New project
+            </Button>
+          }
+        />
 
         {message && (
-          <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">{message}</div>
+          <Notice tone="success">{message}</Notice>
         )}
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">{error}</div>
+          <Notice tone="error">{error}</Notice>
         )}
 
         {/* Create Form */}
@@ -705,6 +707,16 @@ export default function AdminDataProjectsPage() {
               </div>
             </form>
           </Card>
+        )}
+
+        {/* Overview */}
+        {!loading && projects.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard icon={Database} tone="blue" label="Projects" value={projects.length} hint={`${projects.filter((p) => p.status === "active").length} active`} />
+            <StatCard icon={Upload} tone="amber" label="Awaiting review" value={projects.reduce((n, p) => n + (p.pendingCount || 0), 0)} hint="pending submissions" />
+            <StatCard icon={CheckCircle} tone="green" label="Approved" value={projects.reduce((n, p) => n + (p.approvedCount || 0), 0)} hint="submissions" />
+            <StatCard icon={Camera} tone="purple" label="In-app capture" value={projects.filter((p) => p.captureMode && p.captureMode !== "upload").length} hint="projects" />
+          </div>
         )}
 
         {/* Search + filters */}

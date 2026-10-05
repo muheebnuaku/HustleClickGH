@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader } from "@/components/admin/admin-ui";
+import { Video as VideoIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -119,24 +121,25 @@ export default function AdminCallRecordingsPage() {
 
   return (
     <AdminLayout>
-      <div className="p-6 space-y-5">
+      <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-xl font-bold">Call Recordings</h1>
-            <p className="text-sm text-zinc-500 mt-0.5">All live call recordings across all users</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {total > 0 && (
-              <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-full font-medium">
-                {total} recording{total !== 1 ? "s" : ""}
-              </span>
-            )}
-            <Button variant="outline" size="sm" onClick={load}>
-              <RefreshCw size={14} className="mr-1.5" />Refresh
-            </Button>
-          </div>
-        </div>
+        <PageHeader
+          icon={VideoIcon}
+          title="Call Recordings"
+          description="All live call recordings across all users."
+          actions={
+            <>
+              {total > 0 && (
+                <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
+                  {total} recording{total !== 1 ? "s" : ""}
+                </span>
+              )}
+              <Button variant="outline" size="sm" onClick={load}>
+                <RefreshCw size={14} />Refresh
+              </Button>
+            </>
+          }
+        />
 
         {/* Filters */}
         <div className="flex flex-wrap gap-2">

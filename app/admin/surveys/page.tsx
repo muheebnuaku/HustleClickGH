@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader, StatCard, Notice } from "@/components/admin/admin-ui";
+import { ClipboardList as SurveyIcon, CheckCircle2 as ActiveIcon, MessageSquareText } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -170,51 +172,27 @@ export default function AdminPage() {
       <div className="space-y-6">
         <SurveysTabs active="manage" />
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Survey Management</h1>
-            <p className="text-zinc-600 dark:text-zinc-400 mt-1">
-              Create and manage surveys for users
-            </p>
-          </div>
-          <Button onClick={() => setShowCreateForm(!showCreateForm)}>
-            <Plus size={20} />
-            {showCreateForm ? "Cancel" : "Create Survey"}
-          </Button>
-        </div>
+        <PageHeader
+          icon={SurveyIcon}
+          title="Surveys"
+          description="Create and manage surveys for users."
+          actions={
+            <Button onClick={() => setShowCreateForm(!showCreateForm)} className="bg-blue-600 hover:bg-blue-700 text-white">
+              <Plus size={18} />
+              {showCreateForm ? "Cancel" : "Create survey"}
+            </Button>
+          }
+        />
 
         {message && (
-          <div className={`p-4 rounded-lg ${message.includes("✅") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
-            {message}
-          </div>
+          <Notice tone={message.includes("✅") ? "success" : "error"}>{message}</Notice>
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-zinc-500">Total Surveys</p>
-                <p className="text-3xl font-bold text-blue-600">{stats.totalSurveys}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-zinc-500">Active Surveys</p>
-                <p className="text-3xl font-bold text-green-600">{stats.activeSurveys}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-zinc-500">Total Responses</p>
-                <p className="text-3xl font-bold text-purple-600">{stats.totalResponses}</p>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <StatCard icon={SurveyIcon} tone="blue" label="Total surveys" value={stats.totalSurveys} />
+          <StatCard icon={ActiveIcon} tone="green" label="Active surveys" value={stats.activeSurveys} />
+          <StatCard icon={MessageSquareText} tone="purple" label="Total responses" value={stats.totalResponses} className="col-span-2 md:col-span-1" />
         </div>
 
         {/* Create Form */}

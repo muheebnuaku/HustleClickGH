@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader, StatCard } from "@/components/admin/admin-ui";
+import { Clock as ClockIcon, CheckCircle2 as ApprovedIcon, ListChecks, Wallet as WalletIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Check, X, Clock, RefreshCw, Upload, FileText, Loader2 } from "lucide-react";
@@ -145,43 +147,13 @@ export default function AdminPaymentsPage() {
   return (
     <AdminLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Payment Management</h1>
-          <p className="text-zinc-600 dark:text-zinc-400 mt-1">
-            Review and process withdrawal requests
-          </p>
-        </div>
+        <PageHeader icon={WalletIcon} title="Payments" description="Review and process withdrawal requests." />
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-zinc-500">Pending</p>
-                <p className="text-3xl font-bold text-yellow-600">
-                  {formatCurrency(totalPending)}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-zinc-500">Approved</p>
-                <p className="text-3xl font-bold text-green-600">
-                  {formatCurrency(totalApproved)}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-zinc-500">Total Requests</p>
-                <p className="text-3xl font-bold text-blue-600">{payments.length}</p>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <StatCard icon={ClockIcon} tone="amber" label="Pending" value={formatCurrency(totalPending)} />
+          <StatCard icon={ApprovedIcon} tone="green" label="Approved" value={formatCurrency(totalApproved)} />
+          <StatCard icon={ListChecks} tone="blue" label="Total requests" value={payments.length} className="col-span-2 md:col-span-1" />
         </div>
 
         {/* Filter */}

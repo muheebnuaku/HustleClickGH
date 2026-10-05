@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader } from "@/components/admin/admin-ui";
 import {
   LogIn, LogOut, UserPlus, Phone, PhoneOff, PhoneCall, PhoneMissed,
   AlertCircle, CheckCircle2, Upload, Wallet, Wifi, WifiOff, X,
@@ -248,16 +249,8 @@ export default function ActivityLogPage() {
     <AdminLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <Activity size={24} className="text-blue-600" />
-              Activity Log
-            </h1>
-            <p className="text-zinc-500 text-sm mt-0.5">
-              Live system events — {total.toLocaleString()} total entries
-            </p>
-          </div>
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <PageHeader icon={Activity} title="Activity Log" description={`Live system events — ${total.toLocaleString()} total entries.`} />
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setAutoRefresh(r => !r)}

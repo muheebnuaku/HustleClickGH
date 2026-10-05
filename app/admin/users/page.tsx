@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader, StatCard } from "@/components/admin/admin-ui";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -302,41 +303,16 @@ export default function AdminUsersPage() {
     { label: "Total Balance", value: formatCurrency(stats.totalBalance), icon: Wallet, color: "orange" },
   ] as const;
 
-  const colorMap: Record<string, string> = {
-    blue: "bg-blue-100 dark:bg-blue-900/30 text-blue-600",
-    green: "bg-green-100 dark:bg-green-900/30 text-green-600",
-    red: "bg-red-100 dark:bg-red-900/30 text-red-600",
-    yellow: "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600",
-    purple: "bg-purple-100 dark:bg-purple-900/30 text-purple-600",
-    orange: "bg-orange-100 dark:bg-orange-900/30 text-orange-600",
-    sky: "bg-sky-100 dark:bg-sky-900/30 text-sky-600",
-    slate: "bg-slate-100 dark:bg-slate-800 text-slate-600",
-  };
 
   return (
     <AdminLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">User Management</h1>
-          <p className="text-zinc-600 dark:text-zinc-400 mt-1">Manage all registered users</p>
-        </div>
+        <PageHeader icon={Users} title="Users" description="Everyone registered on the platform — search, verify, suspend and message." />
 
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {statCards.map((s) => (
-            <Card key={s.label}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0 ${colorMap[s.color]}`}>
-                    <s.icon size={22} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs sm:text-sm text-zinc-500 truncate">{s.label}</p>
-                    <p className="text-lg sm:text-2xl font-bold text-foreground truncate">{s.value}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <StatCard key={s.label} icon={s.icon} label={s.label} value={s.value} tone={s.color} />
           ))}
         </div>
 

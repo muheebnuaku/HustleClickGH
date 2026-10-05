@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader } from "@/components/admin/admin-ui";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Building2, Search, Mail, Phone, ChevronLeft, ChevronRight } from "lucide-react";
@@ -83,19 +84,16 @@ export default function AdminPartnersPage() {
   return (
     <AdminLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
-              <Building2 size={28} /> Partner Inquiries
-            </h1>
-            <p className="text-zinc-600 dark:text-zinc-400 mt-1">
-              Companies requesting datasets and partnerships
-            </p>
-          </div>
-          <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-4 py-2 rounded-xl text-sm font-semibold">
-            {newCount} new
-          </div>
-        </div>
+        <PageHeader
+          icon={Building2}
+          title="Partner Inquiries"
+          description="Companies requesting datasets and partnerships."
+          actions={
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />{newCount} new
+            </span>
+          }
+        />
 
         {/* Filters */}
         <Card>

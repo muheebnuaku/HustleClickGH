@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader } from "@/components/admin/admin-ui";
 import { Button } from "@/components/ui/button";
 import {
   Phone, Loader2, RefreshCw, AlertCircle, Video,
@@ -129,24 +130,25 @@ export default function AdminActiveCallsPage() {
 
   return (
     <AdminLayout>
-      <div className="p-6 space-y-5">
+      <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-xl font-bold">Active Calls</h1>
-            <p className="text-sm text-zinc-500 mt-0.5">Live call connections — help users reconnect if needed</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {calls.length > 0 && (
-              <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-full font-medium flex items-center gap-1">
-                <Phone size={12} /> {calls.length} active
-              </span>
-            )}
-            <Button variant="outline" size="sm" onClick={load}>
-              <RefreshCw size={14} className="mr-1.5" />Refresh
-            </Button>
-          </div>
-        </div>
+        <PageHeader
+          icon={Phone}
+          title="Active Calls"
+          description="Live call connections — help users reconnect if needed."
+          actions={
+            <>
+              {calls.length > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />{calls.length} active
+                </span>
+              )}
+              <Button variant="outline" size="sm" onClick={load}>
+                <RefreshCw size={14} />Refresh
+              </Button>
+            </>
+          }
+        />
 
         {/* Calls table */}
         {loading ? (

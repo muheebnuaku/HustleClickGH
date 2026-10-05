@@ -4,6 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
+import { PageHeader, Notice } from "@/components/admin/admin-ui";
+import { QrCode as QrIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,15 +124,10 @@ export default function AdminQRCodePage() {
   return (
     <AdminLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">QR Code Generator</h1>
-          <p className="text-zinc-600 dark:text-zinc-400 mt-1">Generate QR codes for links and promotions</p>
-        </div>
+        <PageHeader icon={QrIcon} title="QR Codes" description="Generate QR codes for links and promotions." />
 
         {message && (
-          <div className={`p-4 rounded-lg ${message.type === "success" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
-            {message.text}
-          </div>
+          <Notice tone={message.type === "success" ? "success" : "error"}>{message.text}</Notice>
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
