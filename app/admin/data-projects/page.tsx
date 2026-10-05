@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/admin-layout";
 import { PageHeader, StatCard, Notice } from "@/components/admin/admin-ui";
 import { Card } from "@/components/ui/card";
@@ -10,26 +10,14 @@ import { formatCurrency, formatUsd, formatDate } from "@/lib/utils";
 import { convertUsdToGhs, fallbackRate } from "@/lib/fx";
 import { Database, Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload, Pencil, Building2, Check, X, MapPin, Search, Camera, Tag } from "lucide-react";
 import Link from "next/link";
-import { uploadFile } from "@/lib/upload-file";
-import { GHANA_REGIONS } from "@/lib/constants";
-import {
-  CAPTURE_MODES, DEFAULT_CAPTURE_CONFIG, IN_APP_CAPTURE_FORMATS,
-  type CaptureConfig, type CaptureMode, type MetadataField,
-} from "@/lib/project-config";
-import { DotPatternEditor } from "@/components/admin/dot-pattern-editor";
-import { MetadataFieldsEditor, toEditable, fromEditable, type EditableField } from "@/components/admin/metadata-fields-editor";
+import type { CaptureConfig, CaptureMode, MetadataField } from "@/lib/project-config";
+import { ProjectWizard } from "@/components/admin/project-wizard";
 
 const PROJECT_TYPES = [
   { value: "voice", label: "Voice / Audio", icon: Mic, color: "text-blue-600 bg-blue-50" },
   { value: "video", label: "Video", icon: Video, color: "text-purple-600 bg-purple-50" },
   { value: "face", label: "Face Recognition", icon: ScanFace, color: "text-orange-600 bg-orange-50" },
 ];
-
-const FORMAT_OPTIONS: Record<string, string[]> = {
-  voice: ["mp3", "wav", "m4a", "ogg"],
-  video: ["mp4", "mov", "webm"],
-  face: ["mp4", "mov", "jpg", "png"],
-};
 
 interface DataProject {
   id: string;
@@ -76,71 +64,14 @@ interface DataProject {
   referenceCode: string | null;
 }
 
-// Section wrapper so the long create form reads as clear steps.
-function FormSection({ step, title, hint, children }: { step: number; title: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/40 p-4 space-y-3">
-      <div>
-        <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-          <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] flex items-center justify-center">{step}</span>
-          {title}
-        </h3>
-        {hint && <p className="text-xs text-zinc-500 mt-1 ml-7">{hint}</p>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-const emptyForm = {
-  title: "",
-  description: "",
-  projectType: "voice",
-  instructions: "",
-  samplePrompts: "",
-  reward: "",
-  maxSubmissions: "",
-  maxSubmissionsPerUser: "1",
-  maxFilesPerSubmission: "1",
-  languages: "",
-  minDurationSecs: "3",
-  maxDurationSecs: "60",
-  maxFileSizeMB: "",
-  expiresAt: "",
-  // Audio format (voice projects)
-  recordingType: "conversation",
-  audioSampleRate: "16000",
-  audioChannels: "1",
-  audioBitDepth: "16",
-  // Gender quotas (optional)
-  malesNeeded: "",
-  femalesNeeded: "",
-  // Organisation
-  clientName: "",
-  referenceCode: "",
-  // Capture + targeting
-  captureMode: "upload" as CaptureMode,
-  targetCountries: "",
-  targetRegions: [] as string[],
-  targetCities: "",
-  requireGeo: false,
-};
-
-const splitList = (v: string) => v.split(",").map((x) => x.trim()).filter(Boolean);
 
 export default function AdminDataProjectsPage() {
   const [projects, setProjects] = useState<DataProject[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyForm);
-  const [sampleVideoFiles, setSampleVideoFiles] = useState<File[]>([]);
-  const sampleVideoRef = useRef<HTMLInputElement>(null);
-  const [submitting, setSubmitting] = useState(false);
+  // Create/edit wizard: null = closed; project null = new project.
+  const [wizard, setWizard] = useState<{ project: DataProject | null } | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [captureConfig, setCaptureConfig] = useState<CaptureConfig>(DEFAULT_CAPTURE_CONFIG);
-  const [metaFields, setMetaFields] = useState<EditableField[]>([]);
   // List search / filters
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -171,139 +102,9 @@ export default function AdminDataProjectsPage() {
   }, []);
 
   const openEdit = (p: DataProject) => {
-    setForm({
-      title: p.title,
-      description: p.description,
-      projectType: p.projectType,
-      instructions: p.instructions || "",
-      samplePrompts: p.samplePrompts?.join("\n") || "",
-      reward: String(p.reward),
-      maxSubmissions: String(p.maxSubmissions),
-      maxSubmissionsPerUser: String(p.maxSubmissionsPerUser ?? 1),
-      maxFilesPerSubmission: String(p.maxFilesPerSubmission ?? 1),
-      languages: p.languages?.join(", ") || "",
-      minDurationSecs: String(p.minDurationSecs ?? 3),
-      maxDurationSecs: String(p.maxDurationSecs ?? 60),
-      maxFileSizeMB: p.maxFileSizeMB ? String(p.maxFileSizeMB) : "",
-      expiresAt: p.expiresAt ? p.expiresAt.slice(0, 10) : "",
-      recordingType: p.recordingType || "conversation",
-      audioSampleRate: String(p.audioSampleRate ?? 16000),
-      audioChannels: String(p.audioChannels ?? 1),
-      audioBitDepth: String(p.audioBitDepth ?? 16),
-      malesNeeded: p.malesNeeded != null ? String(p.malesNeeded) : "",
-      femalesNeeded: p.femalesNeeded != null ? String(p.femalesNeeded) : "",
-      clientName: p.clientName ?? "",
-      referenceCode: p.referenceCode ?? "",
-      captureMode: p.captureMode ?? "upload",
-      targetCountries: (p.targetCountries ?? []).join(", "),
-      targetRegions: p.targetRegions ?? [],
-      targetCities: (p.targetCities ?? []).join(", "),
-      requireGeo: !!p.requireGeo,
-    });
-    setCaptureConfig(p.captureConfig ?? DEFAULT_CAPTURE_CONFIG);
-    setMetaFields(toEditable(p.metadataFields ?? []));
-    setEditingId(p.id);
-    setShowForm(true);
     setError("");
     setMessage("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const closeForm = () => {
-    setShowForm(false);
-    setEditingId(null);
-    setForm(emptyForm);
-    setSampleVideoFiles([]);
-    setCaptureConfig(DEFAULT_CAPTURE_CONFIG);
-    setMetaFields([]);
-  };
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError("");
-    setMessage("");
-
-    const baseFormats = FORMAT_OPTIONS[form.projectType] || [];
-    const formats = form.captureMode === "upload" ? baseFormats : Array.from(new Set([...baseFormats, ...IN_APP_CAPTURE_FORMATS]));
-    if (form.captureMode === "nose_dots" && captureConfig.dots.length === 0) {
-      setError("Add at least one dot for the guided nose task.");
-      setSubmitting(false);
-      return;
-    }
-    // Shared by create + edit: capture, metadata, targeting.
-    const setup = {
-      captureMode: form.captureMode,
-      captureConfig: form.captureMode === "upload" ? null : captureConfig,
-      metadataFields: fromEditable(metaFields),
-      targetCountries: splitList(form.targetCountries),
-      targetRegions: form.targetRegions,
-      targetCities: splitList(form.targetCities),
-    };
-    const langArray = form.languages
-      ? form.languages.split(",").map((l) => l.trim()).filter(Boolean)
-      : [];
-    const promptsArray = form.samplePrompts
-      ? form.samplePrompts.split("\n").map((p) => p.trim()).filter(Boolean)
-      : [];
-
-    try {
-      if (editingId) {
-        // ── Edit existing project ──
-        const res = await fetch(`/api/admin/data-projects/${editingId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...form,
-            ...setup,
-            languages: langArray,
-            samplePrompts: promptsArray,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.message || "Failed to update project");
-        } else {
-          setMessage("Project updated successfully!");
-          closeForm();
-          fetchProjects();
-        }
-      } else {
-        // ── Create new project ──
-        let sampleVideoUrls: string[] = [];
-        if (sampleVideoFiles.length && (form.projectType === "video" || form.projectType === "face")) {
-          const uploaded = await Promise.all(
-            sampleVideoFiles.map((f) => uploadFile(f, "sample-videos", f.name))
-          );
-          sampleVideoUrls = uploaded.map((u) => u.url);
-        }
-
-        const res = await fetch("/api/admin/data-projects", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...form,
-            ...setup,
-            acceptedFormats: formats,
-            languages: langArray,
-            samplePrompts: promptsArray,
-            sampleVideoUrls,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.message || "Failed to create project");
-        } else {
-          setMessage("Project created successfully!");
-          closeForm();
-          fetchProjects();
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
-    } finally {
-      setSubmitting(false);
-    }
+    setWizard({ project: p });
   };
 
   const handleStatusChange = async (id: string, status: string) => {
@@ -383,7 +184,7 @@ export default function AdminDataProjectsPage() {
           title="Data Projects"
           description="Create, target and review AI data collection projects."
           actions={
-            <Button onClick={() => { closeForm(); setShowForm(!showForm); }} className="bg-blue-600 hover:bg-blue-700 text-white">
+            <Button onClick={() => { setError(""); setMessage(""); setWizard({ project: null }); }} className="bg-blue-600 hover:bg-blue-700 text-white">
               <Plus size={16} />
               New project
             </Button>
@@ -397,319 +198,15 @@ export default function AdminDataProjectsPage() {
           <Notice tone="error">{error}</Notice>
         )}
 
-        {/* Create Form */}
-        {showForm && (
-          <Card className="p-6 border-blue-200 bg-blue-50/30">
-            <h2 className="text-lg font-semibold mb-4">{editingId ? "Edit Project" : "Create New Data Collection Project"}</h2>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Project Title *</label>
-                  <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Twi Voice Dataset Collection" required />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Project Type *</label>
-                  <select
-                    className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.projectType}
-                    onChange={(e) => setForm({ ...form, projectType: e.target.value, captureMode: e.target.value === "voice" ? "upload" : form.captureMode })}
-                    disabled={!!editingId}
-                    title={editingId ? "Project type can't change after creation" : undefined}
-                  >
-                    {PROJECT_TYPES.map((t) => (
-                      <option key={t.value} value={t.value}>{t.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Client (internal)</label>
-                  <Input value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} placeholder="Who the data is for — never shown to contributors" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Reference / batch code</label>
-                  <Input value={form.referenceCode} onChange={(e) => setForm({ ...form, referenceCode: e.target.value })} placeholder="e.g. NOSE-ACC-B1" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Description *</label>
-                <textarea
-                  className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  rows={2}
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  placeholder="What data are you collecting and what will it be used for?"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Recording Instructions *</label>
-                <textarea
-                  className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  rows={3}
-                  value={form.instructions}
-                  onChange={(e) => setForm({ ...form, instructions: e.target.value })}
-                  placeholder="Step-by-step guide: e.g. 1. Find a quiet room. 2. Open your phone voice recorder. 3. Read the phrase clearly..."
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Sample Prompts (one per line)</label>
-                <textarea
-                  className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  rows={3}
-                  value={form.samplePrompts}
-                  onChange={(e) => setForm({ ...form, samplePrompts: e.target.value })}
-                  placeholder="Me din de Kwame&#10;Wo ho te sɛn?&#10;Medaase paa"
-                />
-                <p className="text-xs text-zinc-400 mt-1">Phrases or sentences the user should say or read aloud</p>
-              </div>
-
-              {/* Sample videos — video & face projects; add as many as you like */}
-              {(form.projectType === "video" || form.projectType === "face") && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">Sample Videos (optional)</label>
-                  {sampleVideoFiles.length > 0 && (
-                    <div className="space-y-2 mb-2">
-                      {sampleVideoFiles.map((f, i) => (
-                        <div key={`${f.name}-${i}`} className="flex items-center gap-3 rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-2">
-                          <Video size={18} className="text-purple-500 shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-foreground truncate">{f.name}</p>
-                            <p className="text-xs text-zinc-400">{(f.size / (1024 * 1024)).toFixed(1)} MB</p>
-                          </div>
-                          <button type="button" onClick={() => setSampleVideoFiles((prev) => prev.filter((_, idx) => idx !== i))} className="text-xs text-red-500 hover:underline shrink-0">Remove</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div
-                    onClick={() => sampleVideoRef.current?.click()}
-                    className="border-2 border-dashed border-zinc-200 rounded-xl p-5 text-center cursor-pointer hover:border-purple-400 hover:bg-purple-50/20 transition-colors"
-                  >
-                    <div className="text-zinc-400">
-                      <Upload size={24} className="mx-auto mb-2 opacity-50" />
-                      <p className="text-sm font-medium">{sampleVideoFiles.length ? "Add another sample video" : "Click to upload sample videos"}</p>
-                      <p className="text-xs mt-1">mp4, mov, webm · Max 50MB each · Users will watch these before submitting</p>
-                    </div>
-                  </div>
-                  <input
-                    ref={sampleVideoRef}
-                    type="file"
-                    multiple
-                    accept="video/*,.mp4,.mov,.webm"
-                    onChange={(e) => {
-                      const picked = Array.from(e.target.files || []);
-                      if (picked.length) setSampleVideoFiles((prev) => [...prev, ...picked]);
-                      e.target.value = "";
-                    }}
-                    className="hidden"
-                  />
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Reward (GH₵) *</label>
-                  <Input type="number" step="0.5" min="0.5" value={form.reward} onChange={(e) => setForm({ ...form, reward: e.target.value })} placeholder="2.00" required />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Max Submissions *</label>
-                  <Input type="number" min="1" value={form.maxSubmissions} onChange={(e) => setForm({ ...form, maxSubmissions: e.target.value })} placeholder="500" required />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Submits Per User</label>
-                  <Input type="number" min="1" max="100" value={form.maxSubmissionsPerUser} onChange={(e) => setForm({ ...form, maxSubmissionsPerUser: e.target.value })} placeholder="1" />
-                  <p className="text-[11px] text-zinc-400 mt-0.5">How many times each user may submit.</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Files Per Submission</label>
-                  <Input type="number" min="1" max="50" value={form.maxFilesPerSubmission} onChange={(e) => setForm({ ...form, maxFilesPerSubmission: e.target.value })} placeholder="1" />
-                  <p className="text-[11px] text-zinc-400 mt-0.5">How many files a user can upload in one submission (e.g. 4 for indoor + outdoor clips).</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Min Duration (s)</label>
-                  <Input type="number" min="1" value={form.minDurationSecs} onChange={(e) => setForm({ ...form, minDurationSecs: e.target.value })} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Max Duration (s)</label>
-                  <Input type="number" min="5" value={form.maxDurationSecs} onChange={(e) => setForm({ ...form, maxDurationSecs: e.target.value })} />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Max File Size (MB)</label>
-                  <Input type="number" min="0" value={form.maxFileSizeMB} onChange={(e) => setForm({ ...form, maxFileSizeMB: e.target.value })} placeholder="Blank = no limit" />
-                  <p className="text-[11px] text-zinc-400 mt-0.5">Leave blank for no size limit (files are still capped by storage — see note).</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Languages (comma-separated)</label>
-                  <Input value={form.languages} onChange={(e) => setForm({ ...form, languages: e.target.value })} placeholder="English, Twi, Ga, Hausa" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Expiry Date (optional)</label>
-                  <Input type="date" value={form.expiresAt} onChange={(e) => setForm({ ...form, expiresAt: e.target.value })} />
-                </div>
-              </div>
-
-              {/* How contributors record */}
-              {(form.projectType === "video" || form.projectType === "face") && (
-                <FormSection step={1} title="How contributors record" hint="Choose in-app recording to control exactly how the video is captured.">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    {CAPTURE_MODES.map((m) => (
-                      <button
-                        key={m.value}
-                        type="button"
-                        onClick={() => setForm({ ...form, captureMode: m.value })}
-                        className={`text-left rounded-xl border-2 p-3 transition-colors ${form.captureMode === m.value ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" : "border-zinc-200 dark:border-zinc-800 hover:border-blue-300"}`}
-                      >
-                        <p className="text-sm font-semibold text-foreground">{m.label}</p>
-                        <p className="text-xs text-zinc-500 mt-0.5">{m.help}</p>
-                      </button>
-                    ))}
-                  </div>
-                  {form.captureMode !== "upload" && (
-                    <DotPatternEditor value={captureConfig} onChange={setCaptureConfig} showDots={form.captureMode === "nose_dots"} />
-                  )}
-                  {form.captureMode === "nose_dots" && (
-                    <p className="text-xs text-zinc-500">Tip: set <strong>Max Duration</strong> below to the time limit for the task (e.g. 60s). Recording stops on its own once every dot is connected.</p>
-                  )}
-                </FormSection>
-              )}
-
-              {/* Who can take it */}
-              <FormSection step={form.projectType === "voice" ? 1 : 2} title="Who can take it — location" hint="Leave everything blank to open the project to everyone. Matched against each contributor's profile location.">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium mb-1 text-zinc-600">Countries</label>
-                    <Input value={form.targetCountries} onChange={(e) => setForm({ ...form, targetCountries: e.target.value })} placeholder="e.g. Ghana (comma-separated)" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1 text-zinc-600">Cities / towns</label>
-                    <Input value={form.targetCities} onChange={(e) => setForm({ ...form, targetCities: e.target.value })} placeholder="e.g. Accra, Kumasi, Tamale" />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-zinc-600">Regions (Ghana)</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {GHANA_REGIONS.map((r) => {
-                      const on = form.targetRegions.includes(r);
-                      return (
-                        <button
-                          key={r}
-                          type="button"
-                          onClick={() => setForm({ ...form, targetRegions: on ? form.targetRegions.filter((x) => x !== r) : [...form.targetRegions, r] })}
-                          className={`text-xs rounded-full px-2.5 py-1 border ${on ? "bg-emerald-600 border-emerald-600 text-white" : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-emerald-400"}`}
-                        >
-                          {r}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <label className="flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-300 cursor-pointer">
-                  <input type="checkbox" checked={form.requireGeo} onChange={(e) => setForm({ ...form, requireGeo: e.target.checked })} className="w-4 h-4 rounded mt-0.5" />
-                  <span>Capture device GPS with every submission <span className="text-xs text-zinc-400">(proof of where it was recorded; contributors must allow location)</span></span>
-                </label>
-              </FormSection>
-
-              {/* Metadata */}
-              <FormSection step={form.projectType === "voice" ? 2 : 3} title="Details collected with each submission" hint="Contributors fill these in before submitting. They appear on the review page and in the export.">
-                <MetadataFieldsEditor value={metaFields} onChange={setMetaFields} />
-              </FormSection>
-
-              {/* Gender Quota */}
-              <div className="border border-pink-200 rounded-lg p-4 bg-pink-50/30 space-y-2">
-                <h3 className="text-sm font-semibold text-pink-800">Gender Quota (optional)</h3>
-                <p className="text-xs text-pink-600">Leave blank if gender doesn&apos;t matter. When set, users must select their gender and slots will show separately.</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium mb-1 text-zinc-600">Males Needed</label>
-                    <Input type="number" min="0" value={form.malesNeeded} onChange={(e) => setForm({ ...form, malesNeeded: e.target.value })} placeholder="e.g. 20" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1 text-zinc-600">Females Needed</label>
-                    <Input type="number" min="0" value={form.femalesNeeded} onChange={(e) => setForm({ ...form, femalesNeeded: e.target.value })} placeholder="e.g. 20" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Audio Format Config — voice projects only */}
-              {form.projectType === "voice" && (
-                <div className="border border-blue-200 rounded-lg p-4 bg-blue-50/40 space-y-3">
-                  <h3 className="text-sm font-semibold text-blue-800">Audio Format Specifications</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium mb-1 text-zinc-600">Recording Type</label>
-                      <select
-                        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        value={form.recordingType}
-                        onChange={(e) => setForm({ ...form, recordingType: e.target.value })}
-                      >
-                        <option value="conversation">Conversation (2 people)</option>
-                        <option value="single">Single Person</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1 text-zinc-600">Sample Rate</label>
-                      <select
-                        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        value={form.audioSampleRate}
-                        onChange={(e) => setForm({ ...form, audioSampleRate: e.target.value })}
-                      >
-                        <option value="16000">16 kHz</option>
-                        <option value="44100">44.1 kHz</option>
-                        <option value="48000">48 kHz</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1 text-zinc-600">Channels</label>
-                      <select
-                        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        value={form.audioChannels}
-                        onChange={(e) => setForm({ ...form, audioChannels: e.target.value })}
-                      >
-                        <option value="1">Mono (1ch)</option>
-                        <option value="2">Stereo (2ch)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1 text-zinc-600">Bit Depth</label>
-                      <select
-                        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        value={form.audioBitDepth}
-                        onChange={(e) => setForm({ ...form, audioBitDepth: e.target.value })}
-                      >
-                        <option value="16">16-bit PCM</option>
-                        <option value="32">32-bit Float</option>
-                      </select>
-                    </div>
-                  </div>
-                  <p className="text-xs text-blue-700">Live call recordings will be captured as WAV at these exact specs. Upload submissions should match.</p>
-                </div>
-              )}
-
-              <div className="bg-zinc-50 rounded-lg p-3 text-sm text-zinc-600">
-                <strong>Accepted formats for {form.projectType}:</strong> {form.projectType === "voice" ? "wav" : FORMAT_OPTIONS[form.projectType]?.join(", ")}
-              </div>
-
-              <div className="flex gap-3">
-                <Button type="submit" disabled={submitting} className="bg-blue-600 hover:bg-blue-700 text-white">
-                  {submitting ? <><Loader2 size={16} className="mr-2 animate-spin" />{editingId ? "Saving..." : "Creating..."}</> : editingId ? "Save Changes" : "Create Project"}
-                </Button>
-                <Button type="button" variant="outline" onClick={closeForm}>Cancel</Button>
-              </div>
-            </form>
-          </Card>
+        {wizard && (
+          <ProjectWizard
+            project={wizard.project}
+            onClose={() => setWizard(null)}
+            onSaved={(msg) => { setWizard(null); setMessage(msg); fetchProjects(); }}
+          />
         )}
 
-        {/* Overview */}
+        {/* Overview */}        {/* Overview */}
         {!loading && projects.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatCard icon={Database} tone="blue" label="Projects" value={projects.length} hint={`${projects.filter((p) => p.status === "active").length} active`} />
