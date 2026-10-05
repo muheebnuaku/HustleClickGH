@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, accountVerifiedEmail, locationRequestEmail } from "@/lib/email";
+import { logActivity, getIp } from "@/lib/activity-log";
 
 // Admin: Get all users
 export async function GET() {
@@ -30,6 +31,15 @@ export async function GET() {
       },
       orderBy: { createdAt: "desc" },
     });
+
+    // Who referred whom (to group contributors under their manager) and how much
+    // commission each manager has earned — two light queries, not per-user.
+    const [referralLinks, commissionTotals] = await Promise.all([
+      prisma.referral.findMany({ select: { referrerId: true, referredId: true } }),
+      prisma.managerCommission.groupBy({ by: ["managerId"], _sum: { amount: true } }),
+    ]);
+    const referredBy = new Map(referralLinks.map((r) => [r.referredId, r.referrerId]));
+    const commissionBy = new Map(commissionTotals.map((c) => [c.managerId, c._sum.amount ?? 0]));
 
     // Duplicate-phone detection: a phone shared by more than one account is a
     // multi-account / fraud signal worth flagging for review.
@@ -64,10 +74,13 @@ export async function GET() {
       fraudRiskReason: user.fraudRiskReason,
       fraudFlaggedAt: user.fraudFlaggedAt,
       suspectedDuplicateOfUserId: user.suspectedDuplicateOfUserId,
+      referredById: referredBy.get(user.id) ?? null,
+      commissionEarned: commissionBy.get(user.id) ?? 0,
     }));
 
     // Calculate stats
     const totalUsers = users.length;
+    const managers = users.filter(u => u.role === "manager").length;
     const activeUsers = users.filter(u => u.status === "active").length;
     const suspendedUsers = users.filter(u => u.status === "suspended").length;
     const verifiedUsers = users.filter(u => u.verified).length;
@@ -84,6 +97,7 @@ export async function GET() {
       users: formattedUsers,
       stats: {
         totalUsers,
+        managers,
         activeUsers,
         suspendedUsers,
         verifiedUsers,
@@ -115,7 +129,7 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const { userId, action, value } = body;
 
-    const VALID = ["suspend", "unsuspend", "verify", "unverify", "request_location", "set_commission", "set_submit_limit"];
+    const VALID = ["suspend", "unsuspend", "verify", "unverify", "request_location", "set_commission", "set_submit_limit", "make_manager", "revoke_manager"];
     if (!userId || !VALID.includes(action)) {
       return NextResponse.json(
         { message: "Invalid request: userId and a valid action are required" },
@@ -147,6 +161,22 @@ export async function PATCH(request: Request) {
         break;
       case "unverify":
         data = { verified: false, verifiedAt: null };
+        break;
+      // Manager position. Only ever flips user ⇄ manager — never touches admin or
+      // organization accounts. Commission / submit-limit settings are kept, so
+      // re-granting restores them. Referrals already made stay; the normal
+      // referral cap applies again to new ones after a revoke.
+      case "make_manager":
+        if (user.role !== "user") {
+          return NextResponse.json({ message: "Only regular users can be made managers" }, { status: 400 });
+        }
+        data = { role: "manager" };
+        break;
+      case "revoke_manager":
+        if (user.role !== "manager") {
+          return NextResponse.json({ message: "This user isn't a manager" }, { status: 400 });
+        }
+        data = { role: "user" };
         break;
       case "set_commission": {
         if (user.role !== "manager") {
@@ -181,6 +211,17 @@ export async function PATCH(request: Request) {
     }
 
     const updated = await prisma.user.update({ where: { id: userId }, data });
+
+    if (action === "make_manager" || action === "revoke_manager") {
+      logActivity({
+        type: "role_change",
+        userId: updated.id,
+        userName: updated.fullName,
+        severity: action === "revoke_manager" ? "warning" : "info",
+        metadata: { action, by: session.user.id, byName: session.user.name ?? null, from: user.role, to: updated.role },
+        ip: getIp(request),
+      });
+    }
 
     // Keep the user informed by email, via after() so the send actually gets
     // a chance to complete rather than racing the function freezing once the

@@ -263,11 +263,13 @@ export const authOptions: NextAuthOptions = {
         }
       }
 
-      // Periodically re-check suspension so middleware (which reads the JWT) can
-      // block a user suspended AFTER they logged in. Throttled to ~30s.
+      // Periodically re-check suspension AND role so middleware (which reads the
+      // JWT) reflects an admin suspending someone or granting/revoking manager
+      // AFTER they logged in. Throttled to ~30s.
       if (!user && token.id && (typeof token.statusAt !== "number" || Date.now() - token.statusAt > 30000)) {
-        const dbUser = await prisma.user.findUnique({ where: { id: token.id as string }, select: { status: true } });
+        const dbUser = await prisma.user.findUnique({ where: { id: token.id as string }, select: { status: true, role: true } });
         token.status = dbUser?.status ?? "suspended";
+        if (dbUser?.role) token.role = dbUser.role;
         token.statusAt = Date.now();
       }
 
@@ -280,12 +282,14 @@ export const authOptions: NextAuthOptions = {
         session.user.role = token.role as string;
         session.user.profileCompleted = Boolean(token.profileCompleted);
         session.user.consentAccepted = Boolean(token.consentAccepted);
-        // Authoritative status: getServerSession runs this callback on every
-        // protected API request, so a user suspended after login is blocked
-        // immediately (a cheap indexed lookup). Missing user → treat as suspended.
+        // Authoritative status + role: getServerSession runs this callback on every
+        // protected API request, so a user suspended (or whose manager role was
+        // revoked) after login is affected immediately (a cheap indexed lookup).
+        // Missing user → treat as suspended.
         if (token.id) {
-          const dbUser = await prisma.user.findUnique({ where: { id: token.id as string }, select: { status: true } });
+          const dbUser = await prisma.user.findUnique({ where: { id: token.id as string }, select: { status: true, role: true } });
           session.user.status = dbUser?.status ?? "suspended";
+          if (dbUser?.role) session.user.role = dbUser.role;
         } else {
           session.user.status = "suspended";
         }

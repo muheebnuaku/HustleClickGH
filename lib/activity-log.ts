@@ -23,6 +23,7 @@ export type LogType =
   | "page_close_during_call"
   | "location_update"
   | "client_review"
+  | "role_change"
   | "recording_shared"
   | "recording_share_failed"
   | "partner_inquiry"

@@ -48,6 +48,7 @@ const LOG_CONFIG: Record<
   page_close_during_call:  { label: "Page Closed in Call",  icon: AlertCircle, color: "text-red-700",   bg: "bg-red-50",     border: "border-red-200"    },
   location_update:         { label: "Location Updated",     icon: MapPin,      color: "text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-200" },
   client_review:           { label: "Client Review",        icon: CheckCircle2, color: "text-violet-700", bg: "bg-violet-50", border: "border-violet-200" },
+  role_change:             { label: "Role Changed",         icon: User,         color: "text-amber-700", bg: "bg-amber-50", border: "border-amber-200" },
   submission:              { label: "Submission",            icon: Upload,     color: "text-purple-700", bg: "bg-purple-50",  border: "border-purple-200" },
   submission_approved:     { label: "Submission Approved",   icon: CheckCircle2, color: "text-green-700", bg: "bg-green-50", border: "border-green-200"  },
   submission_rejected:     { label: "Submission Rejected",   icon: AlertCircle, color: "text-red-700",   bg: "bg-red-50",     border: "border-red-200"    },
