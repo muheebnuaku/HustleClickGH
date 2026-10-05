@@ -5,7 +5,7 @@
 // is asked, the capture method decides whether a camera/dots step appears, and
 // yes/no toggles reveal optional settings (quotas, deadline, extra details).
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Mic, Video, ScanFace, Upload, Camera, Crosshair, Check, ChevronLeft, ChevronRight, X, Loader2,
   FileText, MapPin, ListChecks, Wallet, Eye, Sparkles, Trash2, Lock,
@@ -55,6 +55,7 @@ export interface WizardProject {
   clientName: string | null;
   referenceCode: string | null;
   orgName?: string | null;
+  reviewOrgId?: string | null;
 }
 
 const TYPES: { value: string; label: string; help: string; icon: LucideIcon; tint: string }[] = [
@@ -112,6 +113,7 @@ function initialForm(p?: WizardProject | null) {
     malesNeeded: p?.malesNeeded != null ? String(p.malesNeeded) : "",
     femalesNeeded: p?.femalesNeeded != null ? String(p.femalesNeeded) : "",
     clientName: p?.clientName ?? "",
+    reviewOrgId: p?.reviewOrgId ?? "",
     referenceCode: p?.referenceCode ?? "",
     captureMode: (p?.captureMode ?? "upload") as CaptureMode,
     targetCountries: (p?.targetCountries ?? []).join(", "),
@@ -219,6 +221,15 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
+
+  // Client organizations that can be given review access.
+  const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    fetch("/api/admin/organizations")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setOrgs((d?.organizations ?? []).map((o: { id: string; name: string }) => ({ id: o.id, name: o.name }))))
+      .catch(() => {});
+  }, []);
 
   const isCameraType = form.projectType === "video" || form.projectType === "face";
   const steps: StepId[] = [
@@ -437,6 +448,22 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
                   <input className={inputCls} value={form.referenceCode} onChange={(e) => set({ referenceCode: e.target.value })} placeholder="e.g. NOSE-ACC-B1" />
                 </Field>
               </div>
+              <Reveal
+                title="Let the client review submissions"
+                help="They log in to their client portal, check each recording and its details, and mark it Pass or Fail."
+                on={!!form.reviewOrgId}
+                onChange={(v) => set({ reviewOrgId: v ? orgs[0]?.id ?? "" : "" })}
+              >
+                {orgs.length ? (
+                  <Field label="Client account" hint="Contributors are shown to the client by reference ID only.">
+                    <select className={inputCls} value={form.reviewOrgId} onChange={(e) => set({ reviewOrgId: e.target.value })}>
+                      {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                    </select>
+                  </Field>
+                ) : (
+                  <p className="text-sm text-zinc-500">No client accounts yet. Create one under <strong>Organizations</strong> first, then come back.</p>
+                )}
+              </Reveal>
             </div>
           </>
         );
@@ -602,6 +629,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
               } />}
               <Row step="basics" label="Title" value={<span className="font-medium">{form.title || "—"}</span>} />
               {(form.clientName || form.referenceCode) && <Row step="basics" label="Client / reference" value={[form.clientName, form.referenceCode].filter(Boolean).join(" · ")} />}
+              {form.reviewOrgId && <Row step="basics" label="Client review" value={orgs.find((o) => o.id === form.reviewOrgId)?.name ?? "Selected client"} />}
               <Row step="audience" label="Who can take it" value={
                 <>
                   {useLocation && locationSummary ? locationSummary : "Anyone"}

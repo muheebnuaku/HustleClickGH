@@ -12,8 +12,21 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const project = await (prisma.dataProject.findUnique as any)({ where: { id } });
-  if (!project || project.orgId !== org.id) {
+  const access = project?.orgId === org.id ? "owner" : project?.reviewOrgId === org.id ? "review" : null;
+  if (!project || !access) {
     return NextResponse.json({ message: "Project not found" }, { status: 404 });
+  }
+
+  const verdicts = await prisma.dataSubmission.groupBy({
+    by: ["clientVerdict"],
+    where: { projectId: id, status: { not: "rejected" } },
+    _count: { _all: true },
+  });
+  const review = { toReview: 0, pass: 0, fail: 0 };
+  for (const v of verdicts) {
+    if (v.clientVerdict === "pass") review.pass = v._count._all;
+    else if (v.clientVerdict === "fail") review.fail = v._count._all;
+    else review.toReview += v._count._all;
   }
 
   const grouped = await prisma.dataSubmission.groupBy({
@@ -41,6 +54,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       usageTerms: project.usageTerms ?? null,
     },
     counts,
+    access,
+    review,
     approvedReady: counts.approved, // downloadable
     withdrawnCount,
   });

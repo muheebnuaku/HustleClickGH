@@ -61,6 +61,8 @@ interface DataProject {
   targetCities: string[];
   requireGeo: boolean;
   clientName: string | null;
+  reviewOrgId?: string | null;
+  reviewOrgName?: string | null;
   referenceCode: string | null;
 }
 
@@ -279,6 +281,11 @@ export default function AdminDataProjectsPage() {
                       {(p.clientName || p.referenceCode) && (
                         <span className="text-xs px-2 py-1 rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 inline-flex items-center gap-1">
                           <Tag size={11} />{[p.clientName, p.referenceCode].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
+                      {p.reviewOrgName && (
+                        <span className="text-xs px-2 py-1 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 inline-flex items-center gap-1">
+                          <Check size={11} />Client review: {p.reviewOrgName}
                         </span>
                       )}
                       <span className="text-xs text-zinc-400">{formatDate(p.createdAt)}</span>

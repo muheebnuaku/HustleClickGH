@@ -8,13 +8,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatUsd } from "@/lib/utils";
 import { orgStatusLabel, orgStatusClass } from "@/lib/org-status";
-import { Loader2, ArrowLeft, Download, Database, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Loader2, ArrowLeft, Download, Database, ShieldCheck, AlertTriangle, ClipboardCheck, ChevronRight } from "lucide-react";
 
 interface Detail {
   project: { id: string; title: string; description: string; projectType: string; status: string; reward: number; maxSubmissions: number; currentSubmissions: number; budget: number; spent: number; languages: string[]; license?: { key: string; label: string; description: string }; usageTerms?: string | null };
   counts: { pending: number; approved: number; rejected: number };
   approvedReady: number;
   withdrawnCount: number;
+  access?: "owner" | "review";
+  review?: { toReview: number; pass: number; fail: number };
 }
 
 export default function OrgProjectDetail() {
@@ -31,6 +33,7 @@ export default function OrgProjectDetail() {
   if (!d?.project) return <OrgLayout><Card><CardContent className="p-10 text-center text-zinc-500">Project not found.</CardContent></Card></OrgLayout>;
 
   const p = d.project;
+  const owner = d.access !== "review";
   const pct = Math.min(100, Math.round((d.counts.approved / p.maxSubmissions) * 100));
 
   return (
@@ -62,6 +65,24 @@ export default function OrgProjectDetail() {
           </CardContent>
         </Card>
 
+        {d.review && (
+          <Link href={`/org/projects/${id}/review`} className="block">
+            <Card className="border-emerald-200 dark:border-emerald-900 hover:shadow-md transition-shadow">
+              <CardContent className="p-5 flex items-center gap-4">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shrink-0"><ClipboardCheck size={21} /></div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-foreground">Review submissions</p>
+                  <p className="text-sm text-zinc-500">
+                    <strong className="text-amber-600">{d.review.toReview}</strong> to review · <span className="text-emerald-600">{d.review.pass} passed</span> · <span className="text-red-600">{d.review.fail} failed</span>
+                  </p>
+                </div>
+                <ChevronRight size={18} className="text-zinc-400 shrink-0" />
+              </CardContent>
+            </Card>
+          </Link>
+        )}
+
+        {owner && (
         <Card>
           <CardContent className="p-5">
             <div className="flex items-center justify-between text-sm">
@@ -71,6 +92,7 @@ export default function OrgProjectDetail() {
             <div className="bg-zinc-100 dark:bg-zinc-800 rounded-full h-1.5 w-full mt-2"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${p.budget ? Math.min(100, (p.spent / p.budget) * 100) : 0}%` }} /></div>
           </CardContent>
         </Card>
+        )}
 
         {p.license && (
           <Card>
@@ -84,6 +106,7 @@ export default function OrgProjectDetail() {
           </Card>
         )}
 
+        {owner && (
         <Card>
           <CardContent className="p-5">
             <h2 className="font-semibold text-foreground flex items-center gap-2 mb-1"><Database size={18} /> Download dataset</h2>
@@ -98,6 +121,7 @@ export default function OrgProjectDetail() {
             </div>
           </CardContent>
         </Card>
+        )}
 
         {d.withdrawnCount > 0 && (
           <Card className="border-amber-300 dark:border-amber-800">

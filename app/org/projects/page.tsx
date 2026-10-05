@@ -12,7 +12,7 @@ import { orgStatusLabel, orgStatusClass } from "@/lib/org-status";
 import { LICENSES, DEFAULT_LICENSE } from "@/lib/licenses";
 import { Loader2, Plus, X, Mic, Video, ArrowRight } from "lucide-react";
 
-interface P { id: string; title: string; projectType: string; status: string; reward: number; maxSubmissions: number; currentSubmissions: number; budget: number; spent: number; counts: { pending: number; approved: number; rejected: number }; }
+interface P { id: string; title: string; projectType: string; status: string; reward: number; maxSubmissions: number; currentSubmissions: number; budget: number; spent: number; counts: { pending: number; approved: number; rejected: number }; access?: "owner" | "review"; }
 
 export default function OrgProjects() {
   const router = useRouter();
@@ -113,9 +113,10 @@ export default function OrgProjects() {
                           {p.projectType === "video" ? <Video size={16} className="text-purple-500" /> : <Mic size={16} className="text-blue-500" />}
                           <h3 className="font-semibold text-foreground truncate">{p.title}</h3>
                         </div>
-                        <p className="text-sm text-zinc-500 mt-1">{p.counts.approved}/{p.maxSubmissions} collected · {p.counts.pending} pending · {formatUsd(p.reward)}/each</p>
+                        <p className="text-sm text-zinc-500 mt-1">{p.counts.approved}/{p.maxSubmissions} collected · {p.counts.pending} pending{p.access !== "review" && <> · {formatUsd(p.reward)}/each</>}</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
+                        {p.access === "review" && <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Review access</span>}
                         <span className={`text-xs px-2 py-0.5 rounded-full ${orgStatusClass(p.status)}`}>{orgStatusLabel(p.status)}</span>
                         <ArrowRight size={16} className="text-zinc-400" />
                       </div>
@@ -123,7 +124,7 @@ export default function OrgProjects() {
                     <div className="mt-3 bg-zinc-100 dark:bg-zinc-800 rounded-full h-1.5 w-full">
                       <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (p.counts.approved / p.maxSubmissions) * 100)}%` }} />
                     </div>
-                    <p className="text-xs text-zinc-400 mt-1.5">Budget {formatUsd(p.budget)} · spent {formatUsd(p.spent)}</p>
+                    {p.access !== "review" && <p className="text-xs text-zinc-400 mt-1.5">Budget {formatUsd(p.budget)} · spent {formatUsd(p.spent)}</p>}
                   </CardContent>
                 </Card>
               </Link>

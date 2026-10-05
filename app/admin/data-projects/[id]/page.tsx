@@ -6,7 +6,8 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Card } from "@/components/ui/card";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download, MessageSquare, Send, X, Trash2, Sparkles, MapPin, FileSpreadsheet } from "lucide-react";
-import { CAPTURE_ASPECT, type CaptureTrace, type MetadataField } from "@/lib/project-config";
+import type { CaptureTrace, MetadataField } from "@/lib/project-config";
+import { CaptureTraceView } from "@/components/capture-trace-view";
 import { toDownloadUrl } from "@/lib/upload-file";
 import type { AiReviewResult } from "@/lib/ai-review";
 import Link from "next/link";
@@ -25,6 +26,8 @@ interface Submission {
   metadata?: string | null; // JSON {fieldKey: value}
   captureData?: string | null; // JSON CaptureTrace
   location?: string | null; // JSON {country,region,city,lat?,lng?,accuracyM?}
+  clientVerdict?: "pass" | "fail" | null;
+  clientNote?: string | null;
   status: string;
   rewarded: boolean;
   notes: string | null;
@@ -57,45 +60,13 @@ interface Project {
   metadataFields?: MetadataField[];
   clientName?: string | null;
   referenceCode?: string | null;
+  reviewOrgName?: string | null;
 }
 
 const parseJson = <T,>(raw?: string | null): T | null => {
   if (!raw) return null;
   try { return JSON.parse(raw) as T; } catch { return null; }
 };
-
-// Mini replay of a guided capture: the dot pattern plus the nose path the
-// contributor actually traced, in the same 3:4 frame they saw.
-function CaptureTraceView({ trace }: { trace: CaptureTrace }) {
-  const W = 120;
-  const H = W / CAPTURE_ASPECT;
-  const pts = trace.path.map(([, x, y]) => `${(x * W).toFixed(1)},${(y * H).toFixed(1)}`).join(" ");
-  const hitAt = new Map(trace.hits.map((h) => [h.index, h.tMs]));
-  return (
-    <div className="flex gap-3 items-start">
-      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="rounded-lg bg-zinc-900 shrink-0">
-        {pts && <polyline points={pts} fill="none" stroke="#60a5fa" strokeWidth={1.2} strokeOpacity={0.8} />}
-        {trace.dots.map((d, i) => (
-          <g key={i}>
-            <circle cx={d.x * W} cy={d.y * H} r={7} fill={hitAt.has(i) ? "#22c55e" : "rgba(255,255,255,0.25)"} stroke="#fff" strokeWidth={1} />
-            <text x={d.x * W} y={d.y * H + 3} textAnchor="middle" fontSize={8} fontWeight={700} fill="#fff">{i + 1}</text>
-          </g>
-        ))}
-      </svg>
-      <div className="text-xs text-zinc-500 space-y-0.5 min-w-0">
-        <p className={trace.completed ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
-          {trace.mode === "nose_dots"
-            ? `${trace.hits.length}/${trace.dots.length} dots connected${trace.completed ? "" : " (incomplete)"}`
-            : "In-app recording"}
-        </p>
-        <p>Length {(trace.durationMs / 1000).toFixed(1)}s · {trace.videoWidth}×{trace.videoHeight}{trace.mirrored ? " · selfie (mirrored view)" : ""}</p>
-        {trace.hits.length > 0 && (
-          <p className="break-words">Dot times: {trace.hits.map((h) => `${h.index + 1}@${(h.tMs / 1000).toFixed(1)}s`).join(" · ")}</p>
-        )}
-      </div>
-    </div>
-  );
-}
 
 const STATUS_FILTER = ["all", "pending", "approved", "rejected"];
 
@@ -107,6 +78,7 @@ export default function AdminProjectSubmissionsPage() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("pending");
+  const [clientFilter, setClientFilter] = useState<"all" | "pass" | "fail" | "none">("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [rejectNotes, setRejectNotes] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
@@ -318,10 +290,9 @@ export default function AdminProjectSubmissionsPage() {
     }
   };
 
-  const filteredSubmissions =
-    filter === "all"
-      ? submissions
-      : submissions.filter((s) => s.status === filter);
+  const filteredSubmissions = submissions
+    .filter((s) => filter === "all" || s.status === filter)
+    .filter((s) => clientFilter === "all" || (clientFilter === "none" ? !s.clientVerdict : s.clientVerdict === clientFilter));
 
   const counts = {
     all: submissions.length,
@@ -398,6 +369,15 @@ export default function AdminProjectSubmissionsPage() {
                 >
                   <FileSpreadsheet size={15} />Export approved (CSV)
                 </a>
+                {project.reviewOrgName && (
+                  <a
+                    href={`/api/admin/data-projects/${projectId}/export?format=csv&status=client_pass`}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-300 rounded-lg px-3 py-2 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+                    title="Everything the client marked Pass"
+                  >
+                    <FileSpreadsheet size={15} />Client-passed (CSV)
+                  </a>
+                )}
                 <a
                   href={`/api/admin/data-projects/${projectId}/export?format=json&status=approved`}
                   className="inline-flex items-center gap-1.5 text-sm font-medium border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800"
@@ -430,6 +410,27 @@ export default function AdminProjectSubmissionsPage() {
             </button>
           ))}
         </div>
+
+        {/* Client verdict filter (projects with client review) */}
+        {project?.reviewOrgName && (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-zinc-500">Client ({project.reviewOrgName}):</span>
+            {([
+              ["all", "Any"],
+              ["pass", `Passed (${submissions.filter((s) => s.clientVerdict === "pass").length})`],
+              ["fail", `Failed (${submissions.filter((s) => s.clientVerdict === "fail").length})`],
+              ["none", `Not reviewed (${submissions.filter((s) => !s.clientVerdict).length})`],
+            ] as const).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => setClientFilter(v)}
+                className={`rounded-full px-3 py-1 text-xs font-medium border ${clientFilter === v ? "bg-violet-600 border-violet-600 text-white" : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Bulk delete bar — any submission in the current view (incl. approved) */}
         {!loading && filteredSubmissions.length > 0 && (() => {
@@ -502,6 +503,14 @@ export default function AdminProjectSubmissionsPage() {
                         </p>
                         <p className="text-xs text-zinc-400">{sub.user.userId} · {sub.user.phone}</p>
                       </div>
+                      {sub.clientVerdict && (
+                        <span
+                          title={sub.clientNote || undefined}
+                          className={`px-2 py-1 rounded-full text-xs font-semibold ${sub.clientVerdict === "pass" ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"}`}
+                        >
+                          Client: {sub.clientVerdict === "pass" ? "Pass" : "Fail"}
+                        </span>
+                      )}
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                         sub.status === "pending" ? "bg-yellow-100 text-yellow-700" :
                         sub.status === "approved" ? "bg-green-100 text-green-700" :
@@ -552,6 +561,9 @@ export default function AdminProjectSubmissionsPage() {
                             {sub.reviewedAt && <p><span className="font-medium">Reviewed:</span> {formatDate(sub.reviewedAt)}</p>}
                             {sub.notes && (
                               <p className="text-red-600"><span className="font-medium">Notes:</span> {sub.notes}</p>
+                            )}
+                            {sub.clientVerdict === "fail" && sub.clientNote && (
+                              <p className="text-red-600"><span className="font-medium">Client&apos;s fail reason:</span> {sub.clientNote}</p>
                             )}
                           </div>
 

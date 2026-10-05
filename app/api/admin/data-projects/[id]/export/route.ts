@@ -18,7 +18,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const format = req.nextUrl.searchParams.get("format") === "json" ? "json" : "csv";
   const statusParam = req.nextUrl.searchParams.get("status") || "approved";
-  const statusWhere = ["approved", "pending", "rejected"].includes(statusParam) ? { status: statusParam } : {};
+  // status=client_pass → everything the client marked Pass (any admin status except rejected).
+  const statusWhere =
+    statusParam === "client_pass" ? { clientVerdict: "pass", status: { not: "rejected" } } :
+    ["approved", "pending", "rejected"].includes(statusParam) ? { status: statusParam } : {};
 
   const project = await prisma.dataProject.findUnique({ where: { id } });
   if (!project) return NextResponse.json({ message: "Project not found" }, { status: 404 });
@@ -73,6 +76,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       row.videoSize = trace ? `${trace.videoWidth}x${trace.videoHeight}` : "";
       row.mirroredView = trace?.mirrored ?? "";
       row.visibleCrop = trace?.crop ? `${trace.crop.x},${trace.crop.y},${trace.crop.w},${trace.crop.h}` : "";
+    }
+    if (project.reviewOrgId) {
+      row.clientVerdict = s.clientVerdict ?? "";
+      row.clientNote = s.clientNote ?? "";
+      row.clientReviewedAt = s.clientReviewedAt?.toISOString() ?? "";
     }
     row.submittedAt = s.submittedAt.toISOString();
     row.reviewedAt = s.reviewedAt?.toISOString() ?? "";

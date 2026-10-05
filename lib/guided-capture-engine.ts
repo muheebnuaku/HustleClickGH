@@ -56,6 +56,7 @@ const FINISH_TAIL_MS = 600; // keep recording a moment after the last dot
 const PATH_SAMPLE_MS = 100;
 const SMOOTHING = 0.45; // EMA on the nose point — steadier cursor on budget cameras
 const VIDEO_BITRATE = 1_200_000; // ~9 MB/minute: stays far under the 50 MB storage file cap
+const OUTPUT_MAX_WIDTH = 720; // recorded frame is portrait 3:4, at most 720×960
 
 type FaceDetectorLike = {
   detectForVideo: (v: HTMLVideoElement, ts: number) => { detections: { boundingBox?: { width: number; height: number }; keypoints: { x: number; y: number }[] }[] };
@@ -123,6 +124,11 @@ export class GuidedCaptureEngine {
   private path: [number, number, number][] = [];
   private lastSample = -Infinity;
   private crop = { x: 0, y: 0, w: 1, h: 1 };
+  // Recording canvas: the exact 3:4 portrait frame the contributor sees (no dots).
+  private recCanvas: HTMLCanvasElement | null = null;
+  private recLoop = 0;
+  private recVfc = 0;
+  private recordingFromCanvas = false;
 
   constructor(opts: EngineOpts) {
     this.o = opts;
@@ -200,6 +206,7 @@ export class GuidedCaptureEngine {
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    this.stopRecLoop();
     try { if (this.recorder && this.recorder.state !== "inactive") this.recorder.stop(); } catch {}
     this.releaseCamera();
   }
@@ -210,9 +217,62 @@ export class GuidedCaptureEngine {
     try { this.o.video.srcObject = null; } catch {}
   }
 
+  /**
+   * Phones often deliver landscape camera frames (or frames whose rotation only
+   * lives in metadata MediaRecorder drops), so recording the raw track can save a
+   * sideways/landscape video even though the preview looks portrait. Instead we
+   * draw the centre 3:4 crop — exactly what the preview shows — onto a hidden
+   * canvas every frame and record that. Dots are never drawn on it.
+   */
+  private canvasStream(): MediaStream | null {
+    const v = this.o.video;
+    const vw = v.videoWidth;
+    const vh = v.videoHeight;
+    const proto = HTMLCanvasElement.prototype as HTMLCanvasElement & { captureStream?: unknown };
+    if (!vw || !vh || typeof proto.captureStream !== "function") return null;
+    // Centre crop to CAPTURE_ASPECT (3:4), same as the object-cover preview.
+    let sw = vw, sh = vh;
+    if (vw / vh > 3 / 4) sw = vh * (3 / 4); else sh = vw * (4 / 3);
+    const sx = (vw - sw) / 2;
+    const sy = (vh - sh) / 2;
+    const outW = Math.round(Math.min(OUTPUT_MAX_WIDTH, sw) / 2) * 2; // even dims for encoders
+    const outH = Math.round((outW * 4) / 3 / 2) * 2;
+    const c = document.createElement("canvas");
+    c.width = outW;
+    c.height = outH;
+    const ctx = c.getContext("2d");
+    if (!ctx) return null;
+    const draw = () => { try { ctx.drawImage(v, sx, sy, sw, sh, 0, 0, outW, outH); } catch { /* frame not ready */ } };
+    draw();
+    // Prefer per-camera-frame callbacks; fall back to animation frames.
+    const vfc = (v as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number }).requestVideoFrameCallback?.bind(v);
+    if (vfc) {
+      const onFrame = () => { draw(); this.recVfc = vfc(onFrame); };
+      this.recVfc = vfc(onFrame);
+    } else {
+      const onRaf = () => { draw(); this.recLoop = requestAnimationFrame(onRaf); };
+      this.recLoop = requestAnimationFrame(onRaf);
+    }
+    this.recCanvas = c;
+    const out = (c as HTMLCanvasElement & { captureStream: (fps?: number) => MediaStream }).captureStream(30);
+    if (this.o.config.recordAudio && this.stream) this.stream.getAudioTracks().forEach((t) => out.addTrack(t));
+    return out;
+  }
+
+  private stopRecLoop() {
+    cancelAnimationFrame(this.recLoop);
+    const v = this.o.video as HTMLVideoElement & { cancelVideoFrameCallback?: (id: number) => void };
+    if (this.recVfc) v.cancelVideoFrameCallback?.(this.recVfc);
+    this.recLoop = 0;
+    this.recVfc = 0;
+  }
+
   private startRecording() {
     if (!this.stream) return;
-    const recStream = this.o.config.recordAudio ? this.stream : new MediaStream(this.stream.getVideoTracks());
+    const fromCanvas = this.canvasStream();
+    this.recordingFromCanvas = !!fromCanvas;
+    // Fallback (very old browsers without canvas capture): the raw camera track.
+    const recStream = fromCanvas ?? (this.o.config.recordAudio ? this.stream : new MediaStream(this.stream.getVideoTracks()));
     try {
       this.recorder = new MediaRecorder(recStream, { mimeType: this.mimeType, videoBitsPerSecond: VIDEO_BITRATE });
     } catch {
@@ -243,6 +303,7 @@ export class GuidedCaptureEngine {
 
   private emitResult() {
     cancelAnimationFrame(this.raf);
+    this.stopRecLoop();
     if (this.disposed) return; // abandoned (restart / left the page) — discard
     const durationMs = Math.round(performance.now() - this.t0);
     const mime = (this.mimeType || "video/webm").split(";")[0];
@@ -254,13 +315,14 @@ export class GuidedCaptureEngine {
       hits: this.hits,
       completed: this.completed,
       durationMs,
-      videoWidth: v.videoWidth,
-      videoHeight: v.videoHeight,
+      videoWidth: this.recordingFromCanvas && this.recCanvas ? this.recCanvas.width : v.videoWidth,
+      videoHeight: this.recordingFromCanvas && this.recCanvas ? this.recCanvas.height : v.videoHeight,
       mirrored: this.mirrored,
       path: this.path,
       mimeType: mime,
       userAgent: navigator.userAgent,
-      crop: this.crop,
+      // Canvas recording IS the visible frame, so dot coordinates map 1:1 onto the video.
+      crop: this.recordingFromCanvas ? { x: 0, y: 0, w: 1, h: 1 } : this.crop,
     };
     this.releaseCamera();
     this.set({ phase: "done" });

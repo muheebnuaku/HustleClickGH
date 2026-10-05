@@ -279,6 +279,7 @@ export function buildProjectSetupData(body: Record<string, unknown>) {
     requireGeo: body.requireGeo === true,
     clientName: str(body.clientName, 120),
     referenceCode: str(body.referenceCode, 60),
+    reviewOrgId: str(body.reviewOrgId, 60),
   };
 }
 

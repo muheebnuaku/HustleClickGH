@@ -11,7 +11,8 @@ export async function GET() {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const projects = await (prisma.dataProject.findMany as any)({
-    where: { orgId: org.id },
+    // Own (funded) projects + admin projects this org was granted review access to.
+    where: { OR: [{ orgId: org.id }, { reviewOrgId: org.id }] },
     orderBy: { createdAt: "desc" },
   });
   const ids = (projects as Array<{ id: string }>).map((p) => p.id);
@@ -37,6 +38,7 @@ export async function GET() {
       reward: (p.orgPrice ?? p.reward), maxSubmissions: p.maxSubmissions, currentSubmissions: p.currentSubmissions,
       budget: p.budget, spent: p.spent, createdAt: p.createdAt,
       counts: counts.get(p.id as string) || { pending: 0, approved: 0, rejected: 0 },
+      access: p.orgId === org.id ? "owner" : "review",
     })),
   });
 }

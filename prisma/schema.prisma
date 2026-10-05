@@ -303,12 +303,14 @@ model DataProject {
   // Internal organisation
   clientName         String?          // end client the data is for (admin-only label)
   referenceCode      String?          // internal job / batch code
+  reviewOrgId        String?          // client Organization allowed to review (pass/fail) submissions on its portal
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
   submissions        DataSubmission[]
 
   @@index([orgId])
+  @@index([reviewOrgId])
 }
 
 // A buyer organization. Logs in as a User with role="organization"; this row
@@ -400,6 +402,9 @@ model DataSubmission {
   metadata        String?     // JSON {fieldKey: value} answers to the project's metadataFields
   captureData     String?     // JSON CaptureTrace from an in-site guided capture (dot hit times, nose path)
   location        String?     // JSON {country,region,city,lat?,lng?,accuracyM?} snapshot taken at submit time
+  clientVerdict   String?     // client review on the org portal: "pass" | "fail" (null = not reviewed)
+  clientNote      String?
+  clientReviewedAt DateTime?
   consentGiven    Boolean     @default(false)
   consentGivenAt  DateTime?
   status          String      @default("pending") // pending | approved | rejected

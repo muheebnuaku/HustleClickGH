@@ -51,14 +51,18 @@ export async function GET() {
     // Attach the owning organization's name for org-submitted projects.
     const orgIds = Array.from(new Set(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (projectsWithStats as any[]).map((p) => p.orgId).filter(Boolean) as string[]
+      (projectsWithStats as any[]).flatMap((p) => [p.orgId, p.reviewOrgId]).filter(Boolean) as string[]
     ));
     const orgs = orgIds.length
       ? await prisma.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } })
       : [];
     const orgById = new Map(orgs.map((o) => [o.id, o.name]));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const withOrg = (projectsWithStats as any[]).map((p) => ({ ...p, orgName: p.orgId ? (orgById.get(p.orgId) ?? "Organization") : null }));
+    const withOrg = (projectsWithStats as any[]).map((p) => ({
+      ...p,
+      orgName: p.orgId ? (orgById.get(p.orgId) ?? "Organization") : null,
+      reviewOrgName: p.reviewOrgId ? (orgById.get(p.reviewOrgId) ?? "Organization") : null,
+    }));
 
     return NextResponse.json({ projects: withOrg });
   } catch (error) {
