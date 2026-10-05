@@ -8,21 +8,18 @@ import { DashboardLayout } from "@/components/dashboard-layout";
 import { BiometricReminder } from "@/components/biometric-reminder";
 import { LocationPrompt } from "@/components/location-prompt";
 import { PushManager } from "@/components/push-manager";
-import { PageHeader, StatCard, Panel } from "@/components/ui/page-kit";
+import { PageHeader, Panel } from "@/components/ui/page-kit";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import {
   ClipboardList,
   Users,
   ChevronRight,
-  ArrowDownRight,
   Target,
   RefreshCw,
   Database,
   Wallet,
-  Bell,
   Mic,
-  TrendingUp,
 } from "lucide-react";
 
 interface DashboardStats {
@@ -33,15 +30,6 @@ interface DashboardStats {
   referralEarnings: number;
   pendingWithdrawals: number;
   availableSurveys: number;
-}
-
-interface RecentActivity {
-  id: string;
-  type: "survey" | "withdrawal" | "referral" | "data_project";
-  title: string;
-  amount: number;
-  status: "completed" | "pending" | "approved" | "rejected";
-  date: string;
 }
 
 interface ActiveDataProject {
@@ -64,7 +52,6 @@ export default function DashboardPage() {
     pendingWithdrawals: 0,
     availableSurveys: 0,
   });
-  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [myActiveSurveys, setMyActiveSurveys] = useState<{ id: string; title: string; description: string }[]>([]);
@@ -112,7 +99,6 @@ export default function DashboardPage() {
         }));
       setActiveDataProjects(projects);
 
-      setRecentActivity(statsData.recentActivity || []);
     } catch (error) {
       console.error("Failed to fetch data:", error);
     } finally {
@@ -144,9 +130,6 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <div className="h-7 w-56 bg-zinc-200 dark:bg-zinc-800 rounded-lg" />
             <div className="h-9 w-24 bg-zinc-200 dark:bg-zinc-800 rounded-full" />
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[...Array(4)].map((_, i) => <div key={i} className="h-24 rounded-2xl bg-zinc-200/70 dark:bg-zinc-800" />)}
           </div>
 
           {/* Quick Actions skeleton */}
@@ -205,13 +188,6 @@ export default function DashboardPage() {
     amber: "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400",
   };
 
-  const statusPill = (s: RecentActivity["status"]) =>
-    s === "completed" || s === "approved"
-      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
-      : s === "pending"
-      ? "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
-      : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400";
-
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -232,14 +208,6 @@ export default function DashboardPage() {
           }
         />
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard icon={Wallet} tone="green" label="Balance" value={formatCurrency(stats.balance)} hint="available to withdraw" />
-          <StatCard icon={TrendingUp} tone="blue" label="Total earned" value={formatCurrency(stats.totalEarned)} />
-          <StatCard icon={ArrowDownRight} tone="amber" label="Pending withdrawals" value={formatCurrency(stats.pendingWithdrawals)} />
-          <StatCard icon={Users} tone="purple" label="Referrals" value={stats.referralCount} hint={stats.referralEarnings ? `${formatCurrency(stats.referralEarnings)} earned` : undefined} />
-        </div>
-
         {/* Quick actions */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {quickActions.map((a) => (
@@ -258,7 +226,7 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div>
           {/* Ways to earn now */}
           <Panel className="overflow-hidden">
             <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
@@ -305,50 +273,6 @@ export default function DashboardPage() {
                     <div className="min-w-0">
                       <p className="truncate font-medium text-foreground">{survey.title}</p>
                       <p className="text-xs text-zinc-500">Your survey · collecting responses</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
-
-          {/* Recent activity */}
-          <Panel className="overflow-hidden">
-            <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
-              <h2 className="text-sm font-semibold text-foreground">Recent activity</h2>
-              <Link href="/income" className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">View all <ChevronRight size={14} /></Link>
-            </div>
-            {recentActivity.length === 0 ? (
-              <div className="py-10 text-center text-sm text-zinc-500">
-                <Bell size={28} className="mx-auto mb-2 opacity-30" />
-                No activity yet — complete a project or survey to get started.
-              </div>
-            ) : (
-              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {recentActivity.slice(0, 6).map((activity) => (
-                  <div key={activity.id} className="flex items-center justify-between gap-3 p-4">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
-                        activity.type === "survey" ? "bg-blue-50 dark:bg-blue-500/10" :
-                        activity.type === "withdrawal" ? "bg-amber-50 dark:bg-amber-500/10" :
-                        activity.type === "data_project" ? "bg-emerald-50 dark:bg-emerald-500/10" :
-                        "bg-violet-50 dark:bg-violet-500/10"
-                      }`}>
-                        {activity.type === "survey" && <ClipboardList className="text-blue-600" size={17} />}
-                        {activity.type === "withdrawal" && <ArrowDownRight className="text-amber-600" size={17} />}
-                        {activity.type === "data_project" && <Mic className="text-emerald-600" size={17} />}
-                        {activity.type === "referral" && <Users className="text-violet-600" size={17} />}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-foreground">{activity.title}</p>
-                        <p className="text-xs text-zinc-500">{activity.date}</p>
-                      </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className={`font-semibold tabular-nums ${activity.type === "withdrawal" ? "text-amber-600" : "text-emerald-600"}`}>
-                        {activity.type === "withdrawal" ? "−" : "+"}{formatCurrency(activity.amount)}
-                      </p>
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${statusPill(activity.status)}`}>{activity.status}</span>
                     </div>
                   </div>
                 ))}
