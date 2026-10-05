@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DashboardLayout } from "@/components/dashboard-layout";
+import { PageHeader, StatCard } from "@/components/ui/page-kit";
+import { UsersRound } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Copy, Share2, RefreshCw, Gift, Percent, Infinity as InfinityIcon } from "lucide-react";
@@ -122,85 +124,35 @@ export default function ReferralPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Refer & Earn</h1>
-          <p className="text-zinc-600 dark:text-zinc-400 mt-1">
-            {info.isManager ? (
-              <>Unlimited referrals — plus <strong>{info.commissionPercent}% commission</strong> whenever someone you referred is rewarded on a project.</>
-            ) : (
-              <>Invite friends and earn {formatCurrency(SITE_CONFIG.survey.referralBonus)} for each successful referral</>
-            )}
-          </p>
-        </div>
+        <PageHeader
+          icon={UsersRound}
+          title="Refer & Earn"
+          description={info.isManager ? (
+            <>Unlimited referrals — plus <strong>{info.commissionPercent}% commission</strong> whenever someone you referred is rewarded on a project.</>
+          ) : (
+            <>Invite friends and earn {formatCurrency(SITE_CONFIG.survey.referralBonus)} for each successful referral.</>
+          )}
+        />
 
         {/* Manager commission summary — 2x2 grid on phones/tablets (fits
             without crowding), one row on large screens. Compact padding and
             responsive text sizing so the numbers never fight the card for
             room at 2-per-row widths. */}
         {info.isManager && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            <Card className="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800">
-              <CardContent className="p-4 text-center">
-                <p className="text-xs sm:text-sm text-emerald-700 dark:text-emerald-400 flex items-center justify-center gap-1"><Percent size={13} className="shrink-0" /> <span>Commission rate</span></p>
-                <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-emerald-600 my-2">{info.commissionPercent}%</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
-              <CardContent className="p-4 text-center">
-                <p className="text-xs sm:text-sm text-green-700 dark:text-green-400">Commission earned</p>
-                <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-green-600 my-2">{formatCurrency(info.commissionTotal)}</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-teal-50 dark:bg-teal-900/20 border-teal-200 dark:border-teal-800">
-              <CardContent className="p-4 text-center">
-                <p className="text-xs sm:text-sm text-teal-700 dark:text-teal-400">Approvals</p>
-                <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-teal-600 my-2">{info.commissionCount}</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
-              <CardContent className="p-4 text-center">
-                <p className="text-xs sm:text-sm text-blue-700 dark:text-blue-400 flex items-center justify-center gap-1"><InfinityIcon size={13} className="shrink-0" /> <span>Referral limit</span></p>
-                <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-blue-600 my-2">Unlimited</p>
-              </CardContent>
-            </Card>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard icon={Percent} tone="green" label="Commission rate" value={`${info.commissionPercent}%`} />
+            <StatCard icon={Gift} tone="green" label="Commission earned" value={formatCurrency(info.commissionTotal)} />
+            <StatCard icon={UsersRound} tone="sky" label="Approvals" value={info.commissionCount} />
+            <StatCard icon={InfinityIcon} tone="blue" label="Referral limit" value="Unlimited" />
           </div>
         )}
 
-        {/* Referral Stats — 2x2 grid on phones/tablets, one row on large
-            screens. Compact padding and responsive text sizing so the
-            numbers never fight the card for room at 2-per-row widths. */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
-            <CardContent className="p-4 text-center">
-              <p className="text-xs sm:text-sm text-blue-700 dark:text-blue-400">Total Referrals</p>
-              <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-blue-600 my-2">{totalReferrals}</p>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
-            <CardContent className="p-4 text-center">
-              <p className="text-xs sm:text-sm text-green-700 dark:text-green-400">Referral Limit</p>
-              <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-green-600 my-2">
-                {info.isManager ? "Unlimited" : `${totalReferrals}/${info.referralCap ?? 15}`}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800">
-            <CardContent className="p-4 text-center">
-              <p className="text-xs sm:text-sm text-purple-700 dark:text-purple-400">Total Earnings</p>
-              <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-purple-600 my-2">{formatCurrency(totalEarnings)}</p>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
-            <CardContent className="p-4 text-center">
-              <p className="text-xs sm:text-sm text-amber-700 dark:text-amber-400 flex items-center justify-center gap-1"><Gift size={13} className="shrink-0" /> <span>{info.isManager ? "Bonus" : "To Bonus"}</span></p>
-              <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-amber-600 my-2">
-                {info.isManager ? "—" : `${Math.min(totalReferrals, SITE_CONFIG.survey.referralMilestone)}/${SITE_CONFIG.survey.referralMilestone}`}
-              </p>
-            </CardContent>
-          </Card>
+        {/* Referral stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard icon={UsersRound} tone="blue" label="Total referrals" value={totalReferrals} />
+          <StatCard icon={InfinityIcon} tone="green" label="Referral limit" value={info.isManager ? "Unlimited" : `${totalReferrals}/${info.referralCap ?? 15}`} />
+          <StatCard icon={Gift} tone="purple" label="Total earnings" value={formatCurrency(totalEarnings)} />
+          <StatCard icon={Gift} tone="amber" label={info.isManager ? "Bonus" : "To bonus"} value={info.isManager ? "—" : `${Math.min(totalReferrals, SITE_CONFIG.survey.referralMilestone)}/${SITE_CONFIG.survey.referralMilestone}`} />
         </div>
 
         {/* Referral Link */}

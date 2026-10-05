@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { DashboardLayout } from "@/components/dashboard-layout";
+import { PageHeader, StatCard } from "@/components/ui/page-kit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -17,8 +18,7 @@ import {
   Users,
   Pause,
   Play,
-  ClipboardList,
-} from "lucide-react";
+  ClipboardList, FileEdit } from "lucide-react";
 import { format } from "date-fns";
 
 interface Survey {
@@ -125,81 +125,24 @@ export default function MySurveysPage() {
   return (
     <DashboardLayout>
       <div className="max-w-6xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold">My Surveys</h1>
-            <p className="text-zinc-600 dark:text-zinc-400">
-              Create and manage your own surveys
-            </p>
-          </div>
-          <Button
-            onClick={() => router.push("/my-surveys/create")}
-            className="bg-green-600 hover:bg-green-700"
-          >
-            <Plus size={18} className="mr-2" />
-            Create Survey
-          </Button>
-        </div>
+        <PageHeader
+          icon={FileEdit}
+          title="My Surveys"
+          description="Create and manage your own surveys."
+          actions={
+            <Button onClick={() => router.push("/my-surveys/create")} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+              <Plus size={16} />
+              Create survey
+            </Button>
+          }
+        />
 
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                  <ClipboardList className="h-5 w-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{surveys.length}</p>
-                  <p className="text-xs text-zinc-500">Total Surveys</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-                  <Play className="h-5 w-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">
-                    {surveys.filter((s) => s.status === "active").length}
-                  </p>
-                  <p className="text-xs text-zinc-500">Active</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-                  <BarChart3 className="h-5 w-5 text-purple-600" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">
-                    {surveys.reduce((acc, s) => acc + s._count.responses, 0)}
-                  </p>
-                  <p className="text-xs text-zinc-500">Responses</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
-                  <Clock className="h-5 w-5 text-orange-600" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{10 - surveys.length}</p>
-                  <p className="text-xs text-zinc-500">Remaining</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard icon={ClipboardList} tone="blue" label="Total surveys" value={surveys.length} />
+          <StatCard icon={Play} tone="green" label="Active" value={surveys.filter((s) => s.status === "active").length} />
+          <StatCard icon={BarChart3} tone="purple" label="Responses" value={surveys.reduce((acc, s) => acc + s._count.responses, 0)} />
+          <StatCard icon={Clock} tone="amber" label="Remaining" value={10 - surveys.length} hint="of 10 allowed" />
         </div>
 
         {/* Surveys List */}

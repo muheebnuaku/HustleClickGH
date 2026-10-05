@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/dashboard-layout";
+import { PageHeader } from "@/components/ui/page-kit";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -226,12 +227,7 @@ export default function ProfilePage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">My Profile</h1>
-          <p className="text-zinc-600 dark:text-zinc-400 mt-1">
-            Your public profile and private account settings
-          </p>
-        </div>
+        <PageHeader icon={UserRound} title="Profile" description="Your public profile and private account settings." />
 
         {/* Tabs */}
         <div className="flex gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-900 w-full sm:w-fit">

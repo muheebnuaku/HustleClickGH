@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/dashboard-layout";
+import { PageHeader, Notice, Panel, EmptyState } from "@/components/ui/page-kit";
+import { Database } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
 import { Mic, Video, ScanFace, Loader2, ChevronRight, CheckCircle2, Clock, XCircle, MapPin, Camera } from "lucide-react";
@@ -27,16 +29,17 @@ interface DataProject {
   needsLocation?: boolean;
 }
 
-const TYPE_META: Record<string, { icon: React.ElementType; label: string; color: string; bg: string }> = {
-  voice: { icon: Mic, label: "Voice Recording", color: "text-blue-600", bg: "bg-blue-50 border-blue-100" },
-  video: { icon: Video, label: "Video Recording", color: "text-purple-600", bg: "bg-purple-50 border-purple-100" },
-  face: { icon: ScanFace, label: "Face Recognition", color: "text-orange-600", bg: "bg-orange-50 border-orange-100" },
+// Static class strings (Tailwind can't see classes built at runtime).
+const TYPE_META: Record<string, { icon: React.ElementType; label: string; chip: string }> = {
+  voice: { icon: Mic, label: "Voice", chip: "bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400" },
+  video: { icon: Video, label: "Video", chip: "bg-violet-50 text-violet-600 dark:bg-violet-500/10 dark:text-violet-400" },
+  face: { icon: ScanFace, label: "Face", chip: "bg-orange-50 text-orange-600 dark:bg-orange-500/10 dark:text-orange-400" },
 };
 
 const SUBMISSION_STATUS_BADGE: Record<string, { label: string; icon: React.ElementType; cls: string }> = {
-  pending: { label: "Under Review", icon: Clock, cls: "bg-yellow-100 text-yellow-700" },
-  approved: { label: "Approved & Paid", icon: CheckCircle2, cls: "bg-green-100 text-green-700" },
-  rejected: { label: "Rejected", icon: XCircle, cls: "bg-red-100 text-red-700" },
+  pending: { label: "Under review", icon: Clock, cls: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400" },
+  approved: { label: "Approved & paid", icon: CheckCircle2, cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400" },
+  rejected: { label: "Rejected", icon: XCircle, cls: "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400" },
 };
 
 export default function DataProjectsPage() {
@@ -70,29 +73,18 @@ export default function DataProjectsPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">AI Data Projects</h1>
-          <p className="text-sm text-zinc-500 mt-1">
-            Record and submit voice or video clips to earn Ghana Cedis. All recordings are used for AI training.
-          </p>
-        </div>
+        <PageHeader icon={Database} title="Data Projects" description="Record voice or video for AI training and earn Ghana Cedis." />
 
-        {/* Info banner */}
-        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-700">
-          <strong>How it works:</strong> Browse a project → read the instructions → record (some projects record right here in the app; others ask you to upload a file from your phone) → submit and wait for review. You get paid once your recording is approved.
-        </div>
+        <Notice tone="info">
+          <strong>How it works:</strong> open a project → read the instructions → record (some projects record right here in the app, others ask you to upload a file) → submit. You&apos;re paid once your recording is approved.
+        </Notice>
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">{error}</div>
         )}
 
         {eligibleProjects.length === 0 ? (
-          <Card className="p-12 text-center text-zinc-400">
-            <Mic size={40} className="mx-auto mb-3 opacity-40" />
-            <p className="font-medium">No open projects right now</p>
-            <p className="text-sm mt-1">Check back soon — new projects are added regularly</p>
-          </Card>
+          <EmptyState icon={Mic} title="No open projects right now" description="Check back soon — new projects are added regularly." />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {eligibleProjects.map((p) => {
@@ -104,86 +96,61 @@ export default function DataProjectsPage() {
               const progressPct = Math.min(100, (p.currentSubmissions / p.maxSubmissions) * 100);
 
               return (
-                <Card key={p.id} className={`border ${meta.bg} overflow-hidden`}>
-                  <div className="p-5">
-                    {/* Top row */}
-                    <div className="flex items-start justify-between gap-3 mb-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${meta.color} bg-white/60 border border-white`}>
-                        <Icon size={20} />
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full bg-white/70 ${meta.color}`}>
-                          {meta.label}
-                        </span>
-                        {badge && (
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex items-center gap-1 ${badge.cls}`}>
-                            <badge.icon size={10} />{badge.label}
-                          </span>
-                        )}
-                        {isFull && !subStatus && (
-                          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-500">Full</span>
-                        )}
-                      </div>
+                <Panel key={p.id} className="flex flex-col p-5">
+                  <div className="flex items-start gap-3">
+                    <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${meta.chip}`}>
+                      <Icon size={20} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold text-foreground break-words">{p.title}</h3>
+                      <p className="mt-0.5 text-sm text-zinc-500 line-clamp-2">{p.description}</p>
                     </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-lg font-semibold text-emerald-600 tabular-nums">{formatCurrency(p.reward)}</p>
+                      <p className="text-[11px] text-zinc-400">per approval</p>
+                    </div>
+                  </div>
 
-                    <h3 className="font-bold text-foreground text-base mb-1">{p.title}</h3>
-                    <p className="text-sm text-zinc-600 line-clamp-2 mb-3">{p.description}</p>
+                  <div className="mt-4 flex flex-wrap gap-1.5">
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${meta.chip}`}>{meta.label}</span>
+                    {p.captureMode && p.captureMode !== "upload" && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"><Camera size={11} />Record in app</span>
+                    )}
+                    {p.locationLabel && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"><MapPin size={11} />{p.locationLabel}</span>
+                    )}
+                    {p.languages.map((l) => (
+                      <span key={l} className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{l}</span>
+                    ))}
+                    {badge && (
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}><badge.icon size={11} />{badge.label}</span>
+                    )}
+                  </div>
 
-                    {/* Details */}
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500 mb-3">
-                      <span>Reward: <strong className="text-green-600 text-sm">{formatCurrency(p.reward)}</strong></span>
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between text-xs text-zinc-500">
                       <span>{p.slotsRemaining > 0 ? `${p.slotsRemaining} slots left` : "No slots left"}</span>
-                      {p.acceptedFormats.length > 0 && (
-                        <span>Formats: {p.acceptedFormats.join(", ")}</span>
-                      )}
+                      <span className="tabular-nums">{p.currentSubmissions}/{p.maxSubmissions}</span>
                     </div>
-
-                    {(p.locationLabel || (p.captureMode && p.captureMode !== "upload")) && (
-                      <div className="flex flex-wrap gap-1 mb-3">
-                        {p.locationLabel && (
-                          <span className="px-2 py-0.5 bg-white/70 rounded-full text-xs text-emerald-700 border border-white inline-flex items-center gap-1"><MapPin size={10} />{p.locationLabel}</span>
-                        )}
-                        {p.captureMode && p.captureMode !== "upload" && (
-                          <span className="px-2 py-0.5 bg-white/70 rounded-full text-xs text-blue-700 border border-white inline-flex items-center gap-1"><Camera size={10} />Record in app</span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Languages */}
-                    {p.languages.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mb-3">
-                        {p.languages.map((l) => (
-                          <span key={l} className="px-2 py-0.5 bg-white/70 rounded-full text-xs text-zinc-600 border border-white">
-                            {l}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Progress */}
-                    <div className="mb-4">
-                      <div className="bg-white/60 rounded-full h-1.5">
-                        <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
-                      </div>
-                      <p className="text-xs text-zinc-400 mt-1">{p.currentSubmissions} of {p.maxSubmissions} submissions filled</p>
+                    <div className="mt-1.5 h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800">
+                      <div className="h-1.5 rounded-full bg-blue-500 transition-all" style={{ width: `${progressPct}%` }} />
                     </div>
+                  </div>
 
-                    {/* CTA */}
+                  <div className="mt-auto">
                     {subStatus ? (
-                      <Link href={`/data-projects/${p.id}`} className="block w-full text-center px-4 py-2 rounded-lg bg-white/70 border text-sm font-medium text-zinc-600 hover:bg-white transition-colors">
-                        View My Submission
+                      <Link href={`/data-projects/${p.id}`} className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">
+                        View my submission <ChevronRight size={15} />
                       </Link>
                     ) : isFull ? (
-                      <div className="w-full text-center px-4 py-2 rounded-lg bg-zinc-100 text-sm font-medium text-zinc-400 cursor-not-allowed">
-                        Project Full
-                      </div>
+                      <div className="mt-5 w-full rounded-xl bg-zinc-100 px-4 py-2.5 text-center text-sm font-medium text-zinc-400 dark:bg-zinc-800">Project full</div>
                     ) : (
-                      <Link href={`/data-projects/${p.id}`} className={`flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors ${meta.color.replace("text-", "bg-")} hover:opacity-90`}>
-                        {p.captureMode && p.captureMode !== "upload" ? "Start Recording" : "Submit Recording"} <ChevronRight size={16} />
+                      <Link href={`/data-projects/${p.id}`} className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+                        {p.captureMode && p.captureMode !== "upload" ? "Start recording" : "Submit recording"} <ChevronRight size={15} />
                       </Link>
                     )}
                   </div>
-                </Card>
+                </Panel>
               );
             })}
           </div>

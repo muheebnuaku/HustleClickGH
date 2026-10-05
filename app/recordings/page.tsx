@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/dashboard-layout";
+import { PageHeader } from "@/components/ui/page-kit";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Video, Mic, Download, Play, X, ChevronLeft, ChevronRight, Loader2, VideoOff } from "lucide-react";
@@ -74,18 +75,17 @@ export default function RecordingsPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-foreground">Call Recordings</h1>
-            <p className="text-sm text-zinc-500 mt-0.5">All your live call recordings — saved automatically</p>
-          </div>
-          {total > 0 && (
-            <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-full font-medium">
+      <div className="space-y-6">
+        <PageHeader
+          icon={Video}
+          title="Recordings"
+          description="All your live call recordings — saved automatically."
+          actions={total > 0 ? (
+            <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
               {total} recording{total !== 1 ? "s" : ""}
             </span>
-          )}
-        </div>
+          ) : undefined}
+        />
 
         {loading ? (
           <div className="flex items-center justify-center py-20">

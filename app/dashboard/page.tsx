@@ -8,7 +8,7 @@ import { DashboardLayout } from "@/components/dashboard-layout";
 import { BiometricReminder } from "@/components/biometric-reminder";
 import { LocationPrompt } from "@/components/location-prompt";
 import { PushManager } from "@/components/push-manager";
-import { Card, CardContent } from "@/components/ui/card";
+import { PageHeader, StatCard, Panel } from "@/components/ui/page-kit";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -22,6 +22,7 @@ import {
   Wallet,
   Bell,
   Mic,
+  TrendingUp,
 } from "lucide-react";
 
 interface DashboardStats {
@@ -140,11 +141,12 @@ export default function DashboardPage() {
       <DashboardLayout>
         <div className="space-y-6 animate-pulse">
           {/* Welcome header skeleton */}
-          <div className="bg-blue-600 rounded-2xl p-6">
-            <div className="flex items-center justify-between">
-              <div className="h-6 w-40 bg-white/30 rounded-lg" />
-              <div className="h-9 w-9 bg-white/30 rounded-md" />
-            </div>
+          <div className="flex items-center justify-between">
+            <div className="h-7 w-56 bg-zinc-200 dark:bg-zinc-800 rounded-lg" />
+            <div className="h-9 w-24 bg-zinc-200 dark:bg-zinc-800 rounded-full" />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[...Array(4)].map((_, i) => <div key={i} className="h-24 rounded-2xl bg-zinc-200/70 dark:bg-zinc-800" />)}
           </div>
 
           {/* Quick Actions skeleton */}
@@ -187,268 +189,172 @@ export default function DashboardPage() {
     );
   }
 
+  const firstName = session?.user?.name?.split(" ")[0] || "there";
+
   const quickActions = [
-    {
-      title: "Data Projects",
-      description: "Earn by recording",
-      icon: Database,
-      href: "/data-projects",
-      color: "green",
-    },
-    {
-      title: "Take Surveys",
-      description: `${stats.availableSurveys} available`,
-      icon: ClipboardList,
-      href: "/surveys",
-      color: "purple",
-    },
-    {
-      title: "My Surveys",
-      description: "View and manage",
-      icon: ClipboardList,
-      href: "/my-surveys",
-      color: "blue",
-    },
-    {
-      title: "Withdraw",
-      description: "Cash out earnings",
-      icon: Wallet,
-      href: "/income",
-      color: "orange",
-    },
+    { title: "Data Projects", description: "Earn by recording", icon: Database, href: "/data-projects", tone: "green" },
+    { title: "Take Surveys", description: `${stats.availableSurveys} available`, icon: ClipboardList, href: "/surveys", tone: "purple" },
+    { title: "Refer & Earn", description: `${stats.referralCount} referred`, icon: Users, href: "/referral", tone: "blue" },
+    { title: "Withdraw", description: "Cash out earnings", icon: Wallet, href: "/income", tone: "amber" },
   ];
 
-  const colorClasses = {
-    blue: {
-      bg: "bg-blue-100 dark:bg-blue-900/30",
-      text: "text-blue-600 dark:text-blue-400",
-      border: "border-blue-200 dark:border-blue-800",
-    },
-    green: {
-      bg: "bg-green-100 dark:bg-green-900/30",
-      text: "text-green-600 dark:text-green-400",
-      border: "border-green-200 dark:border-green-800",
-    },
-    purple: {
-      bg: "bg-purple-100 dark:bg-purple-900/30",
-      text: "text-purple-600 dark:text-purple-400",
-      border: "border-purple-200 dark:border-purple-800",
-    },
-    orange: {
-      bg: "bg-orange-100 dark:bg-orange-900/30",
-      text: "text-orange-600 dark:text-orange-400",
-      border: "border-orange-200 dark:border-orange-800",
-    },
+  const toneIcon: Record<string, string> = {
+    green: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400",
+    purple: "bg-violet-50 text-violet-600 dark:bg-violet-500/10 dark:text-violet-400",
+    blue: "bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400",
+    amber: "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400",
   };
+
+  const statusPill = (s: RecentActivity["status"]) =>
+    s === "completed" || s === "approved"
+      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+      : s === "pending"
+      ? "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+      : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400";
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
         {/* Admin-triggered location request (hidden unless requested & missing) */}
         <LocationPrompt />
-
         {/* Browser notification opt-in (hidden once granted or dismissed) */}
         <PushManager />
-
         {/* Biometric setup reminder (hidden once enrolled or dismissed) */}
         <BiometricReminder />
 
-        {/* Welcome Header */}
-        <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-lg">
-          <div className="flex items-center justify-between gap-3">
-            <h1 className="text-lg md:text-xl font-bold min-w-0 truncate">
-              Welcome back, {session?.user?.name?.split(" ")[0] || "User"}!
-            </h1>
-            <Button
-              onClick={handleRefresh}
-              variant="secondary"
-              disabled={isRefreshing}
-              size="sm"
-              className="bg-white/20 hover:bg-white/30 text-white border-0 h-9 w-9 p-0 shrink-0"
-              title="Refresh"
-            >
-              <RefreshCw size={18} className={isRefreshing ? "animate-spin" : ""} />
+        <PageHeader
+          title={`Welcome back, ${firstName}`}
+          description="Your earnings at a glance."
+          actions={
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+              <RefreshCw size={15} className={isRefreshing ? "animate-spin" : ""} />Refresh
             </Button>
-          </div>
+          }
+        />
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard icon={Wallet} tone="green" label="Balance" value={formatCurrency(stats.balance)} hint="available to withdraw" />
+          <StatCard icon={TrendingUp} tone="blue" label="Total earned" value={formatCurrency(stats.totalEarned)} />
+          <StatCard icon={ArrowDownRight} tone="amber" label="Pending withdrawals" value={formatCurrency(stats.pendingWithdrawals)} />
+          <StatCard icon={Users} tone="purple" label="Referrals" value={stats.referralCount} hint={stats.referralEarnings ? `${formatCurrency(stats.referralEarnings)} earned` : undefined} />
         </div>
 
-
-        {/* Quick Actions */}
-        <div>
-          <h2 className="text-xl font-bold text-foreground mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {quickActions.map((action) => {
-              const colors = colorClasses[action.color as keyof typeof colorClasses];
-              return (
-                <Link key={action.title} href={action.href}>
-                  <Card className={`hover:shadow-lg transition-all hover:-translate-y-1 cursor-pointer border-2 ${colors.border} relative overflow-hidden group`}>
-                    <CardContent className="p-4">
-                      <div className={`w-12 h-12 rounded-xl ${colors.bg} flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
-                        <action.icon className={colors.text} size={24} />
-                      </div>
-                      <h3 className="font-semibold text-foreground">{action.title}</h3>
-                      <p className="text-sm text-zinc-500 dark:text-zinc-400">{action.description}</p>
-                      <ChevronRight className={`absolute bottom-4 right-4 ${colors.text} opacity-0 group-hover:opacity-100 transition-opacity`} size={20} />
-                    </CardContent>
-                  </Card>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Available Surveys Preview */}
-        {stats.availableSurveys > 0 && (
-          <Card className="overflow-hidden">
-            <div className="bg-blue-500 p-4 text-white">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-                    <Target size={20} />
-                  </div>
-                  <div>
-                    <h3 className="font-bold">Surveys Waiting for You!</h3>
-                    <p className="text-sm text-white/80">{stats.availableSurveys} surveys available to complete</p>
-                  </div>
-                </div>
-                <Link href="/surveys">
-                  <Button variant="secondary" className="bg-white text-blue-600 hover:bg-white/90">
-                    Start Earning
-                    <ChevronRight size={18} className="ml-1" />
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {/* Recent Activity */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-foreground">Recent Activity</h2>
-            <Link href="/income" className="text-sm text-blue-600 hover:underline flex items-center gap-1">
-              View all <ChevronRight size={16} />
+        {/* Quick actions */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {quickActions.map((a) => (
+            <Link key={a.title} href={a.href} className="group">
+              <Panel className="flex h-full flex-col items-start gap-2 p-4 transition-all group-hover:-translate-y-0.5 group-hover:shadow-md sm:flex-row sm:items-center sm:gap-3">
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${toneIcon[a.tone]}`}>
+                  <a.icon size={19} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-foreground sm:truncate">{a.title}</span>
+                  <span className="block text-xs text-zinc-500 sm:truncate">{a.description}</span>
+                </span>
+                <ChevronRight size={16} className="hidden shrink-0 text-zinc-300 group-hover:text-zinc-500 sm:block" />
+              </Panel>
             </Link>
-          </div>
+          ))}
+        </div>
 
-          <Card>
-            <CardContent className="p-0">
-              <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-
-                {/* Notifications: Active Data Projects */}
-                {activeDataProjects.map((project) => (
-                  <Link key={project.id} href={`/data-projects/${project.id}`}>
-                    <div className="flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors cursor-pointer">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center bg-green-100 dark:bg-green-900/30">
-                          <Mic className="text-green-600" size={18} />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium text-foreground">{project.title}</p>
-                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 font-medium">NEW</span>
-                          </div>
-                          <p className="text-sm text-zinc-500 dark:text-zinc-400">{project.slotsRemaining} slots left · Tap to earn</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-green-600">+{formatCurrency(project.reward)}</p>
-                        <p className="text-xs text-zinc-400">per approval</p>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-
-                {/* Notifications: Available Surveys */}
-                {stats.availableSurveys > 0 && (
-                  <Link href="/surveys">
-                    <div className="flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors cursor-pointer">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center bg-blue-100 dark:bg-blue-900/30">
-                          <Bell className="text-blue-600" size={18} />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium text-foreground">Surveys Available</p>
-                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium">NEW</span>
-                          </div>
-                          <p className="text-sm text-zinc-500 dark:text-zinc-400">{stats.availableSurveys} surveys waiting · Tap to earn</p>
-                        </div>
-                      </div>
-                      <ChevronRight size={16} className="text-zinc-400" />
-                    </div>
-                  </Link>
-                )}
-
-                {/* My Active Surveys */}
-                {myActiveSurveys.map((survey) => (
-                  <div key={survey.id} className="flex items-center justify-between p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center bg-purple-100 dark:bg-purple-900/30">
-                        <ClipboardList className="text-purple-600" size={18} />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-foreground">{survey.title}</p>
-                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Active</span>
-                        </div>
-                        <p className="text-sm text-zinc-500 dark:text-zinc-400">Your survey · collecting responses</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {/* Transaction History */}
-                {recentActivity.slice(0, 5).map((activity) => (
-                  <div key={activity.id} className="flex items-center justify-between p-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                        activity.type === "survey" ? "bg-blue-100 dark:bg-blue-900/30" :
-                        activity.type === "withdrawal" ? "bg-orange-100 dark:bg-orange-900/30" :
-                        activity.type === "data_project" ? "bg-green-100 dark:bg-green-900/30" :
-                        "bg-purple-100 dark:bg-purple-900/30"
-                      }`}>
-                        {activity.type === "survey" && <ClipboardList className="text-blue-600" size={18} />}
-                        {activity.type === "withdrawal" && <ArrowDownRight className="text-orange-600" size={18} />}
-                        {activity.type === "data_project" && <Mic className="text-green-600" size={18} />}
-                        {activity.type === "referral" && <Users className="text-purple-600" size={18} />}
-                      </div>
-                      <div>
-                        <p className="font-medium text-foreground">{activity.title}</p>
-                        <p className="text-sm text-zinc-500 dark:text-zinc-400">{activity.date}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className={`font-semibold ${
-                        activity.type === "withdrawal" ? "text-orange-600" : "text-green-600"
-                      }`}>
-                        {activity.type === "withdrawal" ? "-" : "+"}{formatCurrency(activity.amount)}
-                      </p>
-                      <p className={`text-xs px-2 py-0.5 rounded-full inline-block ${
-                        activity.status === "completed" || activity.status === "approved"
-                          ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
-                          : activity.status === "pending"
-                          ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400"
-                          : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
-                      }`}>
-                        {activity.status}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-
-                {/* Empty state */}
-                {activeDataProjects.length === 0 && stats.availableSurveys === 0 && myActiveSurveys.length === 0 && recentActivity.length === 0 && (
-                  <div className="py-10 text-center text-zinc-500 dark:text-zinc-400">
-                    <Bell size={32} className="mx-auto mb-3 opacity-30" />
-                    <p className="font-medium">No activity yet</p>
-                    <p className="text-sm mt-1">Complete a survey or data project to get started</p>
-                  </div>
-                )}
-
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Ways to earn now */}
+          <Panel className="overflow-hidden">
+            <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
+              <h2 className="text-sm font-semibold text-foreground">Ways to earn now</h2>
+              <Link href="/data-projects" className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">All projects <ChevronRight size={14} /></Link>
+            </div>
+            {activeDataProjects.length === 0 && stats.availableSurveys === 0 && myActiveSurveys.length === 0 ? (
+              <div className="py-10 text-center text-sm text-zinc-500">
+                <Database size={28} className="mx-auto mb-2 opacity-30" />
+                No open projects right now — check back soon.
               </div>
-            </CardContent>
-          </Card>
+            ) : (
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {activeDataProjects.map((project) => (
+                  <Link key={project.id} href={`/data-projects/${project.id}`} className="flex items-center justify-between gap-3 p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/10"><Mic className="text-emerald-600" size={17} /></span>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-foreground">{project.title}</p>
+                        <p className="text-xs text-zinc-500">{project.slotsRemaining} slots left</p>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="font-semibold text-emerald-600">+{formatCurrency(project.reward)}</p>
+                      <p className="text-[11px] text-zinc-400">per approval</p>
+                    </div>
+                  </Link>
+                ))}
+                {stats.availableSurveys > 0 && (
+                  <Link href="/surveys" className="flex items-center justify-between gap-3 p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-50 dark:bg-violet-500/10"><Target className="text-violet-600" size={17} /></span>
+                      <div className="min-w-0">
+                        <p className="font-medium text-foreground">{stats.availableSurveys} survey{stats.availableSurveys === 1 ? "" : "s"} waiting</p>
+                        <p className="text-xs text-zinc-500">Quick to complete, paid instantly</p>
+                      </div>
+                    </div>
+                    <ChevronRight size={16} className="shrink-0 text-zinc-400" />
+                  </Link>
+                )}
+                {myActiveSurveys.map((survey) => (
+                  <div key={survey.id} className="flex items-center gap-3 p-4">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-500/10"><ClipboardList className="text-blue-600" size={17} /></span>
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-foreground">{survey.title}</p>
+                      <p className="text-xs text-zinc-500">Your survey · collecting responses</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Panel>
+
+          {/* Recent activity */}
+          <Panel className="overflow-hidden">
+            <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
+              <h2 className="text-sm font-semibold text-foreground">Recent activity</h2>
+              <Link href="/income" className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">View all <ChevronRight size={14} /></Link>
+            </div>
+            {recentActivity.length === 0 ? (
+              <div className="py-10 text-center text-sm text-zinc-500">
+                <Bell size={28} className="mx-auto mb-2 opacity-30" />
+                No activity yet — complete a project or survey to get started.
+              </div>
+            ) : (
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {recentActivity.slice(0, 6).map((activity) => (
+                  <div key={activity.id} className="flex items-center justify-between gap-3 p-4">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+                        activity.type === "survey" ? "bg-blue-50 dark:bg-blue-500/10" :
+                        activity.type === "withdrawal" ? "bg-amber-50 dark:bg-amber-500/10" :
+                        activity.type === "data_project" ? "bg-emerald-50 dark:bg-emerald-500/10" :
+                        "bg-violet-50 dark:bg-violet-500/10"
+                      }`}>
+                        {activity.type === "survey" && <ClipboardList className="text-blue-600" size={17} />}
+                        {activity.type === "withdrawal" && <ArrowDownRight className="text-amber-600" size={17} />}
+                        {activity.type === "data_project" && <Mic className="text-emerald-600" size={17} />}
+                        {activity.type === "referral" && <Users className="text-violet-600" size={17} />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-foreground">{activity.title}</p>
+                        <p className="text-xs text-zinc-500">{activity.date}</p>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className={`font-semibold tabular-nums ${activity.type === "withdrawal" ? "text-amber-600" : "text-emerald-600"}`}>
+                        {activity.type === "withdrawal" ? "−" : "+"}{formatCurrency(activity.amount)}
+                      </p>
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${statusPill(activity.status)}`}>{activity.status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Panel>
         </div>
       </div>
     </DashboardLayout>

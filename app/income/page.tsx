@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DashboardLayout } from "@/components/dashboard-layout";
+import { PageHeader } from "@/components/ui/page-kit";
+import { WalletCards } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -128,25 +130,14 @@ export default function IncomePage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Withdraw Earnings</h1>
-          <p className="text-zinc-600 dark:text-zinc-400 mt-1">
-            Request withdrawals via Mobile Money
-          </p>
-        </div>
+        <PageHeader icon={WalletCards} title="Withdraw" description="Cash out your earnings to Mobile Money." />
 
         {/* Balance Card */}
-        <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <p className="text-sm text-green-700 dark:text-green-400">Available Balance</p>
-              <p className="text-5xl font-bold text-green-600 my-2">{formatCurrency(userBalance)}</p>
-              <p className="text-sm text-green-700 dark:text-green-400">
-                Minimum withdrawal: {formatCurrency(SITE_CONFIG.survey.minWithdrawal)}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 p-6 text-white shadow-lg shadow-emerald-900/10">
+          <p className="text-sm font-medium text-emerald-50/90">Available balance</p>
+          <p className="mt-1 text-4xl sm:text-5xl font-semibold tracking-tight tabular-nums">{formatCurrency(userBalance)}</p>
+          <p className="mt-2 text-sm text-emerald-50/90">Minimum withdrawal: {formatCurrency(SITE_CONFIG.survey.minWithdrawal)}</p>
+        </div>
 
         {/* Withdrawal Form */}
         <Card>

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DashboardLayout } from "@/components/dashboard-layout";
+import { PageHeader } from "@/components/ui/page-kit";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -495,33 +496,21 @@ export default function SurveysPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Header with gradient */}
-        <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-lg">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold flex items-center gap-3">
-                <ClipboardList size={32} />
-                Available Surveys
-              </h1>
-              <p className="text-white/80 mt-2">
-                Complete surveys and earn money instantly
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full">
-                <span className="text-sm">{surveys.length} Surveys Available</span>
-              </div>
-              <Button
-                onClick={handleRefresh}
-                variant="secondary"
-                disabled={isRefreshing}
-                className="bg-white/20 hover:bg-white/30 text-white border-0"
-              >
-                <RefreshCw size={18} className={isRefreshing ? "animate-spin" : ""} />
+        <PageHeader
+          icon={ClipboardList}
+          title="Take Surveys"
+          description="Complete surveys and earn money instantly."
+          actions={
+            <>
+              <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
+                {surveys.length} available
+              </span>
+              <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+                <RefreshCw size={15} className={isRefreshing ? "animate-spin" : ""} />Refresh
               </Button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         {/* Search and Filter */}
         <div className="flex flex-col sm:flex-row gap-4">
