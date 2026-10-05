@@ -63,5 +63,5 @@ og.convert("RGB").save("app/twitter-image.jpg", quality=88, optimize=True, progr
 
 # ── Icons ──
 logo.resize((180, 180), Image.LANCZOS).save('app/apple-icon.png', optimize=True)
-logo.save('app/favicon.ico', sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+logo.convert('RGBA').save('app/favicon.ico', sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 print('ok')
