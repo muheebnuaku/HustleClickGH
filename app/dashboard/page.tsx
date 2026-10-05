@@ -8,9 +8,8 @@ import { DashboardLayout } from "@/components/dashboard-layout";
 import { BiometricReminder } from "@/components/biometric-reminder";
 import { LocationPrompt } from "@/components/location-prompt";
 import { PushManager } from "@/components/push-manager";
-import { PageHeader, Panel } from "@/components/ui/page-kit";
+import { Panel } from "@/components/ui/page-kit";
 import { isProjectAvailableToMe } from "@/lib/project-config";
-import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import {
   ClipboardList,
@@ -210,15 +209,7 @@ export default function DashboardPage() {
         {/* Biometric setup reminder (hidden once enrolled or dismissed) */}
         <BiometricReminder />
 
-        <PageHeader
-          title={`Welcome back, ${firstName}`}
-          description="Your earnings at a glance."
-          actions={
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
-              <RefreshCw size={15} className={isRefreshing ? "animate-spin" : ""} />Refresh
-            </Button>
-          }
-        />
+        <h1 className="text-lg font-semibold tracking-tight text-foreground">Welcome back, {firstName}</h1>
 
         {/* Quick actions */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -248,7 +239,18 @@ export default function DashboardPage() {
           <Panel className="overflow-hidden">
             <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
               <h2 className="text-sm font-semibold text-foreground">Ways to earn now</h2>
-              <Link href="/data-projects" className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">All projects <ChevronRight size={14} /></Link>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  title="Refresh"
+                  aria-label="Refresh"
+                  className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                >
+                  <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
+                </button>
+                <Link href="/data-projects" className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">All projects <ChevronRight size={14} /></Link>
+              </div>
             </div>
             {activeDataProjects.length === 0 && stats.availableSurveys === 0 && myActiveSurveys.length === 0 ? (
               <div className="py-10 text-center text-sm text-zinc-500">
