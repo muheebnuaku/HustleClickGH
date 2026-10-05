@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { IncomingCallListener } from "@/components/incoming-call";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { useMessages } from "@/app/contexts/MessagesContext";
+import { isProjectAvailableToMe } from "@/lib/project-config";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
@@ -47,6 +48,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [userName, setUserName] = useState("");
   const [verified, setVerified] = useState(false);
+  const [availableProjects, setAvailableProjects] = useState(0);
 
   useEffect(() => {
     if (session) {
@@ -62,6 +64,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           if (data.user?.fullName) setUserName(data.user.fullName);
           setVerified(Boolean(data.user?.verified));
         })
+        .catch(() => {});
+
+      // How many data projects this contributor can take right now (sidebar badge).
+      fetch("/api/data-projects")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => setAvailableProjects((data?.projects ?? []).filter(isProjectAvailableToMe).length))
         .catch(() => {});
     }
   }, [session]);
@@ -153,6 +161,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                     {active && <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-blue-500" />}
                     <Icon size={17} className={active ? "text-blue-400" : "text-zinc-500 group-hover:text-zinc-300"} />
                     <span className="truncate">{item.label}</span>
+                    {item.href === "/data-projects" && availableProjects > 0 && (
+                      <span
+                        className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[11px] font-semibold text-white"
+                        title={`${availableProjects} project${availableProjects === 1 ? "" : "s"} available`}
+                      >
+                        {availableProjects > 99 ? "99+" : availableProjects}
+                      </span>
+                    )}
                     {item.href === "/messages" && unreadCount > 0 && (
                       <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
                         {unreadCount > 99 ? "99+" : unreadCount}
@@ -234,10 +250,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:px-6 lg:px-8">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="-ml-2 rounded-lg p-2 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 lg:hidden"
+              className="relative -ml-2 rounded-lg p-2 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 lg:hidden"
               aria-label="Open menu"
             >
               <Menu size={20} />
+              {availableProjects > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-500" />}
             </button>
             <nav className="flex min-w-0 items-center gap-1.5 text-sm" aria-label="Breadcrumb">
               {isNested && current ? (

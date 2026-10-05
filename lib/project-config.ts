@@ -357,3 +357,21 @@ export function checkLocationEligibility(
   if (match(countries, loc.country) && match(regions, loc.region) && match(cities, loc.city)) return { eligible: true };
   return { eligible: false, needsLocation: false, reason: `Only open to contributors in ${where}.` };
 }
+
+// ── Contributor-side availability ───────────────────────────────────────────
+
+/**
+ * Is a project (as returned by GET /api/data-projects) one this contributor can
+ * take right now? Open, slots left, open to their location, and not already
+ * submitted to (a rejected submission can be redone). Used for the sidebar
+ * badge and the dashboard so both always show the same number.
+ */
+export function isProjectAvailableToMe(p: {
+  status: string;
+  slotsRemaining: number;
+  eligible?: boolean;
+  userSubmissionStatus?: string | null;
+}): boolean {
+  return p.status === "active" && p.slotsRemaining > 0 && p.eligible !== false &&
+    (!p.userSubmissionStatus || p.userSubmissionStatus === "rejected");
+}

@@ -9,6 +9,7 @@ import { BiometricReminder } from "@/components/biometric-reminder";
 import { LocationPrompt } from "@/components/location-prompt";
 import { PushManager } from "@/components/push-manager";
 import { PageHeader, Panel } from "@/components/ui/page-kit";
+import { isProjectAvailableToMe } from "@/lib/project-config";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -88,8 +89,7 @@ export default function DashboardPage() {
 
       // Active data projects with slots remaining
       const projects: ActiveDataProject[] = (dataProjectsData.projects || [])
-        .filter((p: { status: string; slotsRemaining: number }) => p.status === "active" && p.slotsRemaining > 0)
-        .slice(0, 3)
+        .filter(isProjectAvailableToMe)
         .map((p: { id: string; title: string; description: string; reward: number; slotsRemaining: number }) => ({
           id: p.id,
           title: p.title,
@@ -175,11 +175,23 @@ export default function DashboardPage() {
   const firstName = session?.user?.name?.split(" ")[0] || "there";
 
   const quickActions = [
-    { title: "Data Projects", description: "Earn by recording", icon: Database, href: "/data-projects", tone: "green" },
+    {
+      title: "Data Projects",
+      description: activeDataProjects.length ? `${activeDataProjects.length} available` : "Earn by recording",
+      icon: Database, href: "/data-projects", tone: "green", count: activeDataProjects.length,
+    },
     { title: "Take Surveys", description: `${stats.availableSurveys} available`, icon: ClipboardList, href: "/surveys", tone: "purple" },
     { title: "Refer & Earn", description: `${stats.referralCount} referred`, icon: Users, href: "/referral", tone: "blue" },
     { title: "Withdraw", description: "Cash out earnings", icon: Wallet, href: "/income", tone: "amber" },
   ];
+
+  // Coloured border per tile (static strings so Tailwind generates them).
+  const toneBorder: Record<string, string> = {
+    green: "border-2 border-emerald-200 hover:border-emerald-400 dark:border-emerald-900 dark:hover:border-emerald-700",
+    purple: "border-2 border-violet-200 hover:border-violet-400 dark:border-violet-900 dark:hover:border-violet-700",
+    blue: "border-2 border-blue-200 hover:border-blue-400 dark:border-blue-900 dark:hover:border-blue-700",
+    amber: "border-2 border-amber-200 hover:border-amber-400 dark:border-amber-900 dark:hover:border-amber-700",
+  };
 
   const toneIcon: Record<string, string> = {
     green: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400",
@@ -212,7 +224,12 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {quickActions.map((a) => (
             <Link key={a.title} href={a.href} className="group">
-              <Panel className="flex h-full flex-col items-start gap-2 p-4 transition-all group-hover:-translate-y-0.5 group-hover:shadow-md sm:flex-row sm:items-center sm:gap-3">
+              <Panel className={`relative flex h-full flex-col items-start gap-2 p-4 transition-all group-hover:-translate-y-0.5 group-hover:shadow-md sm:flex-row sm:items-center sm:gap-3 ${toneBorder[a.tone]}`}>
+                {"count" in a && (a.count ?? 0) > 0 && (
+                  <span className="absolute -right-2 -top-2 inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-xs font-bold text-white shadow ring-2 ring-white dark:ring-zinc-950">
+                    {a.count}
+                  </span>
+                )}
                 <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${toneIcon[a.tone]}`}>
                   <a.icon size={19} />
                 </span>
@@ -240,7 +257,7 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {activeDataProjects.map((project) => (
+                {activeDataProjects.slice(0, 3).map((project) => (
                   <Link key={project.id} href={`/data-projects/${project.id}`} className="flex items-center justify-between gap-3 p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/10"><Mic className="text-emerald-600" size={17} /></span>
