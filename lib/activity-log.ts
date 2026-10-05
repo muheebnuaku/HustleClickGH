@@ -21,6 +21,7 @@ export type LogType =
   | "withdrawal_approved"
   | "withdrawal_rejected"
   | "page_close_during_call"
+  | "location_update"
   | "recording_shared"
   | "recording_share_failed"
   | "partner_inquiry"

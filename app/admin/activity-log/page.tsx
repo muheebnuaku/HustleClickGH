@@ -10,6 +10,7 @@ import {
   AlertCircle, CheckCircle2, Upload, Wallet, Wifi, WifiOff, X,
   RefreshCw, Search, Filter, Clock, User, ChevronDown, ChevronRight,
   Activity,
+  MapPin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +46,7 @@ const LOG_CONFIG: Record<
   call_timeout:            { label: "Call Timeout",          icon: Clock,      color: "text-amber-700",  bg: "bg-amber-50",   border: "border-amber-200"  },
   call_error:              { label: "Call Error",            icon: WifiOff,    color: "text-red-700",    bg: "bg-red-50",     border: "border-red-200"    },
   page_close_during_call:  { label: "Page Closed in Call",  icon: AlertCircle, color: "text-red-700",   bg: "bg-red-50",     border: "border-red-200"    },
+  location_update:         { label: "Location Updated",     icon: MapPin,      color: "text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-200" },
   submission:              { label: "Submission",            icon: Upload,     color: "text-purple-700", bg: "bg-purple-50",  border: "border-purple-200" },
   submission_approved:     { label: "Submission Approved",   icon: CheckCircle2, color: "text-green-700", bg: "bg-green-50", border: "border-green-200"  },
   submission_rejected:     { label: "Submission Rejected",   icon: AlertCircle, color: "text-red-700",   bg: "bg-red-50",     border: "border-red-200"    },

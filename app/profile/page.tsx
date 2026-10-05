@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { ImageCropper } from "@/components/image-cropper";
 import { BiometricSettings } from "@/components/biometric-settings";
 import { VerifiedBadge } from "@/components/verified-badge";
+import { DeviceLocationButton, type SavedLocation } from "@/components/device-location-button";
 import { Save, Camera, User, Copy, Check, Pencil, ShieldCheck, ChevronRight, MapPin, Eye, UserRound, Settings } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -63,6 +64,8 @@ export default function ProfilePage() {
   const [userStats, setUserStats] = useState<UserStats>({ surveysCompleted: 0, referrals: 0 });
   const [hasNationalId, setHasNationalId] = useState(false);
   const [copiedCallCode, setCopiedCallCode] = useState(false);
+  const [myLocation, setMyLocation] = useState<{ country?: string | null; region?: string | null; city?: string | null } | null>(null);
+  const [locationSaved, setLocationSaved] = useState(false);
 
   const {
     register,
@@ -110,6 +113,21 @@ export default function ProfilePage() {
         });
     }
   }, [status, router, reset]);
+
+  // Current saved location (set from the device only).
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    fetch("/api/account/location")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => { if (d?.location) setMyLocation(d.location); })
+      .catch(() => {});
+  }, [status]);
+
+  const handleLocationSaved = (loc: SavedLocation) => {
+    setMyLocation(loc);
+    setLocationSaved(true);
+    setPublicData((p) => (p ? { ...p, city: loc.city, country: loc.country } : p));
+  };
 
   // Public-profile stats (followers/following/location) — what other users see.
   useEffect(() => {
@@ -283,6 +301,35 @@ export default function ProfilePage() {
         {/* ── Account tab: private settings ──────────────────────────────────── */}
         {tab === "account" && (
         <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><MapPin size={20} className="text-blue-600" />Your location</CardTitle>
+            <CardDescription>
+              Projects are matched to where you are. Your location can only be updated from your device&apos;s current position.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {myLocation?.country ? (
+              <div className="flex items-start gap-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-4">
+                <MapPin size={18} className="mt-0.5 shrink-0 text-emerald-600" />
+                <div className="min-w-0">
+                  <p className="font-medium text-foreground">{[myLocation.city, myLocation.region].filter(Boolean).join(", ")}</p>
+                  <p className="text-sm text-zinc-500">{myLocation.country}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3">
+                You haven&apos;t set your location yet — some projects are only open to people in certain areas.
+              </p>
+            )}
+            {locationSaved && <p className="text-sm text-emerald-600 flex items-center gap-1.5"><Check size={15} />Location updated from your device.</p>}
+            <DeviceLocationButton
+              onSaved={handleLocationSaved}
+              label={myLocation?.country ? "Update to my current location" : "Use my current location"}
+            />
+            <p className="text-xs text-zinc-400">Tip: turn on GPS / location services and allow location access when your browser asks.</p>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>Personal Information</CardTitle>
