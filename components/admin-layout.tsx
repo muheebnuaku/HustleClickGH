@@ -101,7 +101,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Navigation — scrolls on short screens so items are never clipped */}
-      <nav className="flex-1 min-h-0 space-y-5 overflow-y-auto px-3 py-3">
+      <nav className="scrollbar-none flex-1 min-h-0 space-y-5 overflow-y-auto px-3 py-3">
         {groups.map((g) => (
           <div key={g.title}>
             <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{g.title}</p>

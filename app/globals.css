@@ -41,3 +41,12 @@ body {
   max-width: 100%;
   overflow-x: hidden;
 }
+
+/* Scrollable but with no visible scrollbar (admin sidebar nav). */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
