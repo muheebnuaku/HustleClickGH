@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { checkLocationEligibility, parseCaptureConfig, parseMetadataFields, targetingSummary } from "@/lib/project-config";
 
 // GET: Single project detail + user's submission if any
 export async function GET(
@@ -23,10 +24,14 @@ export async function GET(
       return NextResponse.json({ message: "Project not found" }, { status: 404 });
     }
 
-    const userSubmissions = await prisma.dataSubmission.findMany({
-      where: { projectId: id, userId },
-      orderBy: { submittedAt: "desc" },
-    });
+    const [userSubmissions, me] = await Promise.all([
+      prisma.dataSubmission.findMany({
+        where: { projectId: id, userId },
+        orderBy: { submittedAt: "desc" },
+      }),
+      prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true } }),
+    ]);
+    const elig = session.user.role === "admin" ? { eligible: true as const } : checkLocationEligibility(project, me);
     const userSubmission = userSubmissions[0] ?? null; // newest, for back-compat
     // Rejected submissions don't count against the per-user limit (users may retry).
     const userSubmissionsUsed = userSubmissions.filter((s) => s.status !== "rejected").length;
@@ -64,6 +69,12 @@ export async function GET(
           : [],
         languages: project.languages ? JSON.parse(project.languages) : [],
         acceptedFormats: JSON.parse(project.acceptedFormats),
+        captureConfig: project.captureMode === "upload" ? null : parseCaptureConfig(project.captureConfig),
+        metadataFields: parseMetadataFields(project.metadataFields),
+        locationLabel: targetingSummary(project),
+        // Internal labels — not for contributors.
+        clientName: undefined,
+        referenceCode: undefined,
         slotsRemaining: project.maxSubmissions - project.currentSubmissions,
         malesSlotsRemaining: project.malesNeeded !== null ? Math.max(0, project.malesNeeded - malesFilled) : null,
         femalesSlotsRemaining: project.femalesNeeded !== null ? Math.max(0, project.femalesNeeded - femalesFilled) : null,
@@ -73,6 +84,9 @@ export async function GET(
       userSubmissionsUsed,
       maxSubmissionsPerUser: maxPerUser, // null = unlimited (managers)
       canSubmitMore,
+      eligible: elig.eligible,
+      ineligibleReason: elig.eligible ? null : elig.reason,
+      needsLocation: elig.eligible ? false : elig.needsLocation,
       bypassSlots: isManager, // managers submit beyond the project's total slots/gender quota
     });
   } catch (error) {

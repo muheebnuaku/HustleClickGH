@@ -5,6 +5,10 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { logActivity, getIp } from "@/lib/activity-log";
 import { VELOCITY_WINDOW_MS, VELOCITY_MAX } from "@/lib/anti-fraud";
+import {
+  checkLocationEligibility, parseCaptureConfig, parseMetadataFields, sanitizeCaptureTrace,
+  validateMetadataAnswers, IN_APP_CAPTURE_FORMATS,
+} from "@/lib/project-config";
 
 export async function POST(
   request: Request,
@@ -23,7 +27,7 @@ export async function POST(
     const { id: projectId } = await params;
     const userId = session.user.id;
     const body = await request.json();
-    const { files: filesInput, fileUrl, fileName, fileType, fileSizeMB, language, promptUsed, consentGiven, gender } = body;
+    const { files: filesInput, fileUrl, fileName, fileType, fileSizeMB, language, promptUsed, consentGiven, gender, metadata, captureData, geo } = body;
 
     // A submission can hold several files (one user's full set). New clients send
     // `files: [{fileUrl,fileName,fileType,fileSizeMB}, …]`; older single-file
@@ -58,6 +62,36 @@ export async function POST(
         { message: "This project is no longer accepting submissions" },
         { status: 400 }
       );
+    }
+
+    // Location targeting — matched on the contributor's profile location.
+    const me = await prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true } });
+    if (session.user.role !== "admin") {
+      const elig = checkLocationEligibility(project, me);
+      if (!elig.eligible) return NextResponse.json({ message: elig.reason }, { status: 403 });
+    }
+
+    // Extra details the project asks for with every submission.
+    const metaCheck = validateMetadataAnswers(parseMetadataFields(project.metadataFields), metadata);
+    if (!metaCheck.ok) return NextResponse.json({ message: metaCheck.error }, { status: 400 });
+
+    // Device GPS, when the project requires proof of where it was recorded.
+    const geoOk = geo && typeof geo === "object" && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)
+      && Math.abs(geo.lat) <= 90 && Math.abs(geo.lng) <= 180;
+    if (project.requireGeo && !geoOk) {
+      return NextResponse.json({ message: "This project needs your device location. Allow location access and try again." }, { status: 400 });
+    }
+
+    // Guided capture must actually have been completed in the app.
+    const trace = project.captureMode === "upload" ? null : sanitizeCaptureTrace(captureData);
+    if (project.captureMode !== "upload" && !trace) {
+      return NextResponse.json({ message: "Please record using the in-app camera for this project." }, { status: 400 });
+    }
+    if (project.captureMode === "nose_dots" && trace) {
+      const needed = parseCaptureConfig(project.captureConfig).dots.length;
+      if (!trace.completed || new Set(trace.hits.map((h) => h.index)).size < needed) {
+        return NextResponse.json({ message: "Connect all the dots before submitting." }, { status: 400 });
+      }
     }
 
     // Run the independent gate counts in parallel — fewer DB round-trips under
@@ -152,6 +186,8 @@ export async function POST(
 
     // Validate every file's format and size.
     const acceptedFormats: string[] = JSON.parse(project.acceptedFormats);
+    // In-app recordings come out as webm (Android/Chrome) or mp4 (iPhone/Safari).
+    if (project.captureMode !== "upload") acceptedFormats.push(...IN_APP_CAPTURE_FORMATS);
     const isVoiceProject = project.projectType === "voice";
     // Live call recordings are exempt from format/size checks (webm, can be large).
     const isCallRecording = promptUsed?.toLowerCase().includes("call recording") || promptUsed?.toLowerCase().includes("live call");
@@ -227,6 +263,17 @@ export async function POST(
         language: language || null,
         promptUsed: promptUsed || null,
         gender: gender || null,
+        metadata: Object.keys(metaCheck.answers).length ? JSON.stringify(metaCheck.answers) : null,
+        captureData: trace ? JSON.stringify(trace) : null,
+        // Where it was recorded: profile location at submit time (+ device GPS if given).
+        location: JSON.stringify({
+          country: me?.country ?? null,
+          region: me?.region ?? null,
+          city: me?.city ?? null,
+          ...(geoOk
+            ? { lat: Math.round(geo.lat * 1e5) / 1e5, lng: Math.round(geo.lng * 1e5) / 1e5, accuracyM: Number.isFinite(geo.accuracy) ? Math.round(geo.accuracy) : null }
+            : {}),
+        }),
         consentGiven: true,
         consentGivenAt: new Date(),
         status: "pending",

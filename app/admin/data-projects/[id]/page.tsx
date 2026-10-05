@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 import { AdminLayout } from "@/components/admin-layout";
 import { Card } from "@/components/ui/card";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download, MessageSquare, Send, X, Trash2, Sparkles } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download, MessageSquare, Send, X, Trash2, Sparkles, MapPin, FileSpreadsheet } from "lucide-react";
+import { CAPTURE_ASPECT, type CaptureTrace, type MetadataField } from "@/lib/project-config";
 import { toDownloadUrl } from "@/lib/upload-file";
 import type { AiReviewResult } from "@/lib/ai-review";
 import Link from "next/link";
@@ -20,6 +21,10 @@ interface Submission {
   aiReview?: string | null; // JSON AiReviewResult (auto-scored on submit)
   language: string | null;
   promptUsed: string | null;
+  gender?: string | null;
+  metadata?: string | null; // JSON {fieldKey: value}
+  captureData?: string | null; // JSON CaptureTrace
+  location?: string | null; // JSON {country,region,city,lat?,lng?,accuracyM?}
   status: string;
   rewarded: boolean;
   notes: string | null;
@@ -49,6 +54,47 @@ interface Project {
   maxSubmissions: number;
   currentSubmissions: number;
   status: string;
+  metadataFields?: MetadataField[];
+  clientName?: string | null;
+  referenceCode?: string | null;
+}
+
+const parseJson = <T,>(raw?: string | null): T | null => {
+  if (!raw) return null;
+  try { return JSON.parse(raw) as T; } catch { return null; }
+};
+
+// Mini replay of a guided capture: the dot pattern plus the nose path the
+// contributor actually traced, in the same 3:4 frame they saw.
+function CaptureTraceView({ trace }: { trace: CaptureTrace }) {
+  const W = 120;
+  const H = W / CAPTURE_ASPECT;
+  const pts = trace.path.map(([, x, y]) => `${(x * W).toFixed(1)},${(y * H).toFixed(1)}`).join(" ");
+  const hitAt = new Map(trace.hits.map((h) => [h.index, h.tMs]));
+  return (
+    <div className="flex gap-3 items-start">
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="rounded-lg bg-zinc-900 shrink-0">
+        {pts && <polyline points={pts} fill="none" stroke="#60a5fa" strokeWidth={1.2} strokeOpacity={0.8} />}
+        {trace.dots.map((d, i) => (
+          <g key={i}>
+            <circle cx={d.x * W} cy={d.y * H} r={7} fill={hitAt.has(i) ? "#22c55e" : "rgba(255,255,255,0.25)"} stroke="#fff" strokeWidth={1} />
+            <text x={d.x * W} y={d.y * H + 3} textAnchor="middle" fontSize={8} fontWeight={700} fill="#fff">{i + 1}</text>
+          </g>
+        ))}
+      </svg>
+      <div className="text-xs text-zinc-500 space-y-0.5 min-w-0">
+        <p className={trace.completed ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
+          {trace.mode === "nose_dots"
+            ? `${trace.hits.length}/${trace.dots.length} dots connected${trace.completed ? "" : " (incomplete)"}`
+            : "In-app recording"}
+        </p>
+        <p>Length {(trace.durationMs / 1000).toFixed(1)}s · {trace.videoWidth}×{trace.videoHeight}{trace.mirrored ? " · selfie (mirrored view)" : ""}</p>
+        {trace.hits.length > 0 && (
+          <p className="break-words">Dot times: {trace.hits.map((h) => `${h.index + 1}@${(h.tMs / 1000).toFixed(1)}s`).join(" · ")}</p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 const STATUS_FILTER = ["all", "pending", "approved", "rejected"];
@@ -341,7 +387,24 @@ export default function AdminProjectSubmissionsPage() {
                 <p className="text-sm text-zinc-500">
                   Reward: <strong className="text-green-600">{formatCurrency(project.reward)}</strong> per approval &nbsp;·&nbsp;
                   Slots: <strong>{project.currentSubmissions}/{project.maxSubmissions}</strong>
+                  {(project.clientName || project.referenceCode) && <> &nbsp;·&nbsp; {[project.clientName, project.referenceCode].filter(Boolean).join(" · ")}</>}
                 </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={`/api/admin/data-projects/${projectId}/export?format=csv&status=approved`}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  title="Delivery manifest of approved submissions: files, details, location, capture data"
+                >
+                  <FileSpreadsheet size={15} />Export approved (CSV)
+                </a>
+                <a
+                  href={`/api/admin/data-projects/${projectId}/export?format=json&status=approved`}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  title="Same as CSV, plus full nose-path traces"
+                >
+                  <Download size={15} />JSON
+                </a>
               </div>
             </div>
           )}
@@ -491,6 +554,52 @@ export default function AdminProjectSubmissionsPage() {
                               <p className="text-red-600"><span className="font-medium">Notes:</span> {sub.notes}</p>
                             )}
                           </div>
+
+                          {(() => {
+                            const meta = parseJson<Record<string, string>>(sub.metadata);
+                            const loc = parseJson<{ country?: string | null; region?: string | null; city?: string | null; lat?: number; lng?: number; accuracyM?: number | null }>(sub.location);
+                            const trace = parseJson<CaptureTrace>(sub.captureData);
+                            const fields = project?.metadataFields ?? [];
+                            const labelOf = (k: string) => fields.find((f) => f.key === k)?.label ?? k;
+                            const typeOf = (k: string) => fields.find((f) => f.key === k)?.type;
+                            const place = loc ? [loc.city, loc.region, loc.country].filter(Boolean).join(", ") : "";
+                            if (!meta && !place && loc?.lat === undefined && !trace) return null;
+                            return (
+                              <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {(meta || place || loc?.lat !== undefined) && (
+                                  <div className="rounded-lg border border-zinc-100 dark:border-zinc-800 p-3 text-xs space-y-1">
+                                    {meta && Object.entries(meta).map(([k, v]) => (
+                                      <div key={k} className="flex gap-2">
+                                        <span className="font-medium text-zinc-600 dark:text-zinc-300 shrink-0">{labelOf(k)}:</span>
+                                        {typeOf(k) === "photo" ? (
+                                          <a href={v} target="_blank" rel="noreferrer"><img src={v} alt={labelOf(k)} className="h-14 rounded border border-zinc-200 object-cover" /></a>
+                                        ) : (
+                                          <span className="text-zinc-500 break-words min-w-0">{v}</span>
+                                        )}
+                                      </div>
+                                    ))}
+                                    {place && (
+                                      <p className="flex items-center gap-1 text-zinc-500"><MapPin size={12} className="shrink-0" />{place}</p>
+                                    )}
+                                    {loc?.lat !== undefined && loc?.lng !== undefined && (
+                                      <a
+                                        href={`https://www.google.com/maps?q=${loc.lat},${loc.lng}`}
+                                        target="_blank" rel="noreferrer"
+                                        className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+                                      >
+                                        <MapPin size={12} />GPS {loc.lat.toFixed(4)}, {loc.lng.toFixed(4)}{loc.accuracyM ? ` (±${loc.accuracyM}m)` : ""}
+                                      </a>
+                                    )}
+                                  </div>
+                                )}
+                                {trace && (
+                                  <div className="rounded-lg border border-zinc-100 dark:border-zinc-800 p-3">
+                                    <CaptureTraceView trace={trace} />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
 
                           {/* Media preview — responsive grid; audio spans full width */}
                           <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">

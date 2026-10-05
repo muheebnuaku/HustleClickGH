@@ -8,13 +8,18 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   Loader2, Mic, Video, ScanFace, ArrowLeft, Upload, Download,
-  CheckCircle2, Clock, XCircle, AlertCircle, FileAudio, FileVideo, File
+  CheckCircle2, Clock, XCircle, AlertCircle, FileAudio, FileVideo, File, MapPin, ImagePlus
 } from "lucide-react";
 import Link from "next/link";
 import { uploadFile, sha256Hex, toDownloadUrl } from "@/lib/upload-file";
 import { getLicense } from "@/lib/licenses";
 import { analyzeMedia, specLine, type MediaMeta } from "@/lib/media-quality";
 import { extractFramesFromFile } from "@/lib/frame-extract";
+import { GuidedCapture } from "@/components/guided-capture";
+import type { CaptureResult } from "@/lib/guided-capture-engine";
+import {
+  validateMetadataAnswers, type CaptureConfig, type CaptureMode, type CaptureTrace, type MetadataField,
+} from "@/lib/project-config";
 
 interface DataProject {
   id: string;
@@ -48,6 +53,27 @@ interface DataProject {
   recordingType: string | null;
   sampleVideoUrl: string | null;
   sampleVideoUrls: string[];
+  captureMode: CaptureMode;
+  captureConfig: CaptureConfig | null;
+  metadataFields: MetadataField[];
+  locationLabel: string | null;
+  requireGeo: boolean;
+}
+
+type GeoFix = { lat: number; lng: number; accuracy: number };
+
+// Ask the device for a GPS fix (projects that need proof of where it was recorded).
+function getGeoFix(): Promise<GeoFix> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error("This device can't share its location."));
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+      (err) => reject(new Error(err.code === err.PERMISSION_DENIED
+        ? "Location access was blocked. Allow location for this site, then submit again."
+        : "Couldn't get your location. Move to an open area and try again.")),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 },
+    );
+  });
 }
 
 interface UserSubmission {
@@ -96,6 +122,13 @@ export default function DataProjectDetailPage() {
   const [maxPerUser, setMaxPerUser] = useState(1);
   const [canSubmitMore, setCanSubmitMore] = useState(true);
   const [bypassSlots, setBypassSlots] = useState(false);
+  const [eligibility, setEligibility] = useState<{ eligible: boolean; reason: string | null; needsLocation: boolean }>({ eligible: true, reason: null, needsLocation: false });
+  // In-app capture + per-submission details
+  const [captureTrace, setCaptureTrace] = useState<CaptureTrace | null>(null);
+  const [captureKey, setCaptureKey] = useState(0); // remount the recorder after a submit
+  const captureUploadRef = useRef<Promise<boolean> | null>(null);
+  const [metaAnswers, setMetaAnswers] = useState<Record<string, string>>({});
+  const [metaUploading, setMetaUploading] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [language, setLanguage] = useState("");
@@ -122,6 +155,7 @@ export default function DataProjectDetailPage() {
       setMaxPerUser(data.maxSubmissionsPerUser || 1);
       setCanSubmitMore(data.canSubmitMore ?? true);
       setBypassSlots(!!data.bypassSlots);
+      setEligibility({ eligible: data.eligible ?? true, reason: data.ineligibleReason ?? null, needsLocation: !!data.needsLocation });
     } catch {
       setError("Failed to load project");
     } finally {
@@ -238,12 +272,17 @@ export default function DataProjectDetailPage() {
     if (project && (project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
       return "Please select your gender before submitting.";
     if (project && project.languages.length > 0 && !language) return "Please select the language you used.";
+    if (project && project.captureMode === "nose_dots" && !captureTrace?.completed) return "Connect all the dots with the camera before submitting.";
+    if (project?.metadataFields.length) {
+      const check = validateMetadataAnswers(project.metadataFields, metaAnswers);
+      if (!check.ok) return check.error;
+    }
     return null;
   };
 
   // Send the whole set as ONE submission. Counts as one submission from one
   // user (one slot, one gender count, one reward).
-  const submitSet = async (files: (UploadedFile & { meta?: MediaMeta })[]): Promise<string | null> => {
+  const submitSet = async (files: (UploadedFile & { meta?: MediaMeta })[], geo: GeoFix | null): Promise<string | null> => {
     setItems((prev) => prev.map((it) => (it.status === "uploaded" ? { ...it, status: "submitting" } : it)));
     try {
       const res = await fetch(`/api/data-projects/${projectId}/submit`, {
@@ -255,6 +294,9 @@ export default function DataProjectDetailPage() {
           promptUsed: promptUsed || null,
           gender: gender || null,
           consentGiven: consent,
+          metadata: metaAnswers,
+          captureData: captureTrace,
+          geo,
         }),
       });
       const data = await res.json();
@@ -267,6 +309,9 @@ export default function DataProjectDetailPage() {
       uploadedRef.current.clear();
       setItems([]);
       setConsent(false);
+      setCaptureTrace(null);
+      setCaptureKey((k) => k + 1);
+      setMetaAnswers({});
       fetchProject();
       return (data.submissionId as string) || null;
     } catch {
@@ -315,6 +360,16 @@ export default function DataProjectDetailPage() {
     setError(""); setMessage("");
     setProcessing(true);
 
+    // GPS proof of location, when the project requires it.
+    let geo: GeoFix | null = null;
+    if (project.requireGeo) {
+      try { geo = await getGeoFix(); }
+      catch (err) { setProcessing(false); setError(err instanceof Error ? err.message : "Couldn't get your location."); return; }
+    }
+
+    // An in-app recording starts uploading the moment it's saved — let it finish.
+    if (captureUploadRef.current) await captureUploadRef.current;
+
     // 1. Upload any files that aren't in storage yet (queued or previously failed).
     const toUpload = items.filter((it) => it.status === "queued" || it.status === "error");
     if (toUpload.length) await uploadPool(toUpload);
@@ -337,10 +392,53 @@ export default function DataProjectDetailPage() {
       .filter(Boolean) as (UploadedFile & { meta?: MediaMeta })[];
     // Capture the local files for AI scoring BEFORE submitSet clears the list.
     const localFiles = items.map((it) => it.file);
-    const submissionId = await submitSet(files);
+    const submissionId = await submitSet(files, geo);
     setProcessing(false);
     // Auto AI quality suggestion — fire-and-forget, doesn't block the contributor.
     if (submissionId) autoScoreSubmission(submissionId, localFiles);
+  };
+
+  // In-app recording finished: it becomes the submission's file and starts
+  // uploading straight away ("stops and saves automatically").
+  const handleCaptured = (r: CaptureResult) => {
+    const name = `${project?.captureMode === "nose_dots" ? "nose-dots" : "capture"}-${Date.now()}.${r.ext}`;
+    const file = new window.File([r.blob], name, { type: r.mimeType }); // `File` is the lucide icon here
+    const durationSecs = Math.round(r.trace.durationMs / 100) / 10;
+    const item: UploadItem = {
+      id: `f${idCounter.current++}`,
+      file,
+      status: "queued",
+      progress: 0,
+      meta: { kind: "video", width: r.trace.videoWidth, height: r.trace.videoHeight, durationSecs, warnings: [] },
+    };
+    uploadedRef.current.clear();
+    setItems([item]);
+    setCaptureTrace(r.trace);
+    setError("");
+    captureUploadRef.current = uploadOne(item);
+  };
+
+  const handleRetake = () => {
+    uploadedRef.current.clear();
+    captureUploadRef.current = null;
+    setItems([]);
+    setCaptureTrace(null);
+  };
+
+  // Photo-type metadata (e.g. ID card): upload right away, keep the URL as the answer.
+  const handleMetaPhoto = async (field: MetadataField, f: File | undefined) => {
+    if (!f) return;
+    if (!f.type.startsWith("image/")) { setError(`"${field.label}" must be a photo.`); return; }
+    setMetaUploading((m) => ({ ...m, [field.key]: true }));
+    try {
+      const u = await uploadFile(f, `${projectId}-meta`, f.name);
+      setMetaAnswers((a) => ({ ...a, [field.key]: u.url }));
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Photo upload failed");
+    } finally {
+      setMetaUploading((m) => ({ ...m, [field.key]: false }));
+    }
   };
 
   // Retry uploading one failed file without touching the others.
@@ -413,6 +511,16 @@ export default function DataProjectDetailPage() {
                 <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                   project.status === "active" ? "bg-green-100 text-green-700" : "bg-zinc-100 text-zinc-500"
                 }`}>{project.status}</span>
+                {project.locationLabel && (
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 inline-flex items-center gap-1">
+                    <MapPin size={11} />{project.locationLabel}
+                  </span>
+                )}
+                {project.captureMode !== "upload" && (
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                    {project.captureMode === "nose_dots" ? "Guided camera task" : "Record in app"}
+                  </span>
+                )}
               </div>
               <h1 className="text-xl font-bold text-foreground">{project.title}</h1>
               <p className="text-sm text-zinc-500 mt-1">{project.description}</p>
@@ -535,8 +643,20 @@ export default function DataProjectDetailPage() {
           </Card>
         )}
 
+        {/* Not open to this contributor's location */}
+        {canSubmitMore && !eligibility.eligible && (
+          <Card className="p-6 text-center">
+            <MapPin size={32} className="mx-auto mb-2 text-emerald-600 opacity-70" />
+            <p className="font-medium text-foreground">Not available in your area</p>
+            <p className="text-sm text-zinc-500 mt-1">{eligibility.reason}</p>
+            {eligibility.needsLocation && (
+              <Link href="/profile" className="inline-block mt-3 text-sm font-medium text-blue-600 hover:underline">Add my location →</Link>
+            )}
+          </Card>
+        )}
+
         {/* Instructions + upload — only while the user can still submit */}
-        {canSubmitMore && (
+        {canSubmitMore && eligibility.eligible && (
           <>
             <Card className="p-5">
               <h2 className="font-semibold mb-3">Recording Instructions</h2>
@@ -570,6 +690,22 @@ export default function DataProjectDetailPage() {
                 </div>
               )}
 
+              {project.captureMode !== "upload" ? (
+              <div className="mt-4 bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-blue-700 space-y-1">
+                <p><strong>How to record:</strong></p>
+                <p>• You record right here on this page — no need to upload a file.</p>
+                {project.captureMode === "nose_dots" ? (
+                  <>
+                    <p>• Numbered dots appear on the camera. Move your <strong>nose</strong> to dot 1, then 2, and so on. Each dot turns green when connected.</p>
+                    <p>• The video stops and saves by itself once every dot is green. You have up to {project.maxDurationSecs} seconds.</p>
+                  </>
+                ) : (
+                  <p>• Length: {project.minDurationSecs}–{project.maxDurationSecs} seconds.</p>
+                )}
+                <p>• Good light on your face, phone held steady at eye level.</p>
+                {project.requireGeo && <p>• Your device location is recorded when you submit.</p>}
+              </div>
+              ) : (
               <div className="mt-4 bg-amber-50 border border-amber-100 rounded-lg p-3 text-xs text-amber-700 space-y-1">
                 <p><strong>File requirements:</strong></p>
                 <p>• Format: {project.projectType === "voice" && project.audioSampleRate ? "wav" : project.acceptedFormats.join(", ")}</p>
@@ -588,14 +724,16 @@ export default function DataProjectDetailPage() {
                 {project.languages.length > 0 && (
                   <p>• Languages: {project.languages.join(", ")}</p>
                 )}
+                {project.requireGeo && <p>• Your device location is recorded when you submit.</p>}
               </div>
+              )}
             </Card>
 
             {/* Upload Form — managers may submit even when the project's slots are full */}
             {project.status === "active" && (project.slotsRemaining > 0 || bypassSlots) ? (
               <>
               <Card className="p-5">
-                <h2 className="font-semibold mb-4">Upload Your Recording</h2>
+                <h2 className="font-semibold mb-4">{project.captureMode === "upload" ? "Upload Your Recording" : "Record Your Video"}</h2>
 
                 {message && (
                   <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm mb-4">
@@ -611,6 +749,19 @@ export default function DataProjectDetailPage() {
                 <form onSubmit={handleSubmitAll} className="space-y-4">
                   {/* File picker — accepts multiple files */}
                   <div>
+                    {project.captureMode !== "upload" && project.captureConfig ? (
+                      <GuidedCapture
+                        key={captureKey}
+                        mode={project.captureMode}
+                        config={project.captureConfig}
+                        minDurationSecs={project.minDurationSecs}
+                        maxDurationSecs={project.maxDurationSecs}
+                        disabled={processing}
+                        onCaptured={handleCaptured}
+                        onRetake={handleRetake}
+                      />
+                    ) : (
+                    <>
                     <label className="block text-sm font-medium mb-2">Recording Files *</label>
                     <div
                       onClick={() => !processing && fileInputRef.current?.click()}
@@ -642,6 +793,8 @@ export default function DataProjectDetailPage() {
                       onChange={handleFileChange}
                       className="hidden"
                     />
+                    </>
+                    )}
 
                     {/* Selected files with independent progress / status / retry */}
                     {items.length > 0 && (
@@ -790,6 +943,53 @@ export default function DataProjectDetailPage() {
                     </div>
                   )}
 
+                  {/* Extra details the project collects with each submission */}
+                  {project.metadataFields.length > 0 && (
+                    <div className="space-y-3 border border-zinc-200 rounded-xl p-4">
+                      <p className="text-sm font-semibold">Your details for this submission</p>
+                      {project.metadataFields.map((f) => {
+                        const val = metaAnswers[f.key] ?? "";
+                        const set = (v: string) => setMetaAnswers((a) => ({ ...a, [f.key]: v }));
+                        const inputCls = "w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500";
+                        return (
+                          <div key={f.key}>
+                            <label className="block text-sm font-medium mb-1">{f.label}{f.required ? " *" : ""}</label>
+                            {f.type === "select" ? (
+                              <select className={inputCls} value={val} onChange={(e) => set(e.target.value)}>
+                                <option value="">Select…</option>
+                                {f.options?.map((o) => <option key={o} value={o}>{o}</option>)}
+                              </select>
+                            ) : f.type === "yesno" ? (
+                              <div className="grid grid-cols-2 gap-2">
+                                {["yes", "no"].map((o) => (
+                                  <button key={o} type="button" onClick={() => set(o)} className={`border-2 rounded-lg py-2 text-sm font-medium capitalize ${val === o ? "border-blue-500 bg-blue-50 text-blue-700" : "border-zinc-200 text-zinc-500"}`}>{o}</button>
+                                ))}
+                              </div>
+                            ) : f.type === "photo" ? (
+                              <div className="flex items-center gap-3">
+                                {val && <img src={val} alt={f.label} className="h-16 w-24 rounded-lg object-cover border border-zinc-200" />}
+                                <label className={`inline-flex items-center gap-2 border border-dashed border-zinc-300 rounded-lg px-3 py-2 text-sm text-zinc-600 ${metaUploading[f.key] ? "opacity-50" : "cursor-pointer hover:border-blue-400"}`}>
+                                  {metaUploading[f.key] ? <Loader2 size={16} className="animate-spin" /> : <ImagePlus size={16} />}
+                                  {metaUploading[f.key] ? "Uploading…" : val ? "Change photo" : "Take / choose photo"}
+                                  <input type="file" accept="image/*" className="hidden" disabled={metaUploading[f.key]}
+                                    onChange={(e) => { handleMetaPhoto(f, e.target.files?.[0]); e.target.value = ""; }} />
+                                </label>
+                              </div>
+                            ) : (
+                              <input
+                                className={inputCls}
+                                type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
+                                value={val}
+                                onChange={(e) => set(e.target.value)}
+                              />
+                            )}
+                            {f.help && <p className="text-xs text-zinc-400 mt-1">{f.help}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   {/* Consent */}
                   <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
                     <p className="text-xs text-zinc-600 mb-3 pb-3 border-b border-zinc-200">
@@ -813,6 +1013,7 @@ export default function DataProjectDetailPage() {
                     disabled={
                       items.length === 0 || !consent || processing ||
                       items.some((it) => it.status === "analyzing") ||
+                      Object.values(metaUploading).some(Boolean) ||
                       ((project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
                     }
                     className="w-full bg-green-500 hover:bg-green-600 text-white"

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
-import { Mic, Video, ScanFace, Loader2, ChevronRight, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { Mic, Video, ScanFace, Loader2, ChevronRight, CheckCircle2, Clock, XCircle, MapPin, Camera } from "lucide-react";
 import Link from "next/link";
 
 interface DataProject {
@@ -20,6 +20,11 @@ interface DataProject {
   acceptedFormats: string[];
   status: string;
   userSubmissionStatus: string | null;
+  captureMode?: string;
+  locationLabel?: string | null;
+  eligible?: boolean;
+  ineligibleReason?: string | null;
+  needsLocation?: boolean;
 }
 
 const TYPE_META: Record<string, { icon: React.ElementType; label: string; color: string; bg: string }> = {
@@ -38,6 +43,7 @@ export default function DataProjectsPage() {
   const [projects, setProjects] = useState<DataProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showOther, setShowOther] = useState(false);
 
   useEffect(() => {
     fetch("/api/data-projects")
@@ -46,6 +52,10 @@ export default function DataProjectsPage() {
       .catch(() => setError("Failed to load projects"))
       .finally(() => setLoading(false));
   }, []);
+
+  // Projects already submitted to stay visible even if targeting changed later.
+  const eligibleProjects = projects.filter((p) => p.eligible !== false || p.userSubmissionStatus);
+  const otherProjects = projects.filter((p) => p.eligible === false && !p.userSubmissionStatus);
 
   if (loading) {
     return (
@@ -70,14 +80,14 @@ export default function DataProjectsPage() {
 
         {/* Info banner */}
         <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-700">
-          <strong>How it works:</strong> Browse a project → read the instructions → record on your phone using your native camera or voice recorder app → upload the file → submit and wait for review. You get paid once your recording is approved.
+          <strong>How it works:</strong> Browse a project → read the instructions → record (some projects record right here in the app; others ask you to upload a file from your phone) → submit and wait for review. You get paid once your recording is approved.
         </div>
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">{error}</div>
         )}
 
-        {projects.length === 0 ? (
+        {eligibleProjects.length === 0 ? (
           <Card className="p-12 text-center text-zinc-400">
             <Mic size={40} className="mx-auto mb-3 opacity-40" />
             <p className="font-medium">No open projects right now</p>
@@ -85,7 +95,7 @@ export default function DataProjectsPage() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {projects.map((p) => {
+            {eligibleProjects.map((p) => {
               const meta = TYPE_META[p.projectType] || TYPE_META.voice;
               const Icon = meta.icon;
               const subStatus = p.userSubmissionStatus;
@@ -128,6 +138,17 @@ export default function DataProjectsPage() {
                       )}
                     </div>
 
+                    {(p.locationLabel || (p.captureMode && p.captureMode !== "upload")) && (
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {p.locationLabel && (
+                          <span className="px-2 py-0.5 bg-white/70 rounded-full text-xs text-emerald-700 border border-white inline-flex items-center gap-1"><MapPin size={10} />{p.locationLabel}</span>
+                        )}
+                        {p.captureMode && p.captureMode !== "upload" && (
+                          <span className="px-2 py-0.5 bg-white/70 rounded-full text-xs text-blue-700 border border-white inline-flex items-center gap-1"><Camera size={10} />Record in app</span>
+                        )}
+                      </div>
+                    )}
+
                     {/* Languages */}
                     {p.languages.length > 0 && (
                       <div className="flex flex-wrap gap-1 mb-3">
@@ -158,13 +179,36 @@ export default function DataProjectsPage() {
                       </div>
                     ) : (
                       <Link href={`/data-projects/${p.id}`} className={`flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors ${meta.color.replace("text-", "bg-")} hover:opacity-90`}>
-                        Submit Recording <ChevronRight size={16} />
+                        {p.captureMode && p.captureMode !== "upload" ? "Start Recording" : "Submit Recording"} <ChevronRight size={16} />
                       </Link>
                     )}
                   </div>
                 </Card>
               );
             })}
+          </div>
+        )}
+
+        {/* Projects for other locations — listed so contributors know why they can't join */}
+        {otherProjects.length > 0 && (
+          <div>
+            <button onClick={() => setShowOther((v) => !v)} className="text-sm font-medium text-zinc-500 hover:text-foreground">
+              {showOther ? "Hide" : "Show"} {otherProjects.length} project{otherProjects.length === 1 ? "" : "s"} not available in your area
+            </button>
+            {showOther && (
+              <div className="mt-3 space-y-2">
+                {otherProjects.map((p) => (
+                  <Card key={p.id} className="p-4 flex items-start gap-3 opacity-80">
+                    <MapPin size={18} className="text-zinc-400 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground truncate">{p.title}</p>
+                      <p className="text-xs text-zinc-500">{p.ineligibleReason}</p>
+                      {p.needsLocation && <Link href="/profile" className="text-xs text-blue-600 hover:underline">Add my location →</Link>}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

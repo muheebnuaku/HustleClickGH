@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { buildProjectSetupData, validateProjectSetup } from "@/lib/project-config";
 
 // PUT: Full project edit
 export async function PUT(
@@ -24,9 +25,16 @@ export async function PUT(
       audioSampleRate, audioChannels, audioBitDepth, recordingType,
     } = body;
 
+    const existing = await prisma.dataProject.findUnique({ where: { id }, select: { projectType: true } });
+    if (!existing) return NextResponse.json({ message: "Project not found" }, { status: 404 });
+    const setup = buildProjectSetupData(body);
+    const setupError = validateProjectSetup(setup, existing.projectType);
+    if (setupError) return NextResponse.json({ message: setupError }, { status: 400 });
+
     const project = await prisma.dataProject.update({
       where: { id },
       data: {
+        ...setup,
         title,
         description,
         instructions,

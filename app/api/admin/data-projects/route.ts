@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { buildProjectSetupData, validateProjectSetup, parseCaptureConfig, parseMetadataFields, parseStringList } from "@/lib/project-config";
 
 // GET: All projects with submission counts
 export async function GET() {
@@ -34,6 +35,11 @@ export async function GET() {
           samplePrompts: p.samplePrompts ? JSON.parse(p.samplePrompts) : [],
           languages: p.languages ? JSON.parse(p.languages) : [],
           acceptedFormats: JSON.parse(p.acceptedFormats),
+          captureConfig: p.captureMode === "upload" ? null : parseCaptureConfig(p.captureConfig),
+          metadataFields: parseMetadataFields(p.metadataFields),
+          targetCountries: parseStringList(p.targetCountries),
+          targetRegions: parseStringList(p.targetRegions),
+          targetCities: parseStringList(p.targetCities),
           pendingCount,
           approvedCount,
           rejectedCount,
@@ -100,8 +106,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Missing required fields" }, { status: 400 });
     }
 
+    const setup = buildProjectSetupData(body);
+    const setupError = validateProjectSetup(setup, projectType);
+    if (setupError) return NextResponse.json({ message: setupError }, { status: 400 });
+
     const project = await prisma.dataProject.create({
       data: {
+        ...setup,
         title,
         description,
         projectType,

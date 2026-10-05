@@ -7,9 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatUsd, formatDate } from "@/lib/utils";
 import { convertUsdToGhs, fallbackRate } from "@/lib/fx";
-import { Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload, Pencil, Building2, Check, X } from "lucide-react";
+import { Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload, Pencil, Building2, Check, X, MapPin, Search, Camera, Tag } from "lucide-react";
 import Link from "next/link";
 import { uploadFile } from "@/lib/upload-file";
+import { GHANA_REGIONS } from "@/lib/constants";
+import {
+  CAPTURE_MODES, DEFAULT_CAPTURE_CONFIG, IN_APP_CAPTURE_FORMATS,
+  type CaptureConfig, type CaptureMode, type MetadataField,
+} from "@/lib/project-config";
+import { DotPatternEditor } from "@/components/admin/dot-pattern-editor";
+import { MetadataFieldsEditor, toEditable, fromEditable, type EditableField } from "@/components/admin/metadata-fields-editor";
 
 const PROJECT_TYPES = [
   { value: "voice", label: "Voice / Audio", icon: Mic, color: "text-blue-600 bg-blue-50" },
@@ -57,6 +64,31 @@ interface DataProject {
   audioChannels: number | null;
   audioBitDepth: number | null;
   recordingType: string | null;
+  captureMode: CaptureMode;
+  captureConfig: CaptureConfig | null;
+  metadataFields: MetadataField[];
+  targetCountries: string[];
+  targetRegions: string[];
+  targetCities: string[];
+  requireGeo: boolean;
+  clientName: string | null;
+  referenceCode: string | null;
+}
+
+// Section wrapper so the long create form reads as clear steps.
+function FormSection({ step, title, hint, children }: { step: number; title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/40 p-4 space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] flex items-center justify-center">{step}</span>
+          {title}
+        </h3>
+        {hint && <p className="text-xs text-zinc-500 mt-1 ml-7">{hint}</p>}
+      </div>
+      {children}
+    </section>
+  );
 }
 
 const emptyForm = {
@@ -82,7 +114,18 @@ const emptyForm = {
   // Gender quotas (optional)
   malesNeeded: "",
   femalesNeeded: "",
+  // Organisation
+  clientName: "",
+  referenceCode: "",
+  // Capture + targeting
+  captureMode: "upload" as CaptureMode,
+  targetCountries: "",
+  targetRegions: [] as string[],
+  targetCities: "",
+  requireGeo: false,
 };
+
+const splitList = (v: string) => v.split(",").map((x) => x.trim()).filter(Boolean);
 
 export default function AdminDataProjectsPage() {
   const [projects, setProjects] = useState<DataProject[]>([]);
@@ -95,6 +138,12 @@ export default function AdminDataProjectsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [captureConfig, setCaptureConfig] = useState<CaptureConfig>(DEFAULT_CAPTURE_CONFIG);
+  const [metaFields, setMetaFields] = useState<EditableField[]>([]);
+  // List search / filters
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
   // Org-project approval: which project's approve panel is open + the contributor reward being set
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [approveReward, setApproveReward] = useState("");
@@ -142,7 +191,16 @@ export default function AdminDataProjectsPage() {
       audioBitDepth: String(p.audioBitDepth ?? 16),
       malesNeeded: p.malesNeeded != null ? String(p.malesNeeded) : "",
       femalesNeeded: p.femalesNeeded != null ? String(p.femalesNeeded) : "",
+      clientName: p.clientName ?? "",
+      referenceCode: p.referenceCode ?? "",
+      captureMode: p.captureMode ?? "upload",
+      targetCountries: (p.targetCountries ?? []).join(", "),
+      targetRegions: p.targetRegions ?? [],
+      targetCities: (p.targetCities ?? []).join(", "),
+      requireGeo: !!p.requireGeo,
     });
+    setCaptureConfig(p.captureConfig ?? DEFAULT_CAPTURE_CONFIG);
+    setMetaFields(toEditable(p.metadataFields ?? []));
     setEditingId(p.id);
     setShowForm(true);
     setError("");
@@ -155,6 +213,8 @@ export default function AdminDataProjectsPage() {
     setEditingId(null);
     setForm(emptyForm);
     setSampleVideoFiles([]);
+    setCaptureConfig(DEFAULT_CAPTURE_CONFIG);
+    setMetaFields([]);
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -163,7 +223,22 @@ export default function AdminDataProjectsPage() {
     setError("");
     setMessage("");
 
-    const formats = FORMAT_OPTIONS[form.projectType] || [];
+    const baseFormats = FORMAT_OPTIONS[form.projectType] || [];
+    const formats = form.captureMode === "upload" ? baseFormats : Array.from(new Set([...baseFormats, ...IN_APP_CAPTURE_FORMATS]));
+    if (form.captureMode === "nose_dots" && captureConfig.dots.length === 0) {
+      setError("Add at least one dot for the guided nose task.");
+      setSubmitting(false);
+      return;
+    }
+    // Shared by create + edit: capture, metadata, targeting.
+    const setup = {
+      captureMode: form.captureMode,
+      captureConfig: form.captureMode === "upload" ? null : captureConfig,
+      metadataFields: fromEditable(metaFields),
+      targetCountries: splitList(form.targetCountries),
+      targetRegions: form.targetRegions,
+      targetCities: splitList(form.targetCities),
+    };
     const langArray = form.languages
       ? form.languages.split(",").map((l) => l.trim()).filter(Boolean)
       : [];
@@ -179,6 +254,7 @@ export default function AdminDataProjectsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...form,
+            ...setup,
             languages: langArray,
             samplePrompts: promptsArray,
           }),
@@ -206,6 +282,7 @@ export default function AdminDataProjectsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...form,
+            ...setup,
             acceptedFormats: formats,
             languages: langArray,
             samplePrompts: promptsArray,
@@ -269,6 +346,14 @@ export default function AdminDataProjectsPage() {
     }
   };
 
+  const q = query.trim().toLowerCase();
+  const visibleProjects = projects.filter((p) =>
+    (statusFilter === "all" || p.status === statusFilter) &&
+    (typeFilter === "all" || p.projectType === typeFilter) &&
+    (!q || [p.title, p.clientName, p.referenceCode, p.orgName, ...(p.targetCountries ?? []), ...(p.targetRegions ?? []), ...(p.targetCities ?? [])]
+      .some((v) => v?.toLowerCase().includes(q))),
+  );
+
   const getTypeIcon = (type: string) => {
     const t = PROJECT_TYPES.find((p) => p.value === type);
     if (!t) return null;
@@ -325,12 +410,25 @@ export default function AdminDataProjectsPage() {
                   <select
                     className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={form.projectType}
-                    onChange={(e) => setForm({ ...form, projectType: e.target.value })}
+                    onChange={(e) => setForm({ ...form, projectType: e.target.value, captureMode: e.target.value === "voice" ? "upload" : form.captureMode })}
+                    disabled={!!editingId}
+                    title={editingId ? "Project type can't change after creation" : undefined}
                   >
                     {PROJECT_TYPES.map((t) => (
                       <option key={t.value} value={t.value}>{t.label}</option>
                     ))}
                   </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Client (internal)</label>
+                  <Input value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} placeholder="Who the data is for — never shown to contributors" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Reference / batch code</label>
+                  <Input value={form.referenceCode} onChange={(e) => setForm({ ...form, referenceCode: e.target.value })} placeholder="e.g. NOSE-ACC-B1" />
                 </div>
               </div>
 
@@ -458,6 +556,72 @@ export default function AdminDataProjectsPage() {
                 </div>
               </div>
 
+              {/* How contributors record */}
+              {(form.projectType === "video" || form.projectType === "face") && (
+                <FormSection step={1} title="How contributors record" hint="Choose in-app recording to control exactly how the video is captured.">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    {CAPTURE_MODES.map((m) => (
+                      <button
+                        key={m.value}
+                        type="button"
+                        onClick={() => setForm({ ...form, captureMode: m.value })}
+                        className={`text-left rounded-xl border-2 p-3 transition-colors ${form.captureMode === m.value ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" : "border-zinc-200 dark:border-zinc-800 hover:border-blue-300"}`}
+                      >
+                        <p className="text-sm font-semibold text-foreground">{m.label}</p>
+                        <p className="text-xs text-zinc-500 mt-0.5">{m.help}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {form.captureMode !== "upload" && (
+                    <DotPatternEditor value={captureConfig} onChange={setCaptureConfig} showDots={form.captureMode === "nose_dots"} />
+                  )}
+                  {form.captureMode === "nose_dots" && (
+                    <p className="text-xs text-zinc-500">Tip: set <strong>Max Duration</strong> below to the time limit for the task (e.g. 60s). Recording stops on its own once every dot is connected.</p>
+                  )}
+                </FormSection>
+              )}
+
+              {/* Who can take it */}
+              <FormSection step={form.projectType === "voice" ? 1 : 2} title="Who can take it — location" hint="Leave everything blank to open the project to everyone. Matched against each contributor's profile location.">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium mb-1 text-zinc-600">Countries</label>
+                    <Input value={form.targetCountries} onChange={(e) => setForm({ ...form, targetCountries: e.target.value })} placeholder="e.g. Ghana (comma-separated)" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1 text-zinc-600">Cities / towns</label>
+                    <Input value={form.targetCities} onChange={(e) => setForm({ ...form, targetCities: e.target.value })} placeholder="e.g. Accra, Kumasi, Tamale" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1 text-zinc-600">Regions (Ghana)</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {GHANA_REGIONS.map((r) => {
+                      const on = form.targetRegions.includes(r);
+                      return (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => setForm({ ...form, targetRegions: on ? form.targetRegions.filter((x) => x !== r) : [...form.targetRegions, r] })}
+                          className={`text-xs rounded-full px-2.5 py-1 border ${on ? "bg-emerald-600 border-emerald-600 text-white" : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-emerald-400"}`}
+                        >
+                          {r}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <label className="flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-300 cursor-pointer">
+                  <input type="checkbox" checked={form.requireGeo} onChange={(e) => setForm({ ...form, requireGeo: e.target.checked })} className="w-4 h-4 rounded mt-0.5" />
+                  <span>Capture device GPS with every submission <span className="text-xs text-zinc-400">(proof of where it was recorded; contributors must allow location)</span></span>
+                </label>
+              </FormSection>
+
+              {/* Metadata */}
+              <FormSection step={form.projectType === "voice" ? 2 : 3} title="Details collected with each submission" hint="Contributors fill these in before submitting. They appear on the review page and in the export.">
+                <MetadataFieldsEditor value={metaFields} onChange={setMetaFields} />
+              </FormSection>
+
               {/* Gender Quota */}
               <div className="border border-pink-200 rounded-lg p-4 bg-pink-50/30 space-y-2">
                 <h3 className="text-sm font-semibold text-pink-800">Gender Quota (optional)</h3>
@@ -543,6 +707,32 @@ export default function AdminDataProjectsPage() {
           </Card>
         )}
 
+        {/* Search + filters */}
+        {!loading && projects.length > 0 && (
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search title, client, reference, location…"
+                className="w-full border border-zinc-200 dark:border-zinc-700 rounded-lg pl-9 pr-3 py-2 text-sm bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-zinc-950">
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
+              <option value="pending_review">Pending review</option>
+              <option value="completed">Completed</option>
+            </select>
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-zinc-950">
+              <option value="all">All types</option>
+              {PROJECT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+        )}
+
         {/* Projects List */}
         {loading ? (
           <div className="flex items-center justify-center py-16 text-zinc-400">
@@ -556,7 +746,10 @@ export default function AdminDataProjectsPage() {
           </Card>
         ) : (
           <div className="space-y-4">
-            {projects.map((p) => (
+            {visibleProjects.length === 0 && (
+              <Card className="p-8 text-center text-sm text-zinc-400">No projects match these filters.</Card>
+            )}
+            {visibleProjects.map((p) => (
               <Card key={p.id} className="p-5">
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
@@ -564,6 +757,21 @@ export default function AdminDataProjectsPage() {
                       {getTypeIcon(p.projectType)}
                       {getStatusBadge(p.status)}
                       {p.orgName && <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 inline-flex items-center gap-1"><Building2 size={11} />{p.orgName}</span>}
+                      {p.captureMode && p.captureMode !== "upload" && (
+                        <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 inline-flex items-center gap-1">
+                          <Camera size={11} />{p.captureMode === "nose_dots" ? `Nose dots · ${p.captureConfig?.dots.length ?? 0}` : "In-app camera"}
+                        </span>
+                      )}
+                      {[...(p.targetCities ?? []), ...(p.targetRegions ?? []), ...(p.targetCountries ?? [])].length > 0 && (
+                        <span className="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300 inline-flex items-center gap-1 max-w-[16rem] truncate">
+                          <MapPin size={11} />{[...(p.targetCities ?? []), ...(p.targetRegions ?? []), ...(p.targetCountries ?? [])].join(", ")}
+                        </span>
+                      )}
+                      {(p.clientName || p.referenceCode) && (
+                        <span className="text-xs px-2 py-1 rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 inline-flex items-center gap-1">
+                          <Tag size={11} />{[p.clientName, p.referenceCode].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
                       <span className="text-xs text-zinc-400">{formatDate(p.createdAt)}</span>
                     </div>
                     <h3 className="font-semibold text-foreground truncate">{p.title}</h3>

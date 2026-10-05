@@ -291,6 +291,18 @@ model DataProject {
   spent              Float            @default(0) // buyer cost already drawn from budget (orgPrice per approval)
   license            String           @default("commercial_ai") // usage licence key (see lib/licenses.ts)
   usageTerms         String?          // optional extra buyer-specified usage terms
+  // Capture method + per-submission metadata (see lib/project-config.ts)
+  captureMode        String           @default("upload") // upload | camera | nose_dots
+  captureConfig      String?          // JSON CaptureConfig: guided-task dot pattern, hit radius, hold time, camera
+  metadataFields     String?          // JSON MetadataField[]: extra details the contributor fills in per submission
+  // Location targeting (matched against the contributor's profile location). null/empty = anywhere.
+  targetCountries    String?          // JSON string[]
+  targetRegions      String?          // JSON string[]
+  targetCities       String?          // JSON string[]
+  requireGeo         Boolean          @default(false) // capture device GPS with every submission
+  // Internal organisation
+  clientName         String?          // end client the data is for (admin-only label)
+  referenceCode      String?          // internal job / batch code
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
@@ -385,6 +397,9 @@ model DataSubmission {
   language        String?
   promptUsed      String?     // Which prompt the user recorded
   gender          String?     // "male" | "female"
+  metadata        String?     // JSON {fieldKey: value} answers to the project's metadataFields
+  captureData     String?     // JSON CaptureTrace from an in-site guided capture (dot hit times, nose path)
+  location        String?     // JSON {country,region,city,lat?,lng?,accuracyM?} snapshot taken at submit time
   consentGiven    Boolean     @default(false)
   consentGivenAt  DateTime?
   status          String      @default("pending") // pending | approved | rejected
