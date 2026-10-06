@@ -27,6 +27,8 @@ import {
 } from "lucide-react";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
+import { SocialCards } from "@/components/social-links";
+import { SITE_CONFIG } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -474,6 +476,20 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Community — official social accounts */}
+      <section className="py-16 sm:py-20 bg-white dark:bg-slate-950">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-10">
+            <span className="inline-block rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">Community</span>
+            <h2 className="mt-3 text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white">Follow HustleClickGH</h2>
+            <p className="mt-3 text-slate-600 dark:text-slate-400 max-w-xl mx-auto">
+              New projects, payout proofs and how-to videos — be the first to know when a paying project goes live.
+            </p>
+          </div>
+          <SocialCards />
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="py-16 sm:py-24 bg-slate-900 relative overflow-hidden">
         <div className="absolute inset-0">
@@ -506,6 +522,22 @@ export default function Home() {
       </section>
 
       <Footer />
+
+      {/* Structured data: lets search engines link our official accounts to the site */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            name: "HustleClickGH",
+            url: SITE_CONFIG.url,
+            logo: `${SITE_CONFIG.url}/icon.png`,
+            email: SITE_CONFIG.contact.email,
+            sameAs: SITE_CONFIG.social.filter((s) => s.key !== "whatsapp").map((s) => s.url),
+          }),
+        }}
+      />
     </>
   );
 }

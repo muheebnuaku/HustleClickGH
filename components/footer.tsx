@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SITE_CONFIG } from "@/lib/constants";
 import { Mail, Phone } from "lucide-react";
+import { SocialIconRow } from "@/components/social-links";
 
 export function Footer() {
   return (
@@ -13,6 +14,8 @@ export function Footer() {
             <p className="text-sm text-zinc-400">
               Ghana&apos;s AI Dataset Collection Platform — earn GH₵ by contributing voice recordings and language data for AI training.
             </p>
+            <p className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Follow us</p>
+            <SocialIconRow />
           </div>
 
           {/* Quick Links */}

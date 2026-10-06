@@ -10,6 +10,14 @@ export const SITE_CONFIG = {
     whatsapp: "https://wa.me/233592405403",
     linkedin: "https://www.linkedin.com/in/muheeb-nuaku-30923b25a/",
   },
+  // Official social accounts — shown on the landing page + footer and listed
+  // in the site's structured data. Add more (instagram, facebook, x,
+  // linkedin) here and they appear everywhere automatically.
+  social: [
+    { key: "tiktok", label: "TikTok", handle: "@hustleclickgh", url: "https://www.tiktok.com/@hustleclickgh", cta: "Watch on TikTok", blurb: "Quick tips, payouts and new projects." },
+    { key: "youtube", label: "YouTube", handle: "Hustle Click Gh", url: "https://www.youtube.com/@hustleclickgh", cta: "Subscribe", blurb: "Walkthroughs and how-to videos." },
+    { key: "whatsapp", label: "WhatsApp", handle: "+233 59 240 5403", url: "https://wa.me/233592405403", cta: "Chat with us", blurb: "Questions? Talk to our team directly." },
+  ],
   survey: {
     minWithdrawal: 10,
     referralBonus: 1.0,
