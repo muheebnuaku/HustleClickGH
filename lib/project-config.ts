@@ -280,6 +280,8 @@ export function buildProjectSetupData(body: Record<string, unknown>) {
     clientName: str(body.clientName, 120),
     referenceCode: str(body.referenceCode, 60),
     reviewOrgId: str(body.reviewOrgId, 60),
+    payoutMode: body.payoutMode === "via_leader" ? "via_leader" : "individual",
+    assignedLeaderIds: stringListToDb(body.assignedLeaderIds),
   };
 }
 

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LogOut, LayoutDashboard, Users, Wallet, MessageSquare, QrCode, Menu, X, Database, Activity, Video, Phone,
-  Building2, Bell, ArrowLeftRight, Handshake, ChevronRight, type LucideIcon,
+  Building2, Bell, ArrowLeftRight, Handshake, ChevronRight, Network, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
@@ -20,6 +20,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { href: "/admin/users", label: "Users", icon: Users },
       { href: "/admin/organizations", label: "Organizations", icon: Building2 },
       { href: "/admin/partners", label: "Partner Inquiries", icon: Handshake },
+      { href: "/admin/teams", label: "Field Teams", icon: Network },
     ],
   },
   {

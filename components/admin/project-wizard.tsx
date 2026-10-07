@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Mic, Video, ScanFace, Upload, Camera, Crosshair, Check, ChevronLeft, ChevronRight, X, Loader2,
-  FileText, MapPin, ListChecks, Wallet, Eye, Sparkles, Trash2, Lock,
+  FileText, MapPin, ListChecks, Wallet, Eye, Sparkles, Trash2, Lock, Users, Network, Crown, UserCog,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -56,6 +56,8 @@ export interface WizardProject {
   referenceCode: string | null;
   orgName?: string | null;
   reviewOrgId?: string | null;
+  payoutMode?: string | null;
+  assignedLeaderIds?: string[];
 }
 
 const TYPES: { value: string; label: string; help: string; icon: LucideIcon; tint: string }[] = [
@@ -76,13 +78,14 @@ const FORMAT_OPTIONS: Record<string, string[]> = {
   face: ["mp4", "mov", "jpg", "png"],
 };
 
-type StepId = "type" | "capture" | "setup" | "basics" | "audience" | "details" | "pay" | "review";
+type StepId = "type" | "capture" | "setup" | "basics" | "audience" | "people" | "details" | "pay" | "review";
 const STEP_META: Record<StepId, { label: string; icon: LucideIcon }> = {
   type: { label: "Project type", icon: Sparkles },
   capture: { label: "How people record", icon: Camera },
   setup: { label: "Camera & dots", icon: Crosshair },
   basics: { label: "Basics", icon: FileText },
   audience: { label: "Who can take it", icon: MapPin },
+  people: { label: "Team & client", icon: Network },
   details: { label: "Details to collect", icon: ListChecks },
   pay: { label: "Pay & limits", icon: Wallet },
   review: { label: "Review", icon: Eye },
@@ -114,6 +117,8 @@ function initialForm(p?: WizardProject | null) {
     femalesNeeded: p?.femalesNeeded != null ? String(p.femalesNeeded) : "",
     clientName: p?.clientName ?? "",
     reviewOrgId: p?.reviewOrgId ?? "",
+    payoutMode: p?.payoutMode === "via_leader" ? "via_leader" : "individual",
+    assignedLeaderIds: p?.assignedLeaderIds ?? ([] as string[]),
     referenceCode: p?.referenceCode ?? "",
     captureMode: (p?.captureMode ?? "upload") as CaptureMode,
     targetCountries: (p?.targetCountries ?? []).join(", "),
@@ -224,6 +229,15 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
 
   // Client organizations that can be given review access.
   const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
+  // Field-team leaders that can be assigned to run the project.
+  const [leaders, setLeaders] = useState<{ id: string; fullName: string; leaderRole: string; leaderCountry: string | null; memberCount: number }[]>([]);
+  const [useTeams, setUseTeams] = useState((project?.assignedLeaderIds?.length ?? 0) > 0);
+  useEffect(() => {
+    fetch("/api/admin/teams")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setLeaders(d?.leaders ?? []))
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     fetch("/api/admin/organizations")
       .then((r) => (r.ok ? r.json() : null))
@@ -236,7 +250,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
     "type",
     ...(isCameraType ? (["capture"] as StepId[]) : []),
     ...(isCameraType && form.captureMode !== "upload" ? (["setup"] as StepId[]) : []),
-    "basics", "audience", "details", "pay", "review",
+    "basics", "audience", "people", "details", "pay", "review",
   ];
   // Editing starts at the basics (type can't change after creation).
   const [stepId, setStepId] = useState<StepId>(editing ? "basics" : "type");
@@ -256,6 +270,9 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
     switch (s) {
       case "type": return form.projectType ? null : "Choose a project type.";
       case "capture": return capturePicked ? null : "Choose how people will record.";
+      case "people":
+        if (useTeams && !form.assignedLeaderIds.length) return "Pick at least one field team, or turn assignment off.";
+        return null;
       case "audience":
         if (useQuota && !(Number(form.malesNeeded) > 0) && !(Number(form.femalesNeeded) > 0)) return "Enter how many men and/or women you need, or turn the quota off.";
         if (useLocation && !form.targetRegions.length && !splitList(form.targetCities).length && !splitList(form.targetCountries).length) return "Pick at least one region, city or country, or turn location off.";
@@ -322,6 +339,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
       targetRegions: useLocation ? form.targetRegions : [],
       targetCities: useLocation ? splitList(form.targetCities) : [],
       requireGeo: form.requireGeo,
+      assignedLeaderIds: useTeams ? form.assignedLeaderIds : [],
       languages: useLanguages ? splitList(form.languages) : [],
       samplePrompts: form.samplePrompts.split("\n").map((p) => p.trim()).filter(Boolean),
     };
@@ -448,22 +466,6 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
                   <input className={inputCls} value={form.referenceCode} onChange={(e) => set({ referenceCode: e.target.value })} placeholder="e.g. NOSE-ACC-B1" />
                 </Field>
               </div>
-              <Reveal
-                title="Let the client review submissions"
-                help="They log in to their client portal, check each recording and its details, and mark it Pass or Fail."
-                on={!!form.reviewOrgId}
-                onChange={(v) => set({ reviewOrgId: v ? orgs[0]?.id ?? "" : "" })}
-              >
-                {orgs.length ? (
-                  <Field label="Client account" hint="Contributors are shown to the client by reference ID only.">
-                    <select className={inputCls} value={form.reviewOrgId} onChange={(e) => set({ reviewOrgId: e.target.value })}>
-                      {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-                    </select>
-                  </Field>
-                ) : (
-                  <p className="text-sm text-zinc-500">No client accounts yet. Create one under <strong>Organizations</strong> first, then come back.</p>
-                )}
-              </Reveal>
             </div>
           </>
         );
@@ -515,6 +517,67 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
             </div>
           </>
         );
+      case "people":
+        return (
+          <>
+            <StepTitle title="Team & client" help="Optional — who runs the project in the field, and whether a client checks the work." />
+            <div className="space-y-3">
+              <Reveal
+                title="Assign to field teams"
+                help="Only these Supervisors / Representatives and their teams can take the project."
+                on={useTeams}
+                onChange={(v) => {
+                  setUseTeams(v);
+                  if (v && form.payoutMode !== "via_leader") set({ payoutMode: "via_leader" });
+                  if (!v) set({ assignedLeaderIds: [] });
+                }}
+              >
+                {leaders.length === 0 ? (
+                  <p className="text-sm text-zinc-500">No field teams yet. Appoint a Supervisor or Representative under <strong>Field Teams</strong> first.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {leaders.map((l) => {
+                      const on = form.assignedLeaderIds.includes(l.id);
+                      const Icon = l.leaderRole === "representative" ? Crown : UserCog;
+                      return (
+                        <button key={l.id} type="button"
+                          onClick={() => set({ assignedLeaderIds: on ? form.assignedLeaderIds.filter((x) => x !== l.id) : [...form.assignedLeaderIds, l.id] })}
+                          className={cn("flex w-full items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left transition-colors",
+                            on ? "border-violet-500 bg-violet-50/60 dark:bg-violet-500/10" : "border-zinc-200 hover:border-violet-300 dark:border-zinc-700")}>
+                          <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", l.leaderRole === "representative" ? "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300" : "bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300")}><Icon size={15} /></span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">{l.fullName}</span>
+                            <span className="block text-xs text-zinc-500">{l.leaderRole === "representative" ? "Country Representative (incl. their supervisors)" : "Supervisor"}{l.leaderCountry ? ` · ${l.leaderCountry}` : ""} · {l.memberCount} member{l.memberCount === 1 ? "" : "s"}</span>
+                          </span>
+                          <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", on ? "border-violet-600 bg-violet-600 text-white" : "border-zinc-300 dark:border-zinc-600")}>{on && <Check size={13} />}</span>
+                        </button>
+                      );
+                    })}
+                    {form.payoutMode === "via_leader" && (
+                      <p className="text-xs text-zinc-500">Payment is set to <strong>through team leaders</strong> — change it on the Pay &amp; limits step if needed.</p>
+                    )}
+                  </div>
+                )}
+              </Reveal>
+              <Reveal
+                title="Let the client review submissions"
+                help="They log in to their client portal, check each recording and its details, and mark it Pass or Fail."
+                on={!!form.reviewOrgId}
+                onChange={(v) => set({ reviewOrgId: v ? orgs[0]?.id ?? "" : "" })}
+              >
+                {orgs.length ? (
+                  <Field label="Client account" hint="Contributors are shown to the client by reference ID only.">
+                    <select className={inputCls} value={form.reviewOrgId} onChange={(e) => set({ reviewOrgId: e.target.value })}>
+                      {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                    </select>
+                  </Field>
+                ) : (
+                  <p className="text-sm text-zinc-500">No client accounts yet. Create one under <strong>Organizations</strong> first, then come back.</p>
+                )}
+              </Reveal>
+            </div>
+          </>
+        );
       case "details":
         return (
           <>
@@ -535,6 +598,18 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
           <>
             <StepTitle title="Pay & limits" help="How much contributors earn and how many submissions you need." />
             <div className="space-y-5">
+              <div>
+                <span className="mb-1.5 block text-sm font-medium text-zinc-800 dark:text-zinc-200">How contributors get paid</span>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <ChoiceCard icon={Wallet} label="Pay each contributor" help="Approved rewards go straight to each person's balance; they withdraw to Mobile Money." selected={form.payoutMode !== "via_leader"} onClick={() => set({ payoutMode: "individual" })} tint="from-emerald-500 to-teal-600" />
+                  <ChoiceCard icon={Users} label="Pay through team leaders" help="You send one bulk payment to their Supervisor or Country Representative, who pays their team." selected={form.payoutMode === "via_leader"} onClick={() => set({ payoutMode: "via_leader" })} tint="from-violet-500 to-indigo-600" />
+                </div>
+                {form.payoutMode === "via_leader" && (
+                  <p className="mt-2 rounded-xl bg-violet-50 px-3 py-2 text-xs text-violet-800 dark:bg-violet-500/10 dark:text-violet-300">
+                    Only people in a field team can submit. Each approval adds the reward (plus their leader&apos;s fee) to that leader&apos;s next bulk payment under <strong>Field Teams</strong>.
+                  </p>
+                )}
+              </div>
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field label="Reward per approved submission" required>
                   <div className="relative">
@@ -629,7 +704,8 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
               } />}
               <Row step="basics" label="Title" value={<span className="font-medium">{form.title || "—"}</span>} />
               {(form.clientName || form.referenceCode) && <Row step="basics" label="Client / reference" value={[form.clientName, form.referenceCode].filter(Boolean).join(" · ")} />}
-              {form.reviewOrgId && <Row step="basics" label="Client review" value={orgs.find((o) => o.id === form.reviewOrgId)?.name ?? "Selected client"} />}
+              <Row step="people" label="Field teams" value={useTeams && form.assignedLeaderIds.length ? form.assignedLeaderIds.map((id) => leaders.find((l) => l.id === id)?.fullName ?? "—").join(", ") : "Open to everyone"} />
+              <Row step="people" label="Client review" value={form.reviewOrgId ? orgs.find((o) => o.id === form.reviewOrgId)?.name ?? "Selected client" : "None"} />
               <Row step="audience" label="Who can take it" value={
                 <>
                   {useLocation && locationSummary ? locationSummary : "Anyone"}
@@ -639,6 +715,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
                 </>
               } />
               <Row step="details" label="Extra details" value={useDetails && metaFields.length ? metaFields.map((f) => f.label).join(", ") : "None"} />
+              <Row step="pay" label="Payment" value={form.payoutMode === "via_leader" ? "Through team leaders (bulk)" : "Directly to each contributor"} />
               <Row step="pay" label="Pay & limits" value={
                 <>
                   {Number(form.reward) > 0 ? formatCurrency(Number(form.reward)) : "—"} each · {form.maxSubmissions || "—"} needed · {form.maxSubmissionsPerUser}× per person

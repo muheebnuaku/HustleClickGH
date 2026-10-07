@@ -58,6 +58,7 @@ interface DataProject {
   metadataFields: MetadataField[];
   locationLabel: string | null;
   requireGeo: boolean;
+  payoutMode?: string;
 }
 
 type GeoFix = { lat: number; lng: number; accuracy: number };
@@ -122,6 +123,7 @@ export default function DataProjectDetailPage() {
   const [maxPerUser, setMaxPerUser] = useState(1);
   const [canSubmitMore, setCanSubmitMore] = useState(true);
   const [bypassSlots, setBypassSlots] = useState(false);
+  const [inTeam, setInTeam] = useState(false);
   const [eligibility, setEligibility] = useState<{ eligible: boolean; reason: string | null; needsLocation: boolean }>({ eligible: true, reason: null, needsLocation: false });
   // In-app capture + per-submission details
   const [captureTrace, setCaptureTrace] = useState<CaptureTrace | null>(null);
@@ -155,6 +157,7 @@ export default function DataProjectDetailPage() {
       setMaxPerUser(data.maxSubmissionsPerUser || 1);
       setCanSubmitMore(data.canSubmitMore ?? true);
       setBypassSlots(!!data.bypassSlots);
+      setInTeam(!!data.inTeam);
       setEligibility({ eligible: data.eligible ?? true, reason: data.ineligibleReason ?? null, needsLocation: !!data.needsLocation });
     } catch {
       setError("Failed to load project");
@@ -656,7 +659,22 @@ export default function DataProjectDetailPage() {
         )}
 
         {/* Instructions + upload — only while the user can still submit */}
-        {canSubmitMore && eligibility.eligible && (
+        {/* Paid through field-team leaders */}
+        {canSubmitMore && eligibility.eligible && project.payoutMode === "via_leader" && (
+          inTeam ? (
+            <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800 dark:border-violet-900 dark:bg-violet-500/10 dark:text-violet-300">
+              <strong>Paid through your team leader.</strong> When your recording is approved, your supervisor pays you — you&apos;ll see it under Withdraw → &ldquo;Paid through your team leader&rdquo;.
+            </div>
+          ) : (
+            <Card className="p-6 text-center">
+              <p className="font-medium text-foreground">Join your supervisor&apos;s team to take this project</p>
+              <p className="text-sm text-zinc-500 mt-1">This project is paid through field-team supervisors. Ask your supervisor for their team code.</p>
+              <Link href="/profile" className="inline-block mt-3 text-sm font-medium text-blue-600 hover:underline">Enter a team code →</Link>
+            </Card>
+          )
+        )}
+
+        {canSubmitMore && eligibility.eligible && (project.payoutMode !== "via_leader" || inTeam) && (
           <>
             <Card className="p-5">
               <h2 className="font-semibold mb-3">Recording Instructions</h2>

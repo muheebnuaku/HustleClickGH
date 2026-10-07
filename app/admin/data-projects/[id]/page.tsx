@@ -8,6 +8,8 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download, MessageSquare, Send, X, Trash2, Sparkles, MapPin, FileSpreadsheet } from "lucide-react";
 import type { CaptureTrace, MetadataField } from "@/lib/project-config";
 import { CaptureTraceView } from "@/components/capture-trace-view";
+import { ProjectTrackerPanel } from "@/components/admin/project-tracker-panel";
+import { downloadSubmissionsZip } from "@/lib/zip-download";
 import { toDownloadUrl } from "@/lib/upload-file";
 import type { AiReviewResult } from "@/lib/ai-review";
 import Link from "next/link";
@@ -34,6 +36,7 @@ interface Submission {
   submittedAt: string;
   reviewedAt: string | null;
   user: { id: string; userId: string; fullName: string; email: string; phone: string };
+  team?: { id: string; name: string; role: string | null } | null;
   contributorQuality?: { approved: number; rejected: number; reviewed: number; score: number; tier: "new" | "trusted" | "watch" } | null;
 }
 
@@ -79,6 +82,8 @@ export default function AdminProjectSubmissionsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("pending");
   const [clientFilter, setClientFilter] = useState<"all" | "pass" | "fail" | "none">("all");
+  const [groupBy, setGroupBy] = useState<"team" | "contributor" | "none">("team");
+  const [zipping, setZipping] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [rejectNotes, setRejectNotes] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
@@ -390,6 +395,8 @@ export default function AdminProjectSubmissionsPage() {
           )}
         </div>
 
+        <ProjectTrackerPanel key={submissions.length + ":" + submissions.filter((x) => x.status === "approved").length} projectId={projectId} />
+
         {message && <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">{message}</div>}
         {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">{error}</div>}
 
@@ -432,6 +439,37 @@ export default function AdminProjectSubmissionsPage() {
           </div>
         )}
 
+        {/* Arrange + download */}
+        {!loading && filteredSubmissions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-zinc-500">Group by</span>
+            {([["team", "Team"], ["contributor", "Contributor"], ["none", "None"]] as const).map(([v, label]) => (
+              <button key={v} onClick={() => setGroupBy(v)}
+                className={`rounded-full px-3 py-1 text-xs font-medium border ${groupBy === v ? "bg-zinc-900 border-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"}`}>
+                {label}
+              </button>
+            ))}
+            <button
+              disabled={!!zipping}
+              onClick={async () => {
+                setZipping("Preparing…");
+                try {
+                  await downloadSubmissionsZip(project?.title ?? "project", filteredSubmissions.map((x) => ({ ...x, files: subFiles(x) })), (d, t) => setZipping(`Downloading files ${d}/${t}…`));
+                } catch {
+                  setError("Couldn't build the ZIP — check your connection and try again.");
+                } finally {
+                  setZipping(null);
+                }
+              }}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              title="All files in this view, in folders by team and contributor, with each submission's details"
+            >
+              {zipping ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              {zipping ?? `Download ${filteredSubmissions.length} as ZIP`}
+            </button>
+          </div>
+        )}
+
         {/* Bulk delete bar — any submission in the current view (incl. approved) */}
         {!loading && filteredSubmissions.length > 0 && (() => {
           const deletableIds = filteredSubmissions.map((s) => s.id);
@@ -471,8 +509,26 @@ export default function AdminProjectSubmissionsPage() {
             <p className="font-medium">No {filter === "all" ? "" : filter} submissions</p>
           </Card>
         ) : (
-          <div className="space-y-4">
-            {filteredSubmissions.map((sub) => (
+          <div className="space-y-8">
+            {(() => {
+              const groups = new Map<string, { label: string; sub: string; items: Submission[] }>();
+              for (const x of filteredSubmissions) {
+                const key = groupBy === "team" ? x.team?.id ?? "none" : groupBy === "contributor" ? x.user.id : "all";
+                const label = groupBy === "team" ? (x.team ? `${x.team.name}'s team` : "Not in a team") : groupBy === "contributor" ? `${x.user.fullName} · ${x.user.userId}` : "";
+                if (!groups.has(key)) groups.set(key, { label, sub: groupBy === "team" && x.team ? (x.team.role === "representative" ? "Country Representative" : "Supervisor") : "", items: [] });
+                groups.get(key)!.items.push(x);
+              }
+              return Array.from(groups.entries()).sort((a, b) => (a[0] === "none" ? 1 : b[0] === "none" ? -1 : a[1].label.localeCompare(b[1].label)));
+            })().map(([gKey, g]) => (
+            <section key={gKey} className="space-y-4">
+              {g.label && (
+                <div className="flex items-baseline gap-2 border-b border-zinc-200 pb-2 dark:border-zinc-800">
+                  <h3 className="font-semibold text-foreground">{g.label}</h3>
+                  {g.sub && <span className="text-xs text-zinc-500">{g.sub}</span>}
+                  <span className="ml-auto text-xs text-zinc-500">{g.items.length} submission{g.items.length === 1 ? "" : "s"} · {g.items.filter((x) => x.status === "approved").length} approved</span>
+                </div>
+              )}
+            {g.items.map((sub) => (
               <Card key={sub.id} className="p-5">
                 <div className="flex flex-col lg:flex-row lg:items-start gap-4">
                   {/* User Info */}
@@ -717,6 +773,8 @@ export default function AdminProjectSubmissionsPage() {
                   )}
                 </div>
               </Card>
+            ))}
+            </section>
             ))}
           </div>
         )}

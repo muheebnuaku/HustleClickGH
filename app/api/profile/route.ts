@@ -29,6 +29,7 @@ export async function GET() {
         idType: true,
         role: true,
         verified: true,
+        leaderRole: true,
         balance: true,
         totalEarned: true,
         referralCode: true,

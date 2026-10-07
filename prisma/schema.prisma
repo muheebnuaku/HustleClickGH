@@ -49,6 +49,14 @@ model User {
   // How many times a MANAGER may submit to the same project. Null = unlimited
   // (managers are exempt from the project's maxSubmissionsPerUser). Admin-set.
   managerSubmitLimit Int?
+  // Field-team hierarchy: Country Representative → Supervisors → Contributors.
+  // leaderRole is a position held on top of the normal account role.
+  leaderRole       String?   // "representative" | "supervisor" | null
+  leaderCountry    String?   // country the leader runs
+  leaderFeePercent Float?    // % of each approved item they earn when paid through them
+  teamCode         String?   @unique // invite code contributors use to join this leader's team
+  teamLeaderId     String?   // who this person reports to (contributor → supervisor/rep, supervisor → rep)
+  teamJoinedAt     DateTime?
   personalCallCode String?      @unique // Permanent 5-char code for voice calls
   lastSeenAt      DateTime?     // heartbeat timestamp; "online" = within the last ~90s
   // AI-assisted multi-account / fraud detection (see lib/fraud-check.ts). Set
@@ -73,6 +81,8 @@ model User {
   consentRecords   ConsentRecord[]
   webauthnCredentials WebAuthnCredential[]
   pushSubscriptions PushSubscription[]
+
+  @@index([teamLeaderId])
 }
 
 // Browser push subscription (Web Push API). One row per device/browser that
@@ -223,6 +233,58 @@ model Withdrawal {
 
 // A commission a manager earned because someone THEY referred was rewarded on a
 // project. Scalar-id style (no relations) — keeps it decoupled like CallSession.
+// What a field-team leader owes a contributor for one approved submission on a
+// "via_leader" project. HustleClickGH pays leaders in bulk (LeaderPayout); the
+// leader then pays each contributor and marks it here. Scalar ids, no relations.
+model LeaderPayable {
+  id                     String    @id @default(cuid())
+  leaderId               String    // the contributor's direct team leader at approval time
+  contributorId          String
+  submissionId           String    @unique // one payable per approved submission
+  projectId              String
+  projectTitle           String
+  amount                 Float     // the contributor's reward (GH₵)
+  feePercent             Float     // leader's fee rate at approval time
+  feeAmount              Float     // leader's fee on top (GH₵)
+  status                 String    @default("owed") // owed | sent (in a bulk payment) | paid (leader paid contributor)
+  payoutId               String?   // LeaderPayout this was sent in
+  paidAt                 DateTime? // leader marked the contributor paid
+  paidReceiptUrl         String?   // leader's proof (screenshot / receipt) of paying the contributor
+  contributorConfirmedAt DateTime? // contributor confirmed they received it
+  disputeNote            String?   // contributor reported a problem
+  disputedAt             DateTime?
+  createdAt              DateTime  @default(now())
+
+  @@index([leaderId, status])
+  @@index([contributorId])
+  @@index([payoutId])
+}
+
+// One bulk payment from HustleClickGH to a Representative or Supervisor.
+model LeaderPayout {
+  id             String    @id @default(cuid())
+  leaderId       String    // who received the money
+  kind           String    @default("bulk") // bulk (settles owed items) | advance (paid upfront; covers future approvals)
+  projectId      String?   // advance earmarked for one project (null = any)
+  creditRemaining Float    @default(0) // advance not yet used up by approvals
+  amount         Float     // contributors' share (GH₵)
+  feeAmount      Float     // leaders' fees included (GH₵)
+  total          Float     // amount + feeAmount (GH₵)
+  itemCount      Int
+  method         String    // e.g. Mobile Money, Bank transfer
+  reference      String?   // transaction reference
+  receiptUrl     String?
+  localCurrency  String?   // e.g. MWK — what was actually sent, if not GH₵
+  localAmount    Float?
+  notes          String?
+  status         String    @default("sent") // sent | acknowledged (leader confirmed receipt)
+  createdBy      String
+  createdAt      DateTime  @default(now())
+  acknowledgedAt DateTime?
+
+  @@index([leaderId, createdAt])
+}
+
 model ManagerCommission {
   id             String   @id @default(cuid())
   managerId      String   // the manager who gets paid
@@ -304,6 +366,8 @@ model DataProject {
   clientName         String?          // end client the data is for (admin-only label)
   referenceCode      String?          // internal job / batch code
   reviewOrgId        String?          // client Organization allowed to review (pass/fail) submissions on its portal
+  payoutMode         String           @default("individual") // individual | via_leader (paid in bulk to the contributor's team leader)
+  assignedLeaderIds  String?          // JSON string[] of field-team leaders running this project; null = open to everyone
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 

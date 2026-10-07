@@ -44,7 +44,7 @@ export async function GET(
       where: { projectId },
       include: {
         user: {
-          select: { id: true, userId: true, fullName: true, email: true, phone: true },
+          select: { id: true, userId: true, fullName: true, email: true, phone: true, teamLeaderId: true },
         },
       },
       orderBy: { submittedAt: "desc" },
@@ -53,7 +53,17 @@ export async function GET(
     // Contributor reputation (approval rate) as a reviewer signal.
     const userIds = Array.from(new Set(submissions.map((s) => s.userId)));
     const quality = await getContributorQuality(userIds);
-    const enriched = submissions.map((s) => ({ ...s, contributorQuality: quality.get(s.userId) ?? null }));
+    // Field team each contributor belongs to (for grouping / folder names).
+    const leaderIds = Array.from(new Set(submissions.map((s) => s.user.teamLeaderId).filter((x): x is string => !!x)));
+    const leaders = new Map(
+      (leaderIds.length ? await prisma.user.findMany({ where: { id: { in: leaderIds } }, select: { id: true, fullName: true, leaderRole: true } }) : [])
+        .map((l) => [l.id, l]),
+    );
+    const enriched = submissions.map((s) => ({
+      ...s,
+      contributorQuality: quality.get(s.userId) ?? null,
+      team: s.user.teamLeaderId ? { id: s.user.teamLeaderId, name: leaders.get(s.user.teamLeaderId)?.fullName ?? "Team", role: leaders.get(s.user.teamLeaderId)?.leaderRole ?? null } : null,
+    }));
 
     return NextResponse.json({ submissions: enriched });
   } catch (error) {

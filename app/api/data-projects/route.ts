@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { checkLocationEligibility, targetingSummary } from "@/lib/project-config";
+import { checkLocationEligibility, targetingSummary, parseStringList } from "@/lib/project-config";
+import { teamChain, canTakeAssigned } from "@/lib/field-teams";
 
 // GET: List all active data projects + user's submission status for each
 export async function GET() {
@@ -29,6 +30,7 @@ export async function GET() {
       prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true } }),
     ]);
     const isAdmin = session.user.role === "admin";
+    const chain = await teamChain(userId);
 
     const submissionMap = new Map(
       userSubmissions.map((s) => [s.projectId, s.status])
@@ -36,13 +38,18 @@ export async function GET() {
 
     const projectsWithStatus = projects.map((p) => {
       // Admins see everything (for testing); everyone else is matched on profile location.
-      const elig = isAdmin ? { eligible: true as const } : checkLocationEligibility(p, me);
+      let elig: { eligible: true } | { eligible: false; reason: string; needsLocation: boolean } =
+        isAdmin ? { eligible: true as const } : checkLocationEligibility(p, me);
+      if (elig.eligible && !isAdmin && !canTakeAssigned(parseStringList(p.assignedLeaderIds), chain)) {
+        elig = { eligible: false, reason: "This project is run by specific field teams. Ask your supervisor if you can join their team.", needsLocation: false };
+      }
       return {
         ...p,
         captureConfig: undefined, // not needed for the list
         metadataFields: undefined,
         clientName: undefined, // internal labels — not for contributors
         referenceCode: undefined,
+      assignedLeaderIds: undefined,
         locationLabel: targetingSummary(p),
         eligible: elig.eligible,
         ineligibleReason: elig.eligible ? null : elig.reason,

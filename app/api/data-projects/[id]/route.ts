@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { checkLocationEligibility, parseCaptureConfig, parseMetadataFields, targetingSummary } from "@/lib/project-config";
+import { checkLocationEligibility, parseCaptureConfig, parseMetadataFields, targetingSummary, parseStringList } from "@/lib/project-config";
+import { teamChain, canTakeAssigned } from "@/lib/field-teams";
 
 // GET: Single project detail + user's submission if any
 export async function GET(
@@ -29,9 +30,13 @@ export async function GET(
         where: { projectId: id, userId },
         orderBy: { submittedAt: "desc" },
       }),
-      prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true, teamLeaderId: true } }),
     ]);
-    const elig = session.user.role === "admin" ? { eligible: true as const } : checkLocationEligibility(project, me);
+    let elig: { eligible: true } | { eligible: false; reason: string; needsLocation: boolean } =
+      session.user.role === "admin" ? { eligible: true as const } : checkLocationEligibility(project, me);
+    if (elig.eligible && session.user.role !== "admin" && !canTakeAssigned(parseStringList(project.assignedLeaderIds), await teamChain(userId))) {
+      elig = { eligible: false, reason: "This project is run by specific field teams. Ask your supervisor if you can join their team.", needsLocation: false };
+    }
     const userSubmission = userSubmissions[0] ?? null; // newest, for back-compat
     // Rejected submissions don't count against the per-user limit (users may retry).
     const userSubmissionsUsed = userSubmissions.filter((s) => s.status !== "rejected").length;
@@ -75,6 +80,7 @@ export async function GET(
         // Internal labels — not for contributors.
         clientName: undefined,
         referenceCode: undefined,
+        assignedLeaderIds: undefined,
         slotsRemaining: project.maxSubmissions - project.currentSubmissions,
         malesSlotsRemaining: project.malesNeeded !== null ? Math.max(0, project.malesNeeded - malesFilled) : null,
         femalesSlotsRemaining: project.femalesNeeded !== null ? Math.max(0, project.femalesNeeded - femalesFilled) : null,
@@ -84,6 +90,7 @@ export async function GET(
       userSubmissionsUsed,
       maxSubmissionsPerUser: maxPerUser, // null = unlimited (managers)
       canSubmitMore,
+      inTeam: !!me?.teamLeaderId,
       eligible: elig.eligible,
       ineligibleReason: elig.eligible ? null : elig.reason,
       needsLocation: elig.eligible ? false : elig.needsLocation,

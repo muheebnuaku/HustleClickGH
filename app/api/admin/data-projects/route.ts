@@ -40,6 +40,7 @@ export async function GET() {
           targetCountries: parseStringList(p.targetCountries),
           targetRegions: parseStringList(p.targetRegions),
           targetCities: parseStringList(p.targetCities),
+          assignedLeaderIds: parseStringList(p.assignedLeaderIds),
           pendingCount,
           approvedCount,
           rejectedCount,

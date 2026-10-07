@@ -8,7 +8,9 @@ import { VELOCITY_WINDOW_MS, VELOCITY_MAX } from "@/lib/anti-fraud";
 import {
   checkLocationEligibility, parseCaptureConfig, parseMetadataFields, sanitizeCaptureTrace,
   validateMetadataAnswers, IN_APP_CAPTURE_FORMATS,
+  parseStringList,
 } from "@/lib/project-config";
+import { teamChain, canTakeAssigned } from "@/lib/field-teams";
 
 export async function POST(
   request: Request,
@@ -65,10 +67,19 @@ export async function POST(
     }
 
     // Location targeting — matched on the contributor's profile location.
-    const me = await prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true } });
+    const me = await prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true, teamLeaderId: true } });
+    if (project.payoutMode === "via_leader" && !me?.teamLeaderId && session.user.role !== "admin") {
+      return NextResponse.json(
+        { message: "This project is paid through your supervisor. Join your supervisor's team first (Profile → Your team), then submit." },
+        { status: 403 },
+      );
+    }
     if (session.user.role !== "admin") {
       const elig = checkLocationEligibility(project, me);
       if (!elig.eligible) return NextResponse.json({ message: elig.reason }, { status: 403 });
+      if (!canTakeAssigned(parseStringList(project.assignedLeaderIds), await teamChain(userId))) {
+        return NextResponse.json({ message: "This project is run by specific field teams. Ask your supervisor if you can join their team." }, { status: 403 });
+      }
     }
 
     // Extra details the project asks for with every submission.

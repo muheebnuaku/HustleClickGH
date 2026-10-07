@@ -31,6 +31,7 @@ export async function middleware(request: NextRequest) {
   const isPublicPath =
     publicPaths.includes(path) ||
     path.startsWith("/s/") ||
+    path.startsWith("/join/") ||
     path.startsWith("/api/s/") ||
     path === "/api/partners" ||
     // Paystack calls this server-to-server with no session; it's signature-verified.

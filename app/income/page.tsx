@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { SITE_CONFIG } from "@/lib/constants";
+import { TeamCard } from "@/components/team-card";
 
 interface Withdrawal {
   id: string;
@@ -175,6 +176,8 @@ export default function IncomePage() {
             </div>
           </div>
         </div>
+
+        <TeamCard mode="payments" />
 
         <div className="grid gap-6 lg:grid-cols-5">
           {/* Request form */}

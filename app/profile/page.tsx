@@ -13,6 +13,7 @@ import { ImageCropper } from "@/components/image-cropper";
 import { BiometricSettings } from "@/components/biometric-settings";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { DeviceLocationButton, type SavedLocation } from "@/components/device-location-button";
+import { TeamCard } from "@/components/team-card";
 import { Save, Camera, User, Copy, Check, Pencil, ShieldCheck, ChevronRight, MapPin, Eye, UserRound, Settings } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -326,6 +327,7 @@ export default function ProfilePage() {
             <p className="text-xs text-zinc-400">Tip: turn on GPS / location services and allow location access when your browser asks.</p>
           </CardContent>
         </Card>
+        <TeamCard />
         <Card>
           <CardHeader>
             <CardTitle>Personal Information</CardTitle>

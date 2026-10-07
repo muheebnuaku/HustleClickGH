@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { canReward, buyerCost } from "@/lib/org";
 import { DEFAULT_MANAGER_COMMISSION } from "@/lib/constants";
+import { leaderFee, coverWithAdvance } from "@/lib/field-teams";
 
 export async function POST(
   _req: Request,
@@ -63,6 +64,51 @@ export async function POST(
       projectUpdate.malesApproved = { increment: 1 };
     } else if (submission.gender === "female" && project.femalesNeeded !== null) {
       projectUpdate.femalesApproved = { increment: 1 };
+    }
+
+    // Paid through the contributor's field-team leader (bulk payouts): record
+    // what the leader owes instead of crediting the contributor's balance.
+    // `rewarded` stays false because nothing was credited to their balance.
+    if (project.payoutMode === "via_leader") {
+      const member = await prisma.user.findUnique({ where: { id: submission.userId }, select: { teamLeaderId: true } });
+      const leader = member?.teamLeaderId
+        ? await prisma.user.findUnique({ where: { id: member.teamLeaderId }, select: { id: true, fullName: true, leaderRole: true, leaderFeePercent: true } })
+        : null;
+      if (!leader?.leaderRole) {
+        return NextResponse.json(
+          { message: "This project is paid through team leaders, but this contributor isn't in a team. Add them to a supervisor's team under Field Teams, then approve." },
+          { status: 400 },
+        );
+      }
+      const { feePercent, feeAmount } = leaderFee(project.reward, leader.leaderFeePercent);
+      const advanceId = await prisma.$transaction(async (tx) => {
+        await tx.dataSubmission.update({
+          where: { id: subId },
+          data: { status: "approved", rewarded: false, reviewedAt: new Date(), reviewedBy: session.user.id },
+        });
+        await tx.dataProject.update({ where: { id: projectId }, data: projectUpdate });
+        const payable = await tx.leaderPayable.create({
+          data: {
+            leaderId: leader.id,
+            contributorId: submission.userId,
+            submissionId: subId,
+            projectId,
+            projectTitle: project.title,
+            amount: project.reward,
+            feePercent,
+            feeAmount,
+          },
+        });
+        // Already paid upfront? Use the leader's (or their representative's) advance.
+        const lead = await tx.user.findUnique({ where: { id: leader.id }, select: { teamLeaderId: true } });
+        const leaderIds = [leader.id, ...(lead?.teamLeaderId ? [lead.teamLeaderId] : [])];
+        return coverWithAdvance(tx, payable.id, leaderIds, projectId, project.reward + feeAmount);
+      });
+      return NextResponse.json({
+        message: advanceId
+          ? `Submission approved. GH₵${(project.reward + feeAmount).toFixed(2)} covered by the advance already paid to ${leader.fullName}.`
+          : `Submission approved. GH₵${project.reward.toFixed(2)} (+ GH₵${feeAmount.toFixed(2)} fee) added to ${leader.fullName}'s next bulk payment.`,
+      });
     }
 
     // Manager commission: if the contributor was referred by a manager, that

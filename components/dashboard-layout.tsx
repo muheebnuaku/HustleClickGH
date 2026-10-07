@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LogOut, LayoutDashboard, User, Users, Menu, X, ClipboardList, FileEdit, Database, Video, MessageCircle,
-  Shield, Wallet, ChevronRight, type LucideIcon,
+  Shield, Wallet, ChevronRight, Network, type LucideIcon,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { useEffect, useState } from "react";
@@ -49,6 +49,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [userName, setUserName] = useState("");
   const [verified, setVerified] = useState(false);
   const [availableProjects, setAvailableProjects] = useState(0);
+  const [leaderRole, setLeaderRole] = useState<string | null>(null);
 
   useEffect(() => {
     if (session) {
@@ -63,6 +64,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           if (data.user?.image) setProfileImage(data.user.image);
           if (data.user?.fullName) setUserName(data.user.fullName);
           setVerified(Boolean(data.user?.verified));
+          setLeaderRole(data.user?.leaderRole ?? null);
         })
         .catch(() => {});
 
@@ -86,8 +88,13 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   // Exact match OR a nested route under it (e.g. /my-surveys/[id], /data-projects/[id]).
   const isNavItemActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
-  const current = NAV_GROUPS.flatMap((g) => g.items).find((i) => isNavItemActive(i.href));
+  const current = [...NAV_GROUPS, { title: "Lead", items: [{ href: "/team", label: "My Team", icon: Network }] }].flatMap((g) => g.items).find((i) => isNavItemActive(i.href));
   const isNested = current ? pathname !== current.href : false;
+
+  // Field-team leaders get a "My Team" section.
+  const groups = leaderRole
+    ? [...NAV_GROUPS.slice(0, 1), { title: "Lead", items: [{ href: "/team", label: "My Team", icon: Network }] }, ...NAV_GROUPS.slice(1)]
+    : NAV_GROUPS;
 
   const name = userName || session?.user?.name || "User";
   const firstName = name.split(/\s+/)[0];
@@ -120,7 +127,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 font-bold text-white shadow-lg shadow-blue-600/30">H</div>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-white">HustleClickGH</p>
-          <p className="text-[11px] text-zinc-500">{isManager ? "Manager" : "Contributor"}</p>
+          <p className="text-[11px] text-zinc-500">{leaderRole === "representative" ? "Country Representative" : leaderRole === "supervisor" ? "Supervisor" : isManager ? "Manager" : "Contributor"}</p>
         </div>
       </Link>
 
@@ -141,7 +148,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
       {/* Navigation — scrolls on short screens, scrollbar hidden */}
       <nav className="scrollbar-none flex-1 min-h-0 space-y-5 overflow-y-auto px-3 py-3">
-        {NAV_GROUPS.map((g) => (
+        {groups.map((g) => (
           <div key={g.title}>
             <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{g.title}</p>
             <div className="space-y-0.5">
