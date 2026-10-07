@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/auth-provider";
+import { FastNav } from "@/components/fast-nav";
 import { CallNotificationBanner } from "@/components/CallNotificationBanner";
 import { MessageNotificationBanner } from "@/components/MessageNotificationBanner";
 import { SITE_CONFIG } from "@/lib/constants";
@@ -58,6 +59,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <FastNav />
         <AuthProvider>
           {children}
           <CallNotificationBanner />

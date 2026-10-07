@@ -9,6 +9,7 @@ import { BiometricReminder } from "@/components/biometric-reminder";
 import { LocationPrompt } from "@/components/location-prompt";
 import { PushManager } from "@/components/push-manager";
 import { Panel } from "@/components/ui/page-kit";
+import { Delayed } from "@/components/ui/delayed";
 import { isProjectAvailableToMe } from "@/lib/project-config";
 import { formatMoney } from "@/lib/currency";
 import {
@@ -118,6 +119,7 @@ export default function DashboardPage() {
   if (status === "loading" || isLoading) {
     return (
       <DashboardLayout>
+        <Delayed>
         <div className="space-y-6 animate-pulse">
           {/* Welcome header skeleton */}
           <div className="flex items-center justify-between">
@@ -161,6 +163,7 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+        </Delayed>
       </DashboardLayout>
     );
   }

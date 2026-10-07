@@ -4,6 +4,7 @@
 import type { LucideIcon } from "lucide-react";
 import { CheckCircle2, AlertCircle, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Delayed } from "@/components/ui/delayed";
 
 export function PageHeader({
   icon: Icon,
@@ -153,13 +154,18 @@ export function Segmented<T extends string>({
 }
 
 // ── Skeleton loading (used instead of spinners while a page or section loads) ──
+// The block-level placeholders wait 200ms before appearing, so fast loads show
+// the page straight away instead of flashing a skeleton.
 
 export function Skeleton({ className }: { className?: string }) {
   return <div aria-hidden className={cn("animate-pulse rounded-lg bg-zinc-200/80 dark:bg-zinc-800", className)} />;
 }
 
 /** A row of stat tiles. */
-export function SkeletonStats({ count = 4, className }: { count?: number; className?: string }) {
+export function SkeletonStats(props: { count?: number; className?: string }) {
+  return <Delayed><StatsBlock {...props} /></Delayed>;
+}
+function StatsBlock({ count = 4, className }: { count?: number; className?: string }) {
   return (
     <div className={cn("grid grid-cols-2 gap-3 md:grid-cols-4", className)}>
       {Array.from({ length: count }, (_, i) => (
@@ -174,7 +180,10 @@ export function SkeletonStats({ count = 4, className }: { count?: number; classN
 }
 
 /** A panel of list rows (avatar + two lines + trailing value). */
-export function SkeletonList({ rows = 5, className }: { rows?: number; className?: string }) {
+export function SkeletonList(props: { rows?: number; className?: string }) {
+  return <Delayed><ListBlock {...props} /></Delayed>;
+}
+function ListBlock({ rows = 5, className }: { rows?: number; className?: string }) {
   return (
     <div className={cn("divide-y divide-zinc-100 overflow-hidden rounded-2xl border border-zinc-200/80 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900/60", className)}>
       {Array.from({ length: rows }, (_, i) => (
@@ -194,6 +203,7 @@ export function SkeletonList({ rows = 5, className }: { rows?: number; className
 /** Whole-page placeholder: header, stat tiles and a list. */
 export function PageSkeleton({ stats = 4, rows = 5, className }: { stats?: number; rows?: number; className?: string }) {
   return (
+    <Delayed>
     <div className={cn("space-y-6", className)} aria-busy="true" aria-label="Loading">
       <div className="flex items-center gap-3">
         <Skeleton className="hidden h-11 w-11 rounded-xl sm:block" />
@@ -202,8 +212,9 @@ export function PageSkeleton({ stats = 4, rows = 5, className }: { stats?: numbe
           <Skeleton className="h-3.5 w-64 max-w-[70vw]" />
         </div>
       </div>
-      {stats > 0 && <SkeletonStats count={stats} />}
-      <SkeletonList rows={rows} />
+      {stats > 0 && <StatsBlock count={stats} />}
+      <ListBlock rows={rows} />
     </div>
+    </Delayed>
   );
 }
