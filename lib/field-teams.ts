@@ -18,7 +18,7 @@ export const LEADER_ROLES: { value: LeaderRole; label: string }[] = [
   { value: "representative", label: "Country Representative" },
   { value: "supervisor", label: "Supervisor" },
 ];
-export const leaderLabel = (r?: string | null) => (r === "representative" ? "Country Representative" : r === "supervisor" ? "Supervisor" : "");
+export { leaderLabel } from "@/lib/leader-label";
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;
 

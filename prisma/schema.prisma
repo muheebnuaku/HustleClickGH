@@ -52,6 +52,7 @@ model User {
   // Field-team hierarchy: Country Representative → Supervisors → Contributors.
   // leaderRole is a position held on top of the normal account role.
   leaderRole       String?   // "representative" | "supervisor" | null
+  leaderAlsoSupervisor Boolean @default(false) // a Country Representative who also leads contributors directly
   leaderCountry    String?   // country the leader runs
   leaderFeePercent Float?    // % of each approved item they earn when paid through them
   leaderCurrency   String?   // default currency for this leader's team (e.g. MWK)

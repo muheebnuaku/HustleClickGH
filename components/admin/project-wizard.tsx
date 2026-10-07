@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { uploadFile } from "@/lib/upload-file";
 import { MultiSelect } from "@/components/admin/multi-select";
+import { leaderLabel } from "@/lib/leader-label";
 import { CURRENCIES, currencySymbol, formatMoney } from "@/lib/currency";
 import {
   DEFAULT_CAPTURE_CONFIG, IN_APP_CAPTURE_FORMATS,
@@ -234,7 +235,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
   // Client organizations that can be given review access.
   const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
   // Field-team leaders that can be assigned to run the project.
-  const [leaders, setLeaders] = useState<{ id: string; fullName: string; leaderRole: string; leaderCountry: string | null; memberCount: number; currency?: string }[]>([]);
+  const [leaders, setLeaders] = useState<{ id: string; fullName: string; leaderRole: string; leaderAlsoSupervisor?: boolean; leaderCountry: string | null; memberCount: number; currency?: string }[]>([]);
   const [currencyTouched, setCurrencyTouched] = useState(!!project);
   const [useTeams, setUseTeams] = useState((project?.assignedLeaderIds?.length ?? 0) > 0);
   useEffect(() => {
@@ -577,7 +578,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
                           <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", l.leaderRole === "representative" ? "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300" : "bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300")}><Icon size={15} /></span>
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">{l.fullName}</span>
-                            <span className="block text-xs text-zinc-500">{l.leaderRole === "representative" ? "Country Representative (incl. their supervisors)" : "Supervisor"}{l.leaderCountry ? ` · ${l.leaderCountry}` : ""}{l.currency ? ` · ${l.currency}` : ""} · {l.memberCount} member{l.memberCount === 1 ? "" : "s"}</span>
+                            <span className="block text-xs text-zinc-500">{l.leaderRole === "representative" ? `${leaderLabel(l.leaderRole, l.leaderAlsoSupervisor)} (incl. their supervisors)` : "Supervisor"}{l.leaderCountry ? ` · ${l.leaderCountry}` : ""}{l.currency ? ` · ${l.currency}` : ""} · {l.memberCount} member{l.memberCount === 1 ? "" : "s"}</span>
                           </span>
                           <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", on ? "border-violet-600 bg-violet-600 text-white" : "border-zinc-300 dark:border-zinc-600")}>{on && <Check size={13} />}</span>
                         </button>

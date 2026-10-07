@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { logActivity, getIp } from "@/lib/activity-log";
-import { generateTeamCode, summarizeByCurrency, type LeaderRole } from "@/lib/field-teams";
+import { generateTeamCode, summarizeByCurrency, type LeaderRole, leaderLabel } from "@/lib/field-teams";
 import { normalizeCurrency, currencyForCountry } from "@/lib/currency";
 
 async function requireAdmin() {
@@ -20,7 +20,7 @@ export async function GET() {
 
   const leaders = await prisma.user.findMany({
     where: { leaderRole: { not: null } },
-    select: { ...USER_SELECT, leaderRole: true, leaderCountry: true, leaderFeePercent: true, leaderCurrency: true, teamCode: true, teamLeaderId: true },
+    select: { ...USER_SELECT, leaderRole: true, leaderAlsoSupervisor: true, leaderCountry: true, leaderFeePercent: true, leaderCurrency: true, teamCode: true, teamLeaderId: true },
     orderBy: [{ leaderCountry: "asc" }, { fullName: "asc" }],
   });
   const ids = leaders.map((l) => l.id);
@@ -95,6 +95,8 @@ export async function POST(request: Request) {
         where: { id: user.id },
         data: {
           leaderRole: role,
+          // Both positions: a representative who also leads contributors directly.
+          leaderAlsoSupervisor: role === "representative" && body.alsoSupervisor === true,
           leaderCountry: country,
           leaderFeePercent: pct,
           leaderCurrency: body.currency ? normalizeCurrency(body.currency) : currencyForCountry(country),
@@ -106,7 +108,7 @@ export async function POST(request: Request) {
         select: { id: true, fullName: true, teamCode: true },
       });
       log({ action, target: user.id, targetName: user.fullName, role, country, feePercent: pct, parentId });
-      return NextResponse.json({ message: `${updated.fullName} is now a ${role === "representative" ? "Country Representative" : "Supervisor"} (team code ${updated.teamCode}).` });
+      return NextResponse.json({ message: `${updated.fullName} is now ${leaderLabel(role, role === "representative" && body.alsoSupervisor === true)} (team code ${updated.teamCode}).` });
     }
 
     // Change a leader's fee / country / representative.
@@ -121,6 +123,14 @@ export async function POST(request: Request) {
       }
       if (typeof body.country === "string" && body.country.trim()) data.leaderCountry = body.country.trim();
       if (body.currency) data.leaderCurrency = normalizeCurrency(body.currency);
+      // Add or drop the Supervisor position on a representative.
+      if (typeof body.alsoSupervisor === "boolean" && user.leaderRole === "representative") {
+        if (!body.alsoSupervisor) {
+          const direct = await prisma.user.count({ where: { teamLeaderId: user.id, leaderRole: null } });
+          if (direct) return NextResponse.json({ message: `${user.fullName} leads ${direct} contributor${direct === 1 ? "" : "s"} directly. Move them to a supervisor first.` }, { status: 400 });
+        }
+        data.leaderAlsoSupervisor = body.alsoSupervisor;
+      }
       if (user.leaderRole === "supervisor" && body.parentId !== undefined) {
         if (body.parentId) {
           const parent = await prisma.user.findUnique({ where: { id: String(body.parentId) }, select: { leaderRole: true } });
@@ -143,7 +153,7 @@ export async function POST(request: Request) {
       const moveTo = user.leaderRole === "supervisor" ? user.teamLeaderId : null;
       await prisma.$transaction([
         prisma.user.updateMany({ where: { teamLeaderId: user.id }, data: { teamLeaderId: moveTo, teamJoinedAt: moveTo ? new Date() : null } }),
-        prisma.user.update({ where: { id: user.id }, data: { leaderRole: null, leaderFeePercent: null, teamCode: null, teamLeaderId: user.leaderRole === "representative" ? null : user.teamLeaderId } }),
+        prisma.user.update({ where: { id: user.id }, data: { leaderRole: null, leaderAlsoSupervisor: false, leaderFeePercent: null, teamCode: null, teamLeaderId: user.leaderRole === "representative" ? null : user.teamLeaderId } }),
       ]);
       log({ action, target: user.id, targetName: user.fullName, membersMovedTo: moveTo });
       return NextResponse.json({ message: `${user.fullName} no longer holds a leader position.` });

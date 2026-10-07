@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 export interface PickedUser {
   id: string; userId: string; fullName: string; email: string; phone: string | null;
   country: string | null; region: string | null; city: string | null; status: string;
-  leaderRole: string | null; teamLeaderId: string | null;
+  leaderRole: string | null; leaderAlsoSupervisor?: boolean; teamLeaderId: string | null;
 }
 
 export function UserPicker({ value, onChange, placeholder = "Type a User ID, name, email or phone", autoFocus }: {
@@ -90,7 +90,7 @@ export function UserPicker({ value, onChange, placeholder = "Type a User ID, nam
                   <span className="block truncate text-sm font-medium text-foreground">{u.fullName} <span className="font-normal text-zinc-400">· {u.userId}</span></span>
                   <span className="block truncate text-xs text-zinc-500">{[u.email, [u.city, u.country].filter(Boolean).join(", ")].filter(Boolean).join(" · ")}</span>
                 </span>
-                {u.leaderRole && <span className="shrink-0 rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">{u.leaderRole === "representative" ? "Rep" : "Supervisor"}</span>}
+                {u.leaderRole && <span className="shrink-0 rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">{u.leaderRole === "representative" ? (u.leaderAlsoSupervisor ? "Rep + Sup" : "Rep") : "Supervisor"}</span>}
                 {u.status !== "active" && <span className="shrink-0 rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-600 dark:bg-red-500/10">{u.status}</span>}
               </button>
             </li>

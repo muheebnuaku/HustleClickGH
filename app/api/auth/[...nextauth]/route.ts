@@ -287,11 +287,12 @@ export const authOptions: NextAuthOptions = {
         // revoked) after login is affected immediately (a cheap indexed lookup).
         // Missing user → treat as suspended.
         if (token.id) {
-          const dbUser = await prisma.user.findUnique({ where: { id: token.id as string }, select: { status: true, role: true, leaderRole: true } });
+          const dbUser = await prisma.user.findUnique({ where: { id: token.id as string }, select: { status: true, role: true, leaderRole: true, leaderAlsoSupervisor: true } });
           session.user.status = dbUser?.status ?? "suspended";
           if (dbUser?.role) session.user.role = dbUser.role;
           // Lets the sidebar show "My Team" on first paint instead of after /api/profile.
           session.user.leaderRole = dbUser?.leaderRole ?? null;
+          session.user.leaderAlsoSupervisor = !!dbUser?.leaderAlsoSupervisor;
         } else {
           session.user.status = "suspended";
         }

@@ -15,7 +15,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const leader = await prisma.user.findUnique({
     where: { id },
-    select: { id: true, fullName: true, userId: true, leaderRole: true, leaderCountry: true, leaderFeePercent: true, leaderCurrency: true, teamCode: true, phone: true },
+    select: { id: true, fullName: true, userId: true, leaderRole: true, leaderAlsoSupervisor: true, leaderCountry: true, leaderFeePercent: true, leaderCurrency: true, teamCode: true, phone: true },
   });
   if (!leader?.leaderRole) return NextResponse.json({ message: "Leader not found" }, { status: 404 });
 
@@ -23,7 +23,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const [members, payables, advances] = await Promise.all([
     prisma.user.findMany({
       where: { teamLeaderId: id },
-      select: { id: true, userId: true, fullName: true, phone: true, country: true, city: true, status: true, leaderRole: true, teamJoinedAt: true },
+      select: { id: true, userId: true, fullName: true, phone: true, country: true, city: true, status: true, leaderRole: true, leaderAlsoSupervisor: true, teamJoinedAt: true },
       orderBy: { fullName: "asc" },
     }),
     prisma.leaderPayable.findMany({ where: { leaderId: { in: scope } }, orderBy: { createdAt: "desc" }, take: 500 }),

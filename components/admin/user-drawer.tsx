@@ -15,6 +15,7 @@ import { VerifiedBadge } from "@/components/verified-badge";
 import { COUNTRIES } from "@/lib/countries";
 import { currencyForCountry } from "@/lib/currency";
 import { DEFAULT_MANAGER_COMMISSION } from "@/lib/constants";
+import { leaderLabel } from "@/lib/leader-label";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
 export interface DrawerUser {
@@ -24,10 +25,9 @@ export interface DrawerUser {
   country: string | null; region: string | null; city: string | null;
   duplicatePhone?: boolean; fraudRiskScore?: number | null; fraudRiskReason?: string | null;
   referredById?: string | null; commissionEarned?: number;
-  leaderRole?: string | null; leaderCountry?: string | null; teamLeaderId?: string | null;
+  leaderRole?: string | null; leaderAlsoSupervisor?: boolean; leaderCountry?: string | null; teamLeaderId?: string | null;
 }
 
-const ROLE_LABEL: Record<string, string> = { representative: "Country Representative", supervisor: "Supervisor" };
 
 export function UserDrawer({ user, byId, teamSize, busy, onClose, onMessage, onVerify, onSuspend, onManager, onShowTeam, onChanged }: {
   user: DrawerUser;
@@ -44,7 +44,7 @@ export function UserDrawer({ user, byId, teamSize, busy, onClose, onMessage, onV
   onChanged: (message: string) => void;
 }) {
   const [appoint, setAppoint] = useState<null | "representative" | "supervisor">(null);
-  const [form, setForm] = useState({ country: "", feePercent: "10", parentId: "" });
+  const [form, setForm] = useState({ country: "", feePercent: "10", parentId: "", both: false });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -62,9 +62,9 @@ export function UserDrawer({ user, byId, teamSize, busy, onClose, onMessage, onV
     && (!form.country || (u.leaderCountry ?? "").toLowerCase() === form.country.toLowerCase()));
   const location = [user.city, user.region, user.country].filter(Boolean).join(", ");
 
-  const startAppoint = (role: "representative" | "supervisor") => {
+  const startAppoint = (role: "representative" | "supervisor", both = false) => {
     setErr("");
-    setForm({ country: COUNTRIES.find((c) => c.name.toLowerCase() === (user.country ?? "").trim().toLowerCase())?.name ?? user.country ?? "", feePercent: "10", parentId: "" });
+    setForm({ country: user.leaderCountry ?? COUNTRIES.find((c) => c.name.toLowerCase() === (user.country ?? "").trim().toLowerCase())?.name ?? user.country ?? "", feePercent: "10", parentId: "", both });
     setAppoint(role);
   };
 
@@ -99,7 +99,7 @@ export function UserDrawer({ user, byId, teamSize, busy, onClose, onMessage, onV
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               <Pill tone={user.status === "active" ? "green" : "red"}>{user.status === "active" ? "Active" : "Suspended"}</Pill>
               {isManager && <Pill tone="violet"><Crown size={10} />Manager</Pill>}
-              {user.leaderRole && <Pill tone="violet">{user.leaderRole === "representative" ? <Crown size={10} /> : <UserCog size={10} />}{ROLE_LABEL[user.leaderRole]}{user.leaderCountry ? ` · ${user.leaderCountry}` : ""}</Pill>}
+              {user.leaderRole && <Pill tone="violet">{user.leaderRole === "representative" ? <Crown size={10} /> : <UserCog size={10} />}{leaderLabel(user.leaderRole, user.leaderAlsoSupervisor)}{user.leaderCountry ? ` · ${user.leaderCountry}` : ""}</Pill>}
             </div>
           </div>
           <button onClick={onClose} className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-100 hover:text-foreground dark:hover:bg-zinc-800" aria-label="Close"><X size={18} /></button>
@@ -190,7 +190,7 @@ export function UserDrawer({ user, byId, teamSize, busy, onClose, onMessage, onV
                   <p className="text-sm font-semibold text-foreground">Field team leader</p>
                   <p className="text-xs text-zinc-500">
                     {user.leaderRole
-                      ? `${ROLE_LABEL[user.leaderRole]}${user.leaderCountry ? ` for ${user.leaderCountry}` : ""} — gets bulk payments and pays their team.`
+                      ? `${leaderLabel(user.leaderRole, user.leaderAlsoSupervisor)}${user.leaderCountry ? ` for ${user.leaderCountry}` : ""} — gets bulk payments and pays their team.`
                       : "Country Representative or Supervisor — runs a team you pay in bulk."}
                   </p>
                 </div>
@@ -199,10 +199,15 @@ export function UserDrawer({ user, byId, teamSize, busy, onClose, onMessage, onV
                 <div className="mt-3 flex flex-wrap gap-2 pl-7">
                   <Link href={`/admin/teams?leader=${user.id}`} className="inline-flex h-8 items-center gap-1 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white hover:bg-blue-700">Open team<ChevronRight size={13} /></Link>
                   {user.leaderRole === "supervisor" && (
-                    <Button size="sm" variant="outline" disabled={saving} onClick={() => startAppoint("representative")}>Promote to Representative</Button>
+                    <Button size="sm" variant="outline" disabled={saving} onClick={() => startAppoint("representative", true)}>Also make Representative</Button>
+                  )}
+                  {user.leaderRole === "representative" && (
+                    <Button size="sm" variant="outline" disabled={saving} onClick={() => teamsCall({ action: "update", userId: user.id, alsoSupervisor: !user.leaderAlsoSupervisor })}>
+                      {user.leaderAlsoSupervisor ? "Drop Supervisor" : "Also make Supervisor"}
+                    </Button>
                   )}
                   <Button size="sm" variant="outline" disabled={saving} className="border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900"
-                    onClick={() => confirm(`Remove ${user.fullName}'s ${ROLE_LABEL[user.leaderRole!]} position? Their team moves up a level.`) && teamsCall({ action: "remove", userId: user.id })}>
+                    onClick={() => confirm(`Remove ${user.fullName}'s ${leaderLabel(user.leaderRole, user.leaderAlsoSupervisor)} position? Their team moves up a level.`) && teamsCall({ action: "remove", userId: user.id })}>
                     <UserMinus size={13} />Remove
                   </Button>
                 </div>
@@ -215,7 +220,7 @@ export function UserDrawer({ user, byId, teamSize, busy, onClose, onMessage, onV
 
               {appoint && (
                 <div className="mt-3 space-y-3 rounded-xl bg-zinc-50 p-3 dark:bg-zinc-900">
-                  <p className="text-sm font-medium">Make {user.fullName.split(" ")[0]} a {ROLE_LABEL[appoint]}</p>
+                  <p className="text-sm font-medium">Make {user.fullName.split(" ")[0]} a {leaderLabel(appoint, appoint === "representative" && form.both)}</p>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="block text-xs text-zinc-500">Country
                       <select className={cn(inputCls, "mt-1")} value={form.country} onChange={(e) => setForm((f) => ({ ...f, country: e.target.value, parentId: "" }))}>
@@ -228,6 +233,12 @@ export function UserDrawer({ user, byId, teamSize, busy, onClose, onMessage, onV
                       <div className="relative mt-1"><input type="number" min="0" max="100" step="0.5" className={cn(inputCls, "pr-7")} value={form.feePercent} onChange={(e) => setForm((f) => ({ ...f, feePercent: e.target.value }))} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400">%</span></div>
                     </label>
                   </div>
+                  {appoint === "representative" && (
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" className="h-4 w-4 accent-blue-600" checked={form.both} onChange={(e) => setForm((f) => ({ ...f, both: e.target.checked }))} />
+                      Also Supervisor — leads contributors directly
+                    </label>
+                  )}
                   {appoint === "supervisor" && (
                     <label className="block text-xs text-zinc-500">Reports to
                       <select className={cn(inputCls, "mt-1")} value={form.parentId} onChange={(e) => setForm((f) => ({ ...f, parentId: e.target.value }))}>
@@ -241,7 +252,7 @@ export function UserDrawer({ user, byId, teamSize, busy, onClose, onMessage, onV
                   <div className="flex justify-end gap-2">
                     <Button size="sm" variant="outline" onClick={() => setAppoint(null)} disabled={saving}>Cancel</Button>
                     <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-700" disabled={saving || !form.country}
-                      onClick={() => teamsCall({ action: "appoint", user: user.id, role: appoint, country: form.country, feePercent: form.feePercent, parentId: form.parentId, currency: currencyForCountry(form.country) })}>
+                      onClick={() => teamsCall({ action: "appoint", user: user.id, role: appoint, alsoSupervisor: appoint === "representative" && form.both, country: form.country, feePercent: form.feePercent, parentId: form.parentId, currency: currencyForCountry(form.country) })}>
                       {saving ? "Saving…" : "Appoint"}
                     </Button>
                   </div>

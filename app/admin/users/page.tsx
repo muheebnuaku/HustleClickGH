@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
 import { PageHeader, StatCard, Panel, Segmented, EmptyState, PageSkeleton } from "@/components/admin/admin-ui";
 import { UserDrawer } from "@/components/admin/user-drawer";
+import { leaderLabel } from "@/lib/leader-label";
 import { Button } from "@/components/ui/button";
 import {
   Download, Mail, Phone, Search, Wallet, TrendingUp, Users, Lock, Unlock, MapPin, BadgeCheck,
@@ -43,6 +44,7 @@ interface UserData {
   referredById?: string | null;
   commissionEarned?: number;
   leaderRole?: string | null;
+  leaderAlsoSupervisor?: boolean;
   leaderCountry?: string | null;
   teamLeaderId?: string | null;
 }
@@ -822,7 +824,7 @@ function LeaderBadge({ user }: { user: UserData }) {
   if (!user.leaderRole) return null;
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
-      {user.leaderRole === "representative" ? "Country Rep" : "Supervisor"}{user.leaderCountry ? ` · ${user.leaderCountry}` : ""}
+      {leaderLabel(user.leaderRole, user.leaderAlsoSupervisor, true)}{user.leaderCountry ? ` · ${user.leaderCountry}` : ""}
     </span>
   );
 }

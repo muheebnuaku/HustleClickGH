@@ -7,7 +7,7 @@ import { logActivity, getIp } from "@/lib/activity-log";
 import { leaderScope, summarizeByCurrency } from "@/lib/field-teams";
 import { currencyForCountry } from "@/lib/currency";
 
-const PERSON = { id: true, userId: true, fullName: true, phone: true, leaderRole: true, leaderCountry: true } as const;
+const PERSON = { id: true, userId: true, fullName: true, phone: true, leaderRole: true, leaderAlsoSupervisor: true, leaderCountry: true } as const;
 
 // GET /api/team — my team position. Leaders get their team, money owed/received
 // and what they still have to pay out; everyone gets their own leader and the
@@ -17,7 +17,7 @@ export async function GET() {
   if (!session?.user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   const me = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, leaderRole: true, leaderCountry: true, leaderFeePercent: true, leaderCurrency: true, teamCode: true, teamLeaderId: true, teamJoinedAt: true },
+    select: { id: true, leaderRole: true, leaderAlsoSupervisor: true, leaderCountry: true, leaderFeePercent: true, leaderCurrency: true, teamCode: true, teamLeaderId: true, teamJoinedAt: true },
   });
   if (!me) return NextResponse.json({ message: "Not found" }, { status: 404 });
 

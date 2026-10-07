@@ -14,6 +14,7 @@ import { IncomingCallListener } from "@/components/incoming-call";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { useMessages } from "@/app/contexts/MessagesContext";
 import { isProjectAvailableToMe } from "@/lib/project-config";
+import { leaderLabel } from "@/lib/leader-label";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
@@ -127,7 +128,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       <Link href="/dashboard" onClick={onNavigate} className="flex h-16 shrink-0 items-center px-5">
         <div className="min-w-0">
           <p className="truncate text-[15px] font-semibold tracking-tight text-white">HustleClickGH</p>
-          <p className="text-[11px] text-zinc-500">{leaderRole === "representative" ? "Country Representative" : leaderRole === "supervisor" ? "Supervisor" : isManager ? "Manager" : "Contributor"}</p>
+          <p className="text-[11px] text-zinc-500">{leaderRole ? leaderLabel(leaderRole, session?.user?.leaderAlsoSupervisor) : isManager ? "Manager" : "Contributor"}</p>
         </div>
       </Link>
 

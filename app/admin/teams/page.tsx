@@ -10,6 +10,7 @@ import {
 import { cn, formatDate } from "@/lib/utils";
 import { CURRENCIES, formatMoney, currencySymbol, currencyForCountry } from "@/lib/currency";
 import { UserPicker, type PickedUser } from "@/components/admin/user-picker";
+import { leaderLabel } from "@/lib/leader-label";
 import { COUNTRIES } from "@/lib/countries";
 import { ReceiptUpload } from "@/components/receipt-upload";
 
@@ -17,7 +18,7 @@ type Money = { amount: number; fee: number; count: number };
 type MoneyMap = Record<string, { owed: Money; sent: Money; paid: Money }>;
 interface Leader {
   id: string; userId: string; fullName: string; email: string; phone: string; country: string | null; status: string;
-  leaderRole: "representative" | "supervisor"; leaderCountry: string | null; leaderFeePercent: number | null; teamCode: string | null; teamLeaderId: string | null;
+  leaderRole: "representative" | "supervisor"; leaderAlsoSupervisor?: boolean; leaderCountry: string | null; leaderFeePercent: number | null; teamCode: string | null; teamLeaderId: string | null;
   memberCount: number; disputes: number; currency: string; advanceCredit: Record<string, number>; money: MoneyMap;
 }
 interface Payout {
@@ -26,9 +27,9 @@ interface Payout {
   status: string; createdAt: string; acknowledgedAt: string | null;
 }
 interface Detail {
-  leader: { id: string; fullName: string; userId: string; leaderRole: string; leaderCountry: string | null; leaderFeePercent: number | null; leaderCurrency: string | null; teamCode: string | null; phone: string };
+  leader: { id: string; fullName: string; userId: string; leaderRole: string; leaderAlsoSupervisor?: boolean; leaderCountry: string | null; leaderFeePercent: number | null; leaderCurrency: string | null; teamCode: string | null; phone: string };
   currency: string;
-  members: { id: string; userId: string; fullName: string; phone: string; country: string | null; city: string | null; status: string; leaderRole: string | null; teamJoinedAt: string | null }[];
+  members: { id: string; userId: string; fullName: string; phone: string; country: string | null; city: string | null; status: string; leaderRole: string | null; leaderAlsoSupervisor?: boolean; teamJoinedAt: string | null }[];
   money: MoneyMap;
   advances: { id: string; projectId: string | null; currency: string; total: number; creditRemaining: number; itemCount: number; method: string; createdAt: string; receiptUrl: string | null }[];
   advanceCredit: Record<string, number>;
@@ -44,9 +45,9 @@ const owedPairs = (m: MoneyMap): Pairs =>
 const addPairs = (a: Pairs, b: Pairs): Pairs => { const o = { ...a }; for (const [c, v] of Object.entries(b)) o[c] = (o[c] ?? 0) + v; return o; };
 const fmtPairs = (p: Pairs, fallback = "GHS") => (Object.keys(p).length ? Object.entries(p).map(([c, a]) => formatMoney(a, c)).join(" · ") : formatMoney(0, fallback));
 
-function RoleBadge({ role }: { role: string }) {
+function RoleBadge({ role, also }: { role: string; also?: boolean }) {
   return role === "representative" ? (
-    <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"><Crown size={11} />Representative</span>
+    <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"><Crown size={11} />Representative{also && <><span className="opacity-50">+</span><UserCog size={11} />Supervisor</>}</span>
   ) : (
     <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"><UserCog size={11} />Supervisor</span>
   );
@@ -220,7 +221,7 @@ function LeaderRow({ l, nested, onOpen }: { l: Leader; nested?: boolean; onOpen:
       {nested && <span className="-ml-5 h-6 w-3 shrink-0 rounded-bl-lg border-b-2 border-l-2 border-zinc-200 dark:border-zinc-700" />}
       <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white", l.leaderRole === "representative" ? "bg-gradient-to-br from-violet-500 to-indigo-600" : "bg-gradient-to-br from-sky-500 to-blue-600")}>{initials(l.fullName)}</span>
       <span className="min-w-0 flex-1">
-        <span className="flex flex-wrap items-center gap-2"><span className="font-medium text-foreground">{l.fullName}</span><RoleBadge role={l.leaderRole} /></span>
+        <span className="flex flex-wrap items-center gap-2"><span className="font-medium text-foreground">{l.fullName}</span><RoleBadge role={l.leaderRole} also={l.leaderAlsoSupervisor} /></span>
         <span className="block truncate text-xs text-zinc-500">{l.userId} · code {l.teamCode} · {l.currency} · fee {l.leaderFeePercent ?? 0}% · {l.memberCount} member{l.memberCount === 1 ? "" : "s"}</span>
       </span>
       {l.disputes > 0 && <span className="hidden items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 sm:inline-flex dark:bg-red-500/10 dark:text-red-300"><AlertTriangle size={11} />{l.disputes}</span>}
@@ -248,7 +249,7 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
 }
 
 function AppointDialog({ reps, onClose, onSubmit }: { reps: Leader[]; onClose: () => void; onSubmit: (b: Record<string, unknown>) => Promise<{ ok: boolean; message: string }> }) {
-  const [form, setForm] = useState({ role: "supervisor", country: "", feePercent: "10", parentId: "", currency: "" });
+  const [form, setForm] = useState({ rep: false, sup: true, country: "", feePercent: "10", parentId: "", currency: "" });
   const [person, setPerson] = useState<PickedUser | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -265,20 +266,26 @@ function AppointDialog({ reps, onClose, onSubmit }: { reps: Leader[]; onClose: (
             onChange={(u) => { setPerson(u); if (u?.country && !form.country) set({ country: COUNTRIES.find((c) => c.name.toLowerCase() === u.country!.trim().toLowerCase())?.name ?? u.country }); }}
           />
           {person?.leaderRole ? (
-            <span className="mt-1 block text-xs text-amber-600">Already a {person.leaderRole === "representative" ? "Country Representative" : "Supervisor"} — appointing changes their position.</span>
+            <span className="mt-1 block text-xs text-amber-600">Already {leaderLabel(person.leaderRole, person.leaderAlsoSupervisor)} — appointing changes their position.</span>
           ) : (
             <span className="mt-1 block text-xs text-zinc-500">They must already have a HustleClickGH account.</span>
           )}
         </div>
         <div>
-          <span className="mb-1 block text-sm font-medium">Position</span>
+          <span className="mb-1 block text-sm font-medium">Position <span className="font-normal text-zinc-400">— pick one or both</span></span>
           <div className="grid grid-cols-2 gap-2">
-            {[{ v: "representative", t: "Country Representative", d: "Runs a country; supervisors report to them." }, { v: "supervisor", t: "Supervisor", d: "Leads a team of contributors." }].map((o) => (
-              <button key={o.v} type="button" onClick={() => set({ role: o.v, parentId: o.v === "representative" ? "" : form.parentId })}
-                className={cn("rounded-xl border-2 p-3 text-left", form.role === o.v ? "border-blue-500 bg-blue-50/60 dark:bg-blue-500/10" : "border-zinc-200 dark:border-zinc-700")}>
-                <span className="block text-sm font-semibold">{o.t}</span><span className="mt-0.5 block text-xs text-zinc-500">{o.d}</span>
-              </button>
-            ))}
+            {[{ v: "rep", t: "Country Representative", d: "Runs a country; supervisors report to them." }, { v: "sup", t: "Supervisor", d: "Leads a team of contributors." }].map((o) => {
+              const on = o.v === "rep" ? form.rep : form.sup;
+              return (
+                <button key={o.v} type="button"
+                  // Pick one or both; at least one stays selected.
+                  onClick={() => { const next = { ...form, [o.v]: !on }; if (next.rep || next.sup) set({ [o.v]: !on, parentId: next.rep ? "" : form.parentId }); }}
+                  className={cn("relative rounded-xl border-2 p-3 text-left", on ? "border-blue-500 bg-blue-50/60 dark:bg-blue-500/10" : "border-zinc-200 dark:border-zinc-700")}>
+                  <span className={cn("absolute right-2.5 top-2.5 flex h-4 w-4 items-center justify-center rounded border", on ? "border-blue-600 bg-blue-600 text-white" : "border-zinc-300 dark:border-zinc-600")}>{on && <Check size={11} />}</span>
+                  <span className="block pr-5 text-sm font-semibold">{o.t}</span><span className="mt-0.5 block text-xs text-zinc-500">{o.d}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -299,7 +306,7 @@ function AppointDialog({ reps, onClose, onSubmit }: { reps: Leader[]; onClose: (
             <div className="relative"><input type="number" min="0" max="100" step="0.5" className={cn(inputCls, "pr-8")} value={form.feePercent} onChange={(e) => set({ feePercent: e.target.value })} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">%</span></div>
           </label>
         </div>
-        {form.role === "supervisor" && (
+        {!form.rep && (
           <label className="block"><span className="mb-1 block text-sm font-medium">Reports to</span>
             <select className={inputCls} value={form.parentId} onChange={(e) => set({ parentId: e.target.value })}>
               <option value="">HustleClickGH directly</option>
@@ -316,7 +323,8 @@ function AppointDialog({ reps, onClose, onSubmit }: { reps: Leader[]; onClose: (
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button disabled={busy || !person} className="bg-blue-600 hover:bg-blue-700 text-white" onClick={async () => {
             setBusy(true); setErr("");
-            const r = await onSubmit({ ...form, user: person!.id, currency: form.currency || currencyForCountry(form.country) });
+            const { rep, sup, ...rest } = form;
+            const r = await onSubmit({ ...rest, user: person!.id, role: rep ? "representative" : "supervisor", alsoSupervisor: rep && sup, currency: form.currency || currencyForCountry(form.country) });
             if (!r.ok) setErr(r.message || "Couldn't appoint.");
             setBusy(false);
           }}>{busy && <Loader2 size={15} className="animate-spin" />}Appoint</Button>
@@ -579,6 +587,22 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
             </div>
             <span className="mt-1 block text-[11px] text-zinc-400">Default for new projects assigned to this team.</span>
           </label>
+          <div className="block sm:col-span-2">
+            <span className="mb-1 block text-xs font-medium text-zinc-500">Positions</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <RoleBadge role={L.leaderRole} also={L.leaderAlsoSupervisor} />
+              {L.leaderRole === "representative" && (
+                <Button size="sm" variant="outline" disabled={busy === "both"} onClick={() => run("both", { action: "update", userId: id, alsoSupervisor: !L.leaderAlsoSupervisor })}>
+                  {L.leaderAlsoSupervisor ? "Drop Supervisor position" : "Also make Supervisor"}
+                </Button>
+              )}
+              {L.leaderRole === "supervisor" && (
+                <Button size="sm" variant="outline" disabled={busy === "both"} onClick={() => confirm(`Make ${L.fullName} Country Representative as well? They keep leading their own team.`) && run("both", { action: "appoint", user: id, role: "representative", alsoSupervisor: true, country: L.leaderCountry, feePercent: L.leaderFeePercent ?? 0, currency: L.leaderCurrency ?? d.currency })}>
+                  Also make Country Representative
+                </Button>
+              )}
+            </div>
+          </div>
           {L.leaderRole === "supervisor" && (
             <label className="block"><span className="mb-1 block text-xs font-medium text-zinc-500">Reports to</span>
               <div className="flex gap-2">
@@ -608,7 +632,7 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
               {d.members.map((m) => (
                 <li key={m.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
                   <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2 font-medium text-foreground">{m.fullName}{m.leaderRole && <RoleBadge role={m.leaderRole} />}</span>
+                    <span className="flex items-center gap-2 font-medium text-foreground">{m.fullName}{m.leaderRole && <RoleBadge role={m.leaderRole} also={m.leaderAlsoSupervisor} />}</span>
                     <span className="block truncate text-xs text-zinc-500">{m.userId} · {m.phone}{m.city ? ` · ${m.city}` : ""}{m.teamJoinedAt ? ` · joined ${formatDate(m.teamJoinedAt)}` : ""}</span>
                   </span>
                   {!m.leaderRole && (

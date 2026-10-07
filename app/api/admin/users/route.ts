@@ -78,6 +78,7 @@ export async function GET() {
       commissionEarned: commissionBy.get(user.id) ?? 0,
       // Field-team position (Country Representative / Supervisor) and team.
       leaderRole: user.leaderRole,
+      leaderAlsoSupervisor: user.leaderAlsoSupervisor,
       leaderCountry: user.leaderCountry,
       teamLeaderId: user.teamLeaderId,
     }));

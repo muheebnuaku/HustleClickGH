@@ -8,6 +8,7 @@ import { DashboardLayout } from "@/components/dashboard-layout";
 import { PageHeader, StatCard, Panel, EmptyState, Notice, Segmented, PageSkeleton, SkeletonList } from "@/components/ui/page-kit";
 import { Network, Users, Wallet, CheckCircle2, Copy, Check, Loader2, Send, Clock, Phone, Crown, UserCog } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
+import { leaderLabel } from "@/lib/leader-label";
 import { formatMoney } from "@/lib/currency";
 import { ReceiptUpload } from "@/components/receipt-upload";
 import { ProjectTrackerPanel } from "@/components/admin/project-tracker-panel";
@@ -21,7 +22,7 @@ interface Payable {
 interface Payout { id: string; leaderId: string; kind: string; currency: string; total: number; amount: number; feeAmount: number; itemCount: number; method: string; reference: string | null; localCurrency: string | null; localAmount: number | null; status: string; createdAt: string }
 interface Member { id: string; userId: string; fullName: string; phone: string; city: string | null; status: string; leaderRole: string | null; teamLeaderId: string | null; teamJoinedAt: string | null }
 interface TeamData {
-  me: { id: string; leaderRole: string | null; leaderCountry: string | null; leaderFeePercent: number | null; teamCode: string | null };
+  me: { id: string; leaderRole: string | null; leaderAlsoSupervisor?: boolean; leaderCountry: string | null; leaderFeePercent: number | null; teamCode: string | null };
   leader: null | { currency: string; members: Member[]; money: Record<string, { owed: Money; sent: Money; paid: Money }>; payouts: Payout[]; payables: Payable[] };
 }
 
@@ -106,7 +107,7 @@ export default function TeamPage() {
         <PageHeader
           icon={isRep ? Crown : UserCog}
           title="My Team"
-          description={`${isRep ? "Country Representative" : "Supervisor"}${data.me.leaderCountry ? ` · ${data.me.leaderCountry}` : ""} · you earn ${data.me.leaderFeePercent ?? 0}% on each approved item.`}
+          description={`${leaderLabel(data.me.leaderRole, data.me.leaderAlsoSupervisor)}${data.me.leaderCountry ? ` · ${data.me.leaderCountry}` : ""} · you earn ${data.me.leaderFeePercent ?? 0}% on each approved item.`}
         />
 
         {/* Invite */}

@@ -85,10 +85,12 @@ function loadDetector(): Promise<FaceDetectorLike> {
   return detectorPromise;
 }
 
+// MP4 (H.264, AAC audio) first: it opens upright in every phone gallery and desktop
+// player once downloaded; WebM doesn't play on iPhones or many Windows apps.
 function pickMimeType(withAudio: boolean): string {
   const candidates = withAudio
-    ? ["video/webm;codecs=vp8,opus", "video/webm", "video/mp4;codecs=avc1,mp4a", "video/mp4"]
-    : ["video/webm;codecs=vp8", "video/webm", "video/mp4;codecs=avc1", "video/mp4"];
+    ? ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1,mp4a", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]
+    : ["video/mp4;codecs=avc1.42E01E", "video/mp4;codecs=avc1", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
   if (typeof MediaRecorder === "undefined") return "";
   return candidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
 }

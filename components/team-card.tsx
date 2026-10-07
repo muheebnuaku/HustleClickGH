@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Network, Loader2, Phone, CheckCircle2, AlertTriangle, Clock, Crown, UserCog } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 import { formatMoney } from "@/lib/currency";
+import { leaderLabel } from "@/lib/leader-label";
 
 interface Payable {
   id: string; projectTitle: string; currency: string; amount: number | null; status: "owed" | "sent" | "paid";
@@ -14,7 +15,7 @@ interface Payable {
 }
 interface TeamInfo {
   me: { leaderRole: string | null; teamLeaderId: string | null };
-  myLeader: { fullName: string; userId: string; phone: string; leaderRole: string | null; leaderCountry: string | null } | null;
+  myLeader: { fullName: string; userId: string; phone: string; leaderRole: string | null; leaderAlsoSupervisor?: boolean; leaderCountry: string | null } | null;
   myPayables: Payable[];
 }
 
@@ -71,7 +72,7 @@ export function TeamCard({ mode = "team" }: { mode?: "team" | "payments" }) {
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"><RoleIcon size={18} /></span>
             <span className="min-w-0 flex-1">
               <span className="block font-medium text-foreground">{L.fullName}</span>
-              <span className="block text-xs text-zinc-500">{L.leaderRole === "representative" ? "Country Representative" : "Supervisor"}{L.leaderCountry ? ` · ${L.leaderCountry}` : ""}</span>
+              <span className="block text-xs text-zinc-500">{leaderLabel(L.leaderRole, L.leaderAlsoSupervisor)}{L.leaderCountry ? ` · ${L.leaderCountry}` : ""}</span>
             </span>
             <a href={`tel:${L.phone}`} className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium hover:bg-white dark:border-zinc-700 dark:hover:bg-zinc-800"><Phone size={12} />Call</a>
           </div>

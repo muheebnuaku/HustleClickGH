@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
         ...(digits.length >= 4 ? [{ phone: { contains: digits.slice(-9) } }] : []),
       ],
     },
-    select: { id: true, userId: true, fullName: true, email: true, phone: true, country: true, region: true, city: true, status: true, leaderRole: true, teamLeaderId: true },
+    select: { id: true, userId: true, fullName: true, email: true, phone: true, country: true, region: true, city: true, status: true, leaderRole: true, leaderAlsoSupervisor: true, teamLeaderId: true },
     orderBy: { createdAt: "desc" },
     take: 8,
   });

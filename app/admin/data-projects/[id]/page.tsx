@@ -12,6 +12,7 @@ import { CaptureTraceView } from "@/components/capture-trace-view";
 import { ProjectTrackerPanel } from "@/components/admin/project-tracker-panel";
 import { downloadSubmissionsZip } from "@/lib/zip-download";
 import { toDownloadUrl } from "@/lib/upload-file";
+import { PortraitMp4Button } from "@/components/admin/portrait-download";
 import type { AiReviewResult } from "@/lib/ai-review";
 import Link from "next/link";
 import { SkeletonList } from "@/components/ui/page-kit";
@@ -681,9 +682,12 @@ export default function AdminProjectSubmissionsPage() {
                               >
                                 <div className="flex items-center justify-between gap-2 mb-1">
                                   <p className="text-xs font-medium text-foreground truncate">{f.name}</p>
-                                  <a href={toDownloadUrl(f.url, f.name)} download={f.name} className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline shrink-0">
-                                    <Download size={12} />Save
-                                  </a>
+                                  <span className="flex shrink-0 items-center gap-3">
+                                    {isVideo(f.type) && <PortraitMp4Button url={f.url} name={f.name} />}
+                                    <a href={toDownloadUrl(f.url, f.name)} download={f.name} className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline shrink-0">
+                                      <Download size={12} />Save
+                                    </a>
+                                  </span>
                                 </div>
                                 <p className="text-[11px] text-zinc-400 mb-1">{f.sizeMB.toFixed(1)}MB · {f.type}{fileSpec(f.meta) ? ` · ${fileSpec(f.meta)}` : ""}</p>
                                 {f.meta?.warnings && f.meta.warnings.length > 0 && (
