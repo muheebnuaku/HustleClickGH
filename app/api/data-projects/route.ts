@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { checkLocationEligibility, targetingSummary, parseStringList } from "@/lib/project-config";
+import { checkLocationEligibility, targetingSummary, contributorMoneyView, parseStringList } from "@/lib/project-config";
 import { teamChain, canTakeAssigned } from "@/lib/field-teams";
 
 // GET: List all active data projects + user's submission status for each
@@ -51,6 +51,7 @@ export async function GET() {
         referenceCode: undefined,
       assignedLeaderIds: undefined,
         locationLabel: targetingSummary(p),
+        ...(isAdmin ? {} : contributorMoneyView(p)),
         eligible: elig.eligible,
         ineligibleReason: elig.eligible ? null : elig.reason,
         needsLocation: elig.eligible ? false : elig.needsLocation,

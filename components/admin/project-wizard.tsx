@@ -57,6 +57,7 @@ export interface WizardProject {
   orgName?: string | null;
   reviewOrgId?: string | null;
   payoutMode?: string | null;
+  showReward?: boolean;
   assignedLeaderIds?: string[];
   currency?: string;
 }
@@ -119,6 +120,7 @@ function initialForm(p?: WizardProject | null) {
     clientName: p?.clientName ?? "",
     reviewOrgId: p?.reviewOrgId ?? "",
     payoutMode: p?.payoutMode === "via_leader" ? "via_leader" : "individual",
+    showReward: p?.showReward ?? true,
     assignedLeaderIds: p?.assignedLeaderIds ?? ([] as string[]),
     currency: p?.currency ?? "GHS",
     referenceCode: p?.referenceCode ?? "",
@@ -353,6 +355,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
       targetCities: useLocation ? form.targetCities : [],
       requireGeo: form.requireGeo,
       assignedLeaderIds: useTeams ? form.assignedLeaderIds : [],
+      showReward: form.payoutMode === "via_leader" ? form.showReward : true,
       languages: useLanguages ? splitList(form.languages) : [],
       samplePrompts: form.samplePrompts.split("\n").map((p) => p.trim()).filter(Boolean),
     };
@@ -636,6 +639,16 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
                     Only people in a field team can submit. Each approval adds the reward (plus their leader&apos;s fee) to that leader&apos;s next bulk payment under <strong>Field Teams</strong>.
                   </p>
                 )}
+                {form.payoutMode === "via_leader" && (
+                  <div className="mt-3">
+                    <Reveal
+                      title="Show contributors how much they earn"
+                      help={form.showReward ? "They see the reward per approved item on the project." : "Hidden — they only see “Paid by your leader”. Leaders still see the full amount."}
+                      on={form.showReward}
+                      onChange={(v) => set({ showReward: v })}
+                    />
+                  </div>
+                )}
               </div>
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field label="Reward per approved submission" required>
@@ -755,7 +768,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
                 </>
               } />
               <Row step="details" label="Extra details" value={useDetails && metaFields.length ? metaFields.map((f) => f.label).join(", ") : "None"} />
-              <Row step="pay" label="Payment" value={form.payoutMode === "via_leader" ? "Through team leaders (bulk)" : "Directly to each contributor"} />
+              <Row step="pay" label="Payment" value={form.payoutMode === "via_leader" ? `Through team leaders (bulk) · reward ${form.showReward ? "shown to" : "hidden from"} contributors` : "Directly to each contributor"} />
               <Row step="pay" label="Pay & limits" value={
                 <>
                   {Number(form.reward) > 0 ? formatMoney(Number(form.reward), form.currency) : "—"} each · {form.maxSubmissions || "—"} needed · {form.maxSubmissionsPerUser}× per person

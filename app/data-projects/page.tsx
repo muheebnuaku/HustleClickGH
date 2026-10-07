@@ -14,7 +14,7 @@ interface DataProject {
   title: string;
   description: string;
   projectType: string;
-  reward: number;
+  reward: number | null;
   maxSubmissions: number;
   currentSubmissions: number;
   slotsRemaining: number;
@@ -105,7 +105,7 @@ export default function DataProjectsPage() {
                       <p className="mt-0.5 text-sm text-zinc-500 line-clamp-2">{p.description}</p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="text-lg font-semibold text-emerald-600 tabular-nums">{formatMoney(p.reward, p.currency)}</p>
+                      {p.reward == null ? <p><span className="text-sm font-semibold text-violet-600 dark:text-violet-300">Paid by your leader</span></p> : <p className="text-lg font-semibold text-emerald-600 tabular-nums">{formatMoney(p.reward, p.currency)}</p>}
                       <p className="text-[11px] text-zinc-400">per approval</p>
                     </div>
                   </div>

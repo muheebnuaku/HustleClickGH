@@ -31,7 +31,7 @@ interface DataProject {
   license?: string;
   instructions: string;
   samplePrompts: string[];
-  reward: number;
+  reward: number | null;
   maxSubmissions: number;
   currentSubmissions: number;
   slotsRemaining: number;
@@ -534,8 +534,11 @@ export default function DataProjectDetailPage() {
           {/* Quick stats */}
           <div className="grid grid-cols-3 gap-4 mt-5 pt-4 border-t border-zinc-100">
             <div className="text-center">
-              <p className="text-xl font-bold text-green-600">{formatMoney(project.reward, project.currency)}</p>
-              <p className="text-xs text-zinc-400">reward per approval</p>
+              {project.reward == null ? (
+                <><p className="whitespace-nowrap text-base font-semibold text-violet-600 dark:text-violet-300">Team pay</p><p className="text-xs text-zinc-400">from your leader</p></>
+              ) : (
+                <><p className="text-xl font-bold text-green-600">{formatMoney(project.reward, project.currency)}</p><p className="text-xs text-zinc-400">reward per approval</p></>
+              )}
             </div>
             <div className="text-center">
               <p className="text-xl font-bold text-foreground">{project.slotsRemaining}</p>
@@ -616,7 +619,7 @@ export default function DataProjectDetailPage() {
                           sub.status === "pending" ? "text-yellow-700" : sub.status === "approved" ? "text-green-700" : "text-red-700"
                         }`}>
                           {sub.status === "pending" ? "Pending review — being checked by our team" :
-                           sub.status === "approved" ? (project.payoutMode === "via_leader" ? `Approved! ${formatMoney(project.reward, project.currency)} — your team leader pays you` : `Approved! ${formatMoney(project.reward, project.currency)} credited to your balance`) :
+                           sub.status === "approved" ? (project.payoutMode === "via_leader" ? (project.reward == null ? "Approved! Your team leader pays you." : `Approved! ${formatMoney(project.reward, project.currency)} — your team leader pays you`) : `Approved! ${formatMoney(project.reward ?? 0, project.currency)} credited to your balance`) :
                            "Rejected — you can submit again"}
                         </p>
                         <p className="text-xs text-zinc-400">{subFiles.length} file{subFiles.length === 1 ? "" : "s"} · {formatDate(sub.submittedAt)}</p>
@@ -1046,7 +1049,7 @@ export default function DataProjectDetailPage() {
                   <p className="text-xs text-zinc-500 text-center -mt-1">All your files are submitted together as one submission.</p>
 
                   <p className="text-xs text-zinc-400 text-center">
-                    After submission, your recording will be reviewed. You&apos;ll be paid {formatMoney(project.reward, project.currency)} once approved.
+                    After submission, your recording will be reviewed. {project.reward == null ? "Your team leader pays you once it's approved." : <>You&apos;ll be paid {formatMoney(project.reward, project.currency)} once approved.</>}
                   </p>
                 </form>
               </Card>

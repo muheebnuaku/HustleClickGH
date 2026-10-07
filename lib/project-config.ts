@@ -284,7 +284,23 @@ export function buildProjectSetupData(body: Record<string, unknown>) {
     payoutMode: body.payoutMode === "via_leader" ? "via_leader" : "individual",
     assignedLeaderIds: stringListToDb(body.assignedLeaderIds),
     currency: normalizeCurrency(body.currency),
+    // Only via-leader projects may hide the pay; direct pay lands in their balance anyway.
+    showReward: body.payoutMode === "via_leader" ? body.showReward !== false : true,
   };
+}
+
+/** True when contributors must not see this project's reward (their leader pays them). */
+export function hidesReward(p: { payoutMode?: string | null; showReward?: boolean | null }): boolean {
+  return p.payoutMode === "via_leader" && p.showReward === false;
+}
+
+/**
+ * Fields a contributor's copy of a project must not carry: the client's price and
+ * budget always, and the reward when the admin chose to hide it.
+ */
+export function contributorMoneyView(p: { reward: number; payoutMode?: string | null; showReward?: boolean | null }) {
+  const hidden = hidesReward(p);
+  return { reward: hidden ? null : p.reward, rewardHidden: hidden, orgPrice: undefined, budget: undefined, spent: undefined };
 }
 
 /** Errors in the admin's setup that would make the project impossible to complete. */

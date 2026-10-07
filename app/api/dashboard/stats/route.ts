@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { hidesReward } from "@/lib/project-config";
 
 export async function GET() {
   try {
@@ -71,7 +72,7 @@ export async function GET() {
             id: true,
             submittedAt: true,
             status: true,
-            project: { select: { title: true, reward: true } },
+            project: { select: { title: true, reward: true, payoutMode: true, showReward: true } },
           },
           orderBy: { submittedAt: "desc" },
           take: 5,
@@ -104,7 +105,7 @@ export async function GET() {
         id: d.id,
         type: "data_project" as const,
         title: d.project.title,
-        amount: d.project.reward,
+        amount: hidesReward(d.project) ? 0 : d.project.reward, // hidden team-project pay stays hidden
         status: d.status as "pending" | "approved" | "rejected",
         date: new Date(d.submittedAt).toLocaleDateString(),
       })),

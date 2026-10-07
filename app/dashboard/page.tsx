@@ -36,7 +36,7 @@ interface ActiveDataProject {
   id: string;
   title: string;
   description: string;
-  reward: number;
+  reward: number | null;
   slotsRemaining: number;
   currency?: string;
 }
@@ -82,7 +82,7 @@ export default function DashboardPage() {
       // Active data projects with slots remaining
       const projects: ActiveDataProject[] = (dataProjectsData.projects || [])
         .filter(isProjectAvailableToMe)
-        .map((p: { id: string; title: string; description: string; reward: number; slotsRemaining: number; currency?: string }) => ({
+        .map((p: { id: string; title: string; description: string; reward: number | null; slotsRemaining: number; currency?: string }) => ({
           id: p.id,
           title: p.title,
           description: p.description,
@@ -263,8 +263,11 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="font-semibold text-emerald-600">+{formatMoney(project.reward, project.currency)}</p>
-                      <p className="text-[11px] text-zinc-400">per approval</p>
+                      {project.reward == null ? (
+                        <p className="text-xs font-semibold text-violet-600 dark:text-violet-300">Paid by your leader</p>
+                      ) : (
+                        <><p className="font-semibold text-emerald-600">+{formatMoney(project.reward, project.currency)}</p><p className="text-[11px] text-zinc-400">per approval</p></>
+                      )}
                     </div>
                   </Link>
                 ))}

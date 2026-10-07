@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { checkLocationEligibility, parseCaptureConfig, parseMetadataFields, targetingSummary, parseStringList } from "@/lib/project-config";
+import { checkLocationEligibility, parseCaptureConfig, parseMetadataFields, targetingSummary, parseStringList, contributorMoneyView } from "@/lib/project-config";
 import { teamChain, canTakeAssigned } from "@/lib/field-teams";
 
 // GET: Single project detail + user's submission if any
@@ -77,6 +77,7 @@ export async function GET(
         captureConfig: project.captureMode === "upload" ? null : parseCaptureConfig(project.captureConfig),
         metadataFields: parseMetadataFields(project.metadataFields),
         locationLabel: targetingSummary(project),
+        ...(session.user.role === "admin" ? {} : contributorMoneyView(project)),
         // Internal labels — not for contributors.
         clientName: undefined,
         referenceCode: undefined,

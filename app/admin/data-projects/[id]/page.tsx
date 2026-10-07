@@ -67,6 +67,8 @@ interface Project {
   referenceCode?: string | null;
   reviewOrgName?: string | null;
   currency?: string;
+  showReward?: boolean;
+  payoutMode?: string;
 }
 
 const parseJson = <T,>(raw?: string | null): T | null => {
@@ -364,7 +366,7 @@ export default function AdminProjectSubmissionsPage() {
                   <h1 className="text-xl font-bold text-foreground break-words">{project.title}</h1>
                 </div>
                 <p className="text-sm text-zinc-500">
-                  Reward: <strong className="text-green-600">{formatMoney(project.reward, project.currency)}</strong> per approval &nbsp;·&nbsp;
+                  Reward: <strong className="text-green-600">{formatMoney(project.reward, project.currency)}</strong> per approval{project.payoutMode === "via_leader" && project.showReward === false ? " (hidden from contributors)" : ""} &nbsp;·&nbsp;
                   Slots: <strong>{project.currentSubmissions}/{project.maxSubmissions}</strong>
                   {(project.clientName || project.referenceCode) && <> &nbsp;·&nbsp; {[project.clientName, project.referenceCode].filter(Boolean).join(" · ")}</>}
                 </p>

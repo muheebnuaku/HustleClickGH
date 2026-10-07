@@ -26,6 +26,18 @@ export async function GET() {
     prisma.leaderPayable.findMany({ where: { contributorId: me.id }, orderBy: { createdAt: "desc" }, take: 100 }),
   ]);
 
+  // Projects that hide pay from contributors → no amount in their own list.
+  const hiddenProjects = new Set((await prisma.dataProject.findMany({
+    where: { id: { in: Array.from(new Set(myPayables.map((p) => p.projectId))) }, payoutMode: "via_leader", showReward: false },
+    select: { id: true },
+  })).map((p) => p.id));
+  const myPayablesView = myPayables.map((p) => ({
+    ...p,
+    amount: hiddenProjects.has(p.projectId) ? null : p.amount,
+    feeAmount: undefined, // the leader's fee is between us and the leader
+    feePercent: undefined,
+  }));
+
   let leader = null;
   if (me.leaderRole) {
     const scope = await leaderScope(me.id);
@@ -59,7 +71,7 @@ export async function GET() {
     };
   }
 
-  return NextResponse.json({ me, myLeader, myPayables, leader });
+  return NextResponse.json({ me, myLeader, myPayables: myPayablesView, leader });
 }
 
 // POST /api/team — { action: join | acknowledge | mark_paid | confirm | dispute, ... }
