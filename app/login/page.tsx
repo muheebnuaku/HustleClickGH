@@ -11,7 +11,8 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConsentAgreement } from "@/components/consent-agreement";
-import { GHANA_REGIONS, ID_TYPES } from "@/lib/constants";
+import { ID_TYPES } from "@/lib/constants";
+import { LocationFields, dialPrefix, isBarePrefix } from "@/components/location-fields";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { LogIn, Eye, EyeOff, Sparkles, ArrowLeft, ArrowRight, CheckCircle2, UserPlus, Gift, Wallet, TrendingUp, Users, Home, Mail, PartyPopper, Fingerprint } from "lucide-react";
 
@@ -69,6 +70,7 @@ export default function AuthPage() {
     resolver: zodResolver(registerSchema),
     defaultValues: { country: "Ghana", idType: "ghana_card" },
   });
+  const [regCountry, regRegion, regCity] = registerForm.watch(["country", "region", "city"]);
 
   // Arrived here because middleware bounced a suspended session — clear the
   // stale cookie so they're fully signed out, and explain why.
@@ -549,7 +551,7 @@ export default function AuthPage() {
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-foreground">Phone</label>
                         <Input
-                          placeholder="+233 XX XXX XXXX"
+                          placeholder={`${dialPrefix(regCountry ?? "") || "+233 "}XX XXX XXXX`}
                           className="h-10 rounded-xl"
                           {...registerForm.register("phone")}
                           disabled={isLoading}
@@ -573,39 +575,20 @@ export default function AuthPage() {
                     </div>
 
                     {/* Location (required) */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-foreground">Country</label>
-                        <Input
-                          placeholder="Ghana"
-                          className="h-10 rounded-xl"
-                          {...registerForm.register("country")}
-                          disabled={isLoading}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-foreground">Region</label>
-                        <select
-                          className="flex h-10 w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-transparent px-2 text-sm"
-                          {...registerForm.register("region")}
-                          disabled={isLoading}
-                        >
-                          <option value="">Select…</option>
-                          {GHANA_REGIONS.map((r) => (
-                            <option key={r} value={r}>{r}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-foreground">City</label>
-                        <Input
-                          placeholder="City / Town"
-                          className="h-10 rounded-xl"
-                          {...registerForm.register("city")}
-                          disabled={isLoading}
-                        />
-                      </div>
-                    </div>
+                    <LocationFields
+                      disabled={isLoading}
+                      value={{ country: regCountry ?? "", region: regRegion ?? "", city: regCity ?? "" }}
+                      onChange={(patch) => {
+                        const opts = { shouldValidate: registerForm.formState.isSubmitted, shouldDirty: true };
+                        if (patch.country !== undefined) {
+                          registerForm.setValue("country", patch.country, opts);
+                          // Pre-fill the phone's country code while it's still empty.
+                          if (isBarePrefix(registerForm.getValues("phone") ?? "")) registerForm.setValue("phone", dialPrefix(patch.country));
+                        }
+                        if (patch.region !== undefined) registerForm.setValue("region", patch.region, opts);
+                        if (patch.city !== undefined) registerForm.setValue("city", patch.city, opts);
+                      }}
+                    />
                     {(registerForm.formState.errors.region || registerForm.formState.errors.city || registerForm.formState.errors.country) && (
                       <p className="text-xs text-red-600">Country, region and city are required</p>
                     )}

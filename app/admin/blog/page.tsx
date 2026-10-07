@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
-import { PageHeader, StatCard, Notice } from "@/components/admin/admin-ui";
+import { PageHeader, StatCard, Notice, PageSkeleton } from "@/components/admin/admin-ui";
 import { Newspaper } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -147,9 +147,7 @@ export default function AdminBlogPage() {
   if (status === "loading" || isLoading) {
     return (
       <AdminLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="w-12 h-12 border-t-2 border-b-2 border-green-500 rounded-full animate-spin"></div>
-        </div>
+        <PageSkeleton />
       </AdminLayout>
     );
   }

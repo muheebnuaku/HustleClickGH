@@ -13,6 +13,7 @@ declare module "next-auth" {
       profileCompleted: boolean;
       consentAccepted: boolean;
       status: string; // "active" | "suspended" — re-checked from the DB each request
+      leaderRole?: string | null; // field-team position ("representative" | "supervisor")
     };
   }
 

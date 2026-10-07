@@ -5,23 +5,24 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "@/components/dashboard-layout";
-import { PageHeader, StatCard, Panel, EmptyState, Notice, Segmented } from "@/components/ui/page-kit";
+import { PageHeader, StatCard, Panel, EmptyState, Notice, Segmented, PageSkeleton, SkeletonList } from "@/components/ui/page-kit";
 import { Network, Users, Wallet, CheckCircle2, Copy, Check, Loader2, Send, Clock, Phone, Crown, UserCog } from "lucide-react";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
+import { formatMoney } from "@/lib/currency";
 import { ReceiptUpload } from "@/components/receipt-upload";
 import { ProjectTrackerPanel } from "@/components/admin/project-tracker-panel";
 
 type Money = { amount: number; fee: number; count: number };
 interface Payable {
   id: string; leaderId: string; leaderName: string; contributorId: string; contributorName: string; contributorRef: string; contributorPhone: string;
-  projectTitle: string; amount: number; feeAmount: number; status: "owed" | "sent" | "paid"; paidAt: string | null; createdAt: string;
+  projectTitle: string; currency: string; amount: number; feeAmount: number; status: "owed" | "sent" | "paid"; paidAt: string | null; createdAt: string;
   contributorConfirmedAt: string | null; disputeNote: string | null; paidReceiptUrl: string | null;
 }
-interface Payout { id: string; leaderId: string; total: number; amount: number; feeAmount: number; itemCount: number; method: string; reference: string | null; localCurrency: string | null; localAmount: number | null; status: string; createdAt: string }
+interface Payout { id: string; leaderId: string; kind: string; currency: string; total: number; amount: number; feeAmount: number; itemCount: number; method: string; reference: string | null; localCurrency: string | null; localAmount: number | null; status: string; createdAt: string }
 interface Member { id: string; userId: string; fullName: string; phone: string; city: string | null; status: string; leaderRole: string | null; teamLeaderId: string | null; teamJoinedAt: string | null }
 interface TeamData {
   me: { id: string; leaderRole: string | null; leaderCountry: string | null; leaderFeePercent: number | null; teamCode: string | null };
-  leader: null | { members: Member[]; money: { owed: Money; sent: Money; paid: Money }; payouts: Payout[]; payables: Payable[] };
+  leader: null | { currency: string; members: Member[]; money: Record<string, { owed: Money; sent: Money; paid: Money }>; payouts: Payout[]; payables: Payable[] };
 }
 
 export default function TeamPage() {
@@ -60,18 +61,19 @@ export default function TeamPage() {
   const myId = data?.me.id;
   // Money already sent by HustleClickGH, grouped by the person still to be paid.
   const toPay = useMemo(() => {
-    const m = new Map<string, { name: string; ref: string; phone: string; via: string | null; amount: number; ids: string[]; projects: Set<string> }>();
+    const m = new Map<string, { name: string; ref: string; phone: string; via: string | null; currency: string; amount: number; ids: string[]; projects: Set<string> }>();
     for (const p of L?.payables ?? []) {
       if (p.status !== "sent") continue;
-      const g = m.get(p.contributorId) ?? { name: p.contributorName, ref: p.contributorRef, phone: p.contributorPhone, via: p.leaderId !== myId ? p.leaderName : null, amount: 0, ids: [], projects: new Set<string>() };
+      const key = `${p.contributorId}:${p.currency}`;
+      const g = m.get(key) ?? { name: p.contributorName, ref: p.contributorRef, phone: p.contributorPhone, via: p.leaderId !== myId ? p.leaderName : null, currency: p.currency, amount: 0, ids: [], projects: new Set<string>() };
       g.amount += p.amount; g.ids.push(p.id); g.projects.add(p.projectTitle);
-      m.set(p.contributorId, g);
+      m.set(key, g);
     }
     return Array.from(m.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name));
   }, [L, myId]);
 
   if (!data) {
-    return <DashboardLayout><div className="flex min-h-[400px] items-center justify-center"><Loader2 className="animate-spin text-blue-600" /></div></DashboardLayout>;
+    return <DashboardLayout><PageSkeleton /></DashboardLayout>;
   }
   if (!data.me.leaderRole || !L) {
     return (
@@ -85,7 +87,15 @@ export default function TeamPage() {
   const link = typeof window !== "undefined" ? `${window.location.origin}/join/${data.me.teamCode}` : "";
   const shareText = `Join my HustleClickGH team and get paid for AI data projects: ${link}`;
   const selectedIds = toPay.filter(([id]) => selected.has(id)).flatMap(([, g]) => g.ids);
-  const selectedTotal = toPay.filter(([id]) => selected.has(id)).reduce((s, [, g]) => s + g.amount, 0);
+  const selectedTotals = toPay.filter(([id]) => selected.has(id)).reduce<Record<string, number>>((s, [, g]) => ({ ...s, [g.currency]: (s[g.currency] ?? 0) + g.amount }), {});
+  const selectedTotal = Object.entries(selectedTotals).map(([c, a]) => formatMoney(a, c)).join(" + ");
+  // Totals per currency (a team normally works in one).
+  const sum = (k: "owed" | "sent" | "paid", withFee: boolean) => {
+    const entries = Object.entries(L.money).filter(([, v]) => v[k].count > 0);
+    return entries.length ? entries.map(([c, v]) => formatMoney(v[k].amount + (withFee ? v[k].fee : 0), c)).join(" · ") : formatMoney(0, L.currency);
+  };
+  const count = (k: "owed" | "sent" | "paid") => Object.values(L.money).reduce((n, v) => n + v[k].count, 0);
+  const sentFees = Object.entries(L.money).filter(([, v]) => v.sent.fee > 0).map(([c, v]) => formatMoney(v.sent.fee, c)).join(" · ");
   const pendingPayouts = L.payouts.filter((p) => p.status === "sent" && p.leaderId === data.me.id);
   const supervisors = L.members.filter((m) => m.leaderRole === "supervisor");
   const contributors = L.members.filter((m) => !m.leaderRole);
@@ -120,9 +130,9 @@ export default function TeamPage() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard icon={Users} tone="blue" label="Team" value={contributors.length} hint={isRep ? `${supervisors.length} supervisor${supervisors.length === 1 ? "" : "s"}` : undefined} />
-          <StatCard icon={Clock} tone="slate" label="Incoming" value={formatCurrency(L.money.owed.amount + L.money.owed.fee)} hint={`${L.money.owed.count} approved item${L.money.owed.count === 1 ? "" : "s"}`} />
-          <StatCard icon={Wallet} tone="amber" label="To pay out" value={formatCurrency(L.money.sent.amount)} hint={L.money.sent.fee ? `+ ${formatCurrency(L.money.sent.fee)} your fees` : undefined} />
-          <StatCard icon={CheckCircle2} tone="green" label="Paid out" value={formatCurrency(L.money.paid.amount)} />
+          <StatCard icon={Clock} tone="slate" label="Incoming" value={sum("owed", true)} hint={`${count("owed")} approved item${count("owed") === 1 ? "" : "s"}`} />
+          <StatCard icon={Wallet} tone="amber" label="To pay out" value={sum("sent", false)} hint={sentFees ? `+ ${sentFees} your fees` : undefined} />
+          <StatCard icon={CheckCircle2} tone="green" label="Paid out" value={sum("paid", false)} />
         </div>
 
         {notice && <Notice tone={notice.ok ? "success" : "error"}>{notice.text}</Notice>}
@@ -131,9 +141,9 @@ export default function TeamPage() {
         {pendingPayouts.map((p) => (
           <div key={p.id} className="flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-emerald-900 dark:bg-emerald-500/5">
             <div>
-              <p className="font-semibold text-foreground">HustleClickGH sent you {formatCurrency(p.total)}{p.localAmount ? ` (${p.localAmount.toLocaleString()} ${p.localCurrency})` : ""}</p>
+              <p className="font-semibold text-foreground">HustleClickGH sent you {formatMoney(p.total, p.currency)}{p.kind === "advance" ? " in advance" : ""}{p.localAmount ? ` (${p.localAmount.toLocaleString()} ${p.localCurrency})` : ""}</p>
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                {formatDate(p.createdAt)} · {p.method}{p.reference ? ` · ref ${p.reference}` : ""} · {formatCurrency(p.amount)} for {p.itemCount} item{p.itemCount === 1 ? "" : "s"} + {formatCurrency(p.feeAmount)} fees
+                {formatDate(p.createdAt)} · {p.method}{p.reference ? ` · ref ${p.reference}` : ""} · {p.kind === "advance" ? `covers upcoming approved items` : `${formatMoney(p.amount, p.currency)} for ${p.itemCount} item${p.itemCount === 1 ? "" : "s"} + ${formatMoney(p.feeAmount, p.currency)} fees`}
               </p>
             </div>
             <button disabled={busy === p.id} onClick={() => act(p.id, { action: "acknowledge", payoutId: p.id })}
@@ -147,12 +157,12 @@ export default function TeamPage() {
           { value: "projects", label: "Projects", count: projects?.length ?? 0 },
           { value: "pay", label: "To pay", count: toPay.length },
           { value: "team", label: "Team", count: L.members.length },
-          { value: "history", label: "Paid", count: L.money.paid.count },
+          { value: "history", label: "Paid", count: count("paid") },
         ]} />
 
         {tab === "projects" && (
           projects === null ? (
-            <div className="flex justify-center py-10"><Loader2 className="animate-spin text-blue-600" /></div>
+            <SkeletonList rows={4} className="rounded-none border-0 bg-transparent dark:bg-transparent" />
           ) : projects.length === 0 ? (
             <EmptyState icon={Network} title="No projects yet" description="Projects assigned to your team, or that your team works on, appear here with their progress." />
           ) : (
@@ -161,7 +171,7 @@ export default function TeamPage() {
                 <div key={pr.project.id} className="space-y-2">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <h3 className="font-semibold text-foreground">{pr.project.title}</h3>
-                    <span className="text-xs text-zinc-500">{formatCurrency(pr.project.reward)} per approved item · {pr.project.status}</span>
+                    <span className="text-xs text-zinc-500">{formatMoney(pr.project.reward, pr.project.currency)} per approved item · {pr.project.status}</span>
                   </div>
                   <ProjectTrackerPanel data={pr} compact />
                 </div>
@@ -184,7 +194,7 @@ export default function TeamPage() {
                 <button disabled={!selectedIds.length || busy === "pay"} onClick={() => act("pay", { action: "mark_paid", ids: selectedIds, receiptUrl: proof })}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
                   {busy === "pay" ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-                  {selectedIds.length ? `Mark ${selected.size} paid · ${formatCurrency(selectedTotal)}` : "Mark as paid"}
+                  {selectedIds.length ? `Mark ${selected.size} paid · ${selectedTotal}` : "Mark as paid"}
                 </button>
               </div>
               <div className="border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
@@ -205,7 +215,7 @@ export default function TeamPage() {
                           {g.via && <span className="text-violet-600">· team of {g.via}</span>}
                         </span>
                       </span>
-                      <span className="shrink-0 font-semibold tabular-nums text-foreground">{formatCurrency(g.amount)}</span>
+                      <span className="shrink-0 font-semibold tabular-nums text-foreground">{formatMoney(g.amount, g.currency)}</span>
                     </label>
                   </li>
                 ))}
@@ -250,7 +260,7 @@ export default function TeamPage() {
                       <span className="block truncate text-xs text-zinc-500">{p.projectTitle} · paid {p.paidAt ? formatDate(p.paidAt) : ""}{p.paidReceiptUrl && <> · <a href={p.paidReceiptUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">proof</a></>}</span>
                     </span>
                     <span className="shrink-0 text-right">
-                      <span className="block font-semibold tabular-nums">{formatCurrency(p.amount)}</span>
+                      <span className="block font-semibold tabular-nums">{formatMoney(p.amount, p.currency)}</span>
                       {p.disputeNote ? <span className="text-[11px] font-medium text-red-600">Reported a problem</span>
                         : p.contributorConfirmedAt ? <span className="text-[11px] font-medium text-emerald-600">Confirmed</span>
                         : <span className="text-[11px] text-zinc-400">Awaiting confirmation</span>}

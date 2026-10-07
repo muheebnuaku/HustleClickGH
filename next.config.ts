@@ -2,6 +2,13 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
+  // "My Surveys" (user-created surveys) was retired — old links land on the dashboard.
+  async redirects() {
+    return [
+      { source: "/my-surveys", destination: "/dashboard", permanent: false },
+      { source: "/my-surveys/:path*", destination: "/dashboard", permanent: false },
+    ];
+  },
   turbopack: {
     root: path.resolve(__dirname),
   },

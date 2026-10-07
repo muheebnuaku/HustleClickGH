@@ -4,7 +4,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { logActivity, getIp } from "@/lib/activity-log";
-import { leaderScope, summarize } from "@/lib/field-teams";
+import { leaderScope, summarizeByCurrency } from "@/lib/field-teams";
+import { currencyForCountry } from "@/lib/currency";
 
 const PERSON = { id: true, userId: true, fullName: true, phone: true, leaderRole: true, leaderCountry: true } as const;
 
@@ -16,7 +17,7 @@ export async function GET() {
   if (!session?.user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   const me = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, leaderRole: true, leaderCountry: true, leaderFeePercent: true, teamCode: true, teamLeaderId: true, teamJoinedAt: true },
+    select: { id: true, leaderRole: true, leaderCountry: true, leaderFeePercent: true, leaderCurrency: true, teamCode: true, teamLeaderId: true, teamJoinedAt: true },
   });
   if (!me) return NextResponse.json({ message: "Not found" }, { status: 404 });
 
@@ -45,7 +46,8 @@ export async function GET() {
     );
     leader = {
       members,
-      money: summarize(payables),
+      currency: me.leaderCurrency ?? currencyForCountry(me.leaderCountry),
+      money: summarizeByCurrency(payables),
       payouts,
       payables: payables.map((p) => ({
         ...p,

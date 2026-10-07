@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
+import { formatMoney } from "@/lib/currency";
 import {
   Loader2, Mic, Video, ScanFace, ArrowLeft, Upload, Download,
   CheckCircle2, Clock, XCircle, AlertCircle, FileAudio, FileVideo, File, MapPin, ImagePlus
@@ -20,6 +21,7 @@ import type { CaptureResult } from "@/lib/guided-capture-engine";
 import {
   validateMetadataAnswers, type CaptureConfig, type CaptureMode, type CaptureTrace, type MetadataField,
 } from "@/lib/project-config";
+import { PageSkeleton } from "@/components/ui/page-kit";
 
 interface DataProject {
   id: string;
@@ -59,6 +61,7 @@ interface DataProject {
   locationLabel: string | null;
   requireGeo: boolean;
   payoutMode?: string;
+  currency?: string;
 }
 
 type GeoFix = { lat: number; lng: number; accuracy: number };
@@ -472,9 +475,7 @@ export default function DataProjectDetailPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center py-20 text-zinc-400">
-          <Loader2 size={24} className="animate-spin mr-2" />Loading project...
-        </div>
+        <PageSkeleton stats={0} rows={3} />
       </DashboardLayout>
     );
   }
@@ -533,7 +534,7 @@ export default function DataProjectDetailPage() {
           {/* Quick stats */}
           <div className="grid grid-cols-3 gap-4 mt-5 pt-4 border-t border-zinc-100">
             <div className="text-center">
-              <p className="text-xl font-bold text-green-600">{formatCurrency(project.reward)}</p>
+              <p className="text-xl font-bold text-green-600">{formatMoney(project.reward, project.currency)}</p>
               <p className="text-xs text-zinc-400">reward per approval</p>
             </div>
             <div className="text-center">
@@ -615,7 +616,7 @@ export default function DataProjectDetailPage() {
                           sub.status === "pending" ? "text-yellow-700" : sub.status === "approved" ? "text-green-700" : "text-red-700"
                         }`}>
                           {sub.status === "pending" ? "Pending review — being checked by our team" :
-                           sub.status === "approved" ? `Approved! ${formatCurrency(project.reward)} credited to your balance` :
+                           sub.status === "approved" ? (project.payoutMode === "via_leader" ? `Approved! ${formatMoney(project.reward, project.currency)} — your team leader pays you` : `Approved! ${formatMoney(project.reward, project.currency)} credited to your balance`) :
                            "Rejected — you can submit again"}
                         </p>
                         <p className="text-xs text-zinc-400">{subFiles.length} file{subFiles.length === 1 ? "" : "s"} · {formatDate(sub.submittedAt)}</p>
@@ -1045,7 +1046,7 @@ export default function DataProjectDetailPage() {
                   <p className="text-xs text-zinc-500 text-center -mt-1">All your files are submitted together as one submission.</p>
 
                   <p className="text-xs text-zinc-400 text-center">
-                    After submission, your recording will be reviewed. You&apos;ll be paid {formatCurrency(project.reward)} once approved.
+                    After submission, your recording will be reviewed. You&apos;ll be paid {formatMoney(project.reward, project.currency)} once approved.
                   </p>
                 </form>
               </Card>

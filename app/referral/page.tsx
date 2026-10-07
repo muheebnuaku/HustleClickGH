@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DashboardLayout } from "@/components/dashboard-layout";
-import { PageHeader, StatCard } from "@/components/ui/page-kit";
+import { PageHeader, StatCard, PageSkeleton } from "@/components/ui/page-kit";
 import { UsersRound } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -114,9 +114,7 @@ export default function ReferralPage() {
   if (status === "loading" || isLoading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="w-12 h-12 border-t-2 border-b-2 border-green-500 rounded-full animate-spin"></div>
-        </div>
+        <PageSkeleton stats={3} />
       </DashboardLayout>
     );
   }

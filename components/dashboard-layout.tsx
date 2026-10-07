@@ -5,7 +5,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
-  LogOut, LayoutDashboard, User, Users, Menu, X, ClipboardList, FileEdit, Database, Video, MessageCircle,
+  LogOut, LayoutDashboard, User, Users, Menu, X, ClipboardList, Database, Video, MessageCircle,
   Shield, Wallet, ChevronRight, Network, type LucideIcon,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -28,7 +28,6 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     ],
   },
   { title: "Money", items: [{ href: "/income", label: "Withdraw", icon: Wallet }] },
-  { title: "Create", items: [{ href: "/my-surveys", label: "My Surveys", icon: FileEdit }] },
   {
     title: "Connect",
     items: [
@@ -49,7 +48,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [userName, setUserName] = useState("");
   const [verified, setVerified] = useState(false);
   const [availableProjects, setAvailableProjects] = useState(0);
-  const [leaderRole, setLeaderRole] = useState<string | null>(null);
+  const [profileLeaderRole, setLeaderRole] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
     if (session) {
@@ -86,12 +85,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   const handleLogout = () => signOut({ callbackUrl: "/" });
 
-  // Exact match OR a nested route under it (e.g. /my-surveys/[id], /data-projects/[id]).
+  // Exact match OR a nested route under it (e.g. /data-projects/[id]).
   const isNavItemActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
   const current = [...NAV_GROUPS, { title: "Lead", items: [{ href: "/team", label: "My Team", icon: Network }] }].flatMap((g) => g.items).find((i) => isNavItemActive(i.href));
   const isNested = current ? pathname !== current.href : false;
 
-  // Field-team leaders get a "My Team" section.
+  // Field-team leaders get a "My Team" section. The session carries the position, so
+  // it shows on first paint; /api/profile only refreshes it.
+  const leaderRole = profileLeaderRole !== undefined ? profileLeaderRole : session?.user?.leaderRole ?? null;
   const groups = leaderRole
     ? [...NAV_GROUPS.slice(0, 1), { title: "Lead", items: [{ href: "/team", label: "My Team", icon: Network }] }, ...NAV_GROUPS.slice(1)]
     : NAV_GROUPS;
@@ -123,10 +124,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const sidebar = (onNavigate?: () => void) => (
     <div className="flex h-full flex-col bg-zinc-950 text-zinc-300">
       {/* Brand */}
-      <Link href="/dashboard" onClick={onNavigate} className="flex h-16 shrink-0 items-center gap-3 px-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 font-bold text-white shadow-lg shadow-blue-600/30">H</div>
+      <Link href="/dashboard" onClick={onNavigate} className="flex h-16 shrink-0 items-center px-5">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-white">HustleClickGH</p>
+          <p className="truncate text-[15px] font-semibold tracking-tight text-white">HustleClickGH</p>
           <p className="text-[11px] text-zinc-500">{leaderRole === "representative" ? "Country Representative" : leaderRole === "supervisor" ? "Supervisor" : isManager ? "Manager" : "Contributor"}</p>
         </div>
       </Link>

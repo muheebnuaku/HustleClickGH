@@ -4,7 +4,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { logActivity, getIp } from "@/lib/activity-log";
-import { generateTeamCode, summarize, type LeaderRole } from "@/lib/field-teams";
+import { generateTeamCode, summarizeByCurrency, type LeaderRole } from "@/lib/field-teams";
+import { normalizeCurrency, currencyForCountry } from "@/lib/currency";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -19,17 +20,19 @@ export async function GET() {
 
   const leaders = await prisma.user.findMany({
     where: { leaderRole: { not: null } },
-    select: { ...USER_SELECT, leaderRole: true, leaderCountry: true, leaderFeePercent: true, teamCode: true, teamLeaderId: true },
+    select: { ...USER_SELECT, leaderRole: true, leaderCountry: true, leaderFeePercent: true, leaderCurrency: true, teamCode: true, teamLeaderId: true },
     orderBy: [{ leaderCountry: "asc" }, { fullName: "asc" }],
   });
   const ids = leaders.map((l) => l.id);
   const [memberCounts, payables, payouts, credits] = await Promise.all([
     ids.length ? prisma.user.groupBy({ by: ["teamLeaderId"], where: { teamLeaderId: { in: ids } }, _count: { _all: true } }) : [],
-    ids.length ? prisma.leaderPayable.findMany({ where: { leaderId: { in: ids } }, select: { leaderId: true, amount: true, feeAmount: true, status: true, disputedAt: true } }) : [],
+    ids.length ? prisma.leaderPayable.findMany({ where: { leaderId: { in: ids } }, select: { leaderId: true, amount: true, feeAmount: true, status: true, disputedAt: true, currency: true } }) : [],
     prisma.leaderPayout.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
-    ids.length ? prisma.leaderPayout.groupBy({ by: ["leaderId"], where: { kind: "advance", leaderId: { in: ids } }, _sum: { creditRemaining: true } }) : [],
+    ids.length ? prisma.leaderPayout.groupBy({ by: ["leaderId", "currency"], where: { kind: "advance", leaderId: { in: ids } }, _sum: { creditRemaining: true } }) : [],
   ]);
-  const creditOf = new Map(credits.map((c) => [c.leaderId, c._sum.creditRemaining ?? 0]));
+  const creditOf = (id: string) => Object.fromEntries(
+    credits.filter((c) => c.leaderId === id && (c._sum.creditRemaining ?? 0) > 0.0001).map((c) => [c.currency, Math.round((c._sum.creditRemaining ?? 0) * 100) / 100]),
+  );
   const membersOf = new Map(memberCounts.map((m) => [m.teamLeaderId, m._count._all]));
 
   return NextResponse.json({
@@ -38,9 +41,10 @@ export async function GET() {
       return {
         ...l,
         memberCount: membersOf.get(l.id) ?? 0,
-        money: summarize(mine),
+        currency: l.leaderCurrency ?? currencyForCountry(l.leaderCountry),
+        money: summarizeByCurrency(mine),
         disputes: mine.filter((p) => p.disputedAt).length,
-        advanceCredit: Math.round((creditOf.get(l.id) ?? 0) * 100) / 100,
+        advanceCredit: creditOf(l.id),
       };
     }),
     payouts: payouts.map((p) => ({ ...p, leaderName: leaders.find((l) => l.id === p.leaderId)?.fullName ?? "—" })),
@@ -93,6 +97,7 @@ export async function POST(request: Request) {
           leaderRole: role,
           leaderCountry: country,
           leaderFeePercent: pct,
+          leaderCurrency: body.currency ? normalizeCurrency(body.currency) : currencyForCountry(country),
           teamCode: user.teamCode ?? (await generateTeamCode(country)),
           // A representative reports to HustleClickGH directly.
           teamLeaderId: role === "representative" ? null : parentId ?? (user.teamLeaderId && user.teamLeaderId !== user.id ? user.teamLeaderId : null),
@@ -115,6 +120,7 @@ export async function POST(request: Request) {
         data.leaderFeePercent = pct;
       }
       if (typeof body.country === "string" && body.country.trim()) data.leaderCountry = body.country.trim();
+      if (body.currency) data.leaderCurrency = normalizeCurrency(body.currency);
       if (user.leaderRole === "supervisor" && body.parentId !== undefined) {
         if (body.parentId) {
           const parent = await prisma.user.findUnique({ where: { id: String(body.parentId) }, select: { leaderRole: true } });

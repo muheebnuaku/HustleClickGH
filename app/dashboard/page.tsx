@@ -10,7 +10,7 @@ import { LocationPrompt } from "@/components/location-prompt";
 import { PushManager } from "@/components/push-manager";
 import { Panel } from "@/components/ui/page-kit";
 import { isProjectAvailableToMe } from "@/lib/project-config";
-import { formatCurrency } from "@/lib/utils";
+import { formatMoney } from "@/lib/currency";
 import {
   ClipboardList,
   Users,
@@ -38,6 +38,7 @@ interface ActiveDataProject {
   description: string;
   reward: number;
   slotsRemaining: number;
+  currency?: string;
 }
 
 export default function DashboardPage() {
@@ -54,21 +55,18 @@ export default function DashboardPage() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [myActiveSurveys, setMyActiveSurveys] = useState<{ id: string; title: string; description: string }[]>([]);
   const [activeDataProjects, setActiveDataProjects] = useState<ActiveDataProject[]>([]);
 
   const fetchData = async () => {
     try {
-      const [statsRes, surveysRes, mySurveysRes, dataProjectsRes] = await Promise.all([
+      const [statsRes, surveysRes, dataProjectsRes] = await Promise.all([
         fetch("/api/dashboard/stats"),
         fetch("/api/surveys"),
-        fetch("/api/my-surveys"),
         fetch("/api/data-projects"),
       ]);
 
       const statsData = await statsRes.json();
       const surveysData = await surveysRes.json();
-      const mySurveysData = await mySurveysRes.json();
       const dataProjectsData = await dataProjectsRes.json();
 
       setStats({
@@ -81,20 +79,16 @@ export default function DashboardPage() {
         availableSurveys: surveysData.surveys?.length || 0,
       });
 
-      // Only show user's own active surveys (status: "active")
-      setMyActiveSurveys(Array.isArray(mySurveysData)
-        ? mySurveysData.filter((s) => s.status === "active").slice(0, 3)
-        : []);
-
       // Active data projects with slots remaining
       const projects: ActiveDataProject[] = (dataProjectsData.projects || [])
         .filter(isProjectAvailableToMe)
-        .map((p: { id: string; title: string; description: string; reward: number; slotsRemaining: number }) => ({
+        .map((p: { id: string; title: string; description: string; reward: number; slotsRemaining: number; currency?: string }) => ({
           id: p.id,
           title: p.title,
           description: p.description,
           reward: p.reward,
           slotsRemaining: p.slotsRemaining,
+          currency: p.currency,
         }));
       setActiveDataProjects(projects);
 
@@ -252,7 +246,7 @@ export default function DashboardPage() {
                 <Link href="/data-projects" className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">All projects <ChevronRight size={14} /></Link>
               </div>
             </div>
-            {activeDataProjects.length === 0 && stats.availableSurveys === 0 && myActiveSurveys.length === 0 ? (
+            {activeDataProjects.length === 0 && stats.availableSurveys === 0 ? (
               <div className="py-10 text-center text-sm text-zinc-500">
                 <Database size={28} className="mx-auto mb-2 opacity-30" />
                 No open projects right now — check back soon.
@@ -269,7 +263,7 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="font-semibold text-emerald-600">+{formatCurrency(project.reward)}</p>
+                      <p className="font-semibold text-emerald-600">+{formatMoney(project.reward, project.currency)}</p>
                       <p className="text-[11px] text-zinc-400">per approval</p>
                     </div>
                   </Link>
@@ -286,15 +280,6 @@ export default function DashboardPage() {
                     <ChevronRight size={16} className="shrink-0 text-zinc-400" />
                   </Link>
                 )}
-                {myActiveSurveys.map((survey) => (
-                  <div key={survey.id} className="flex items-center gap-3 p-4">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-500/10"><ClipboardList className="text-blue-600" size={17} /></span>
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-foreground">{survey.title}</p>
-                      <p className="text-xs text-zinc-500">Your survey · collecting responses</p>
-                    </div>
-                  </div>
-                ))}
               </div>
             )}
           </Panel>

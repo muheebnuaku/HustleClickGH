@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
-import { PageHeader } from "@/components/admin/admin-ui";
+import { PageHeader, SkeletonList } from "@/components/admin/admin-ui";
 import { Video as VideoIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -174,9 +174,7 @@ export default function AdminCallRecordingsPage() {
 
         {/* Table */}
         {loading ? (
-          <div className="flex justify-center py-20">
-            <Loader2 size={32} className="animate-spin text-blue-600" />
-          </div>
+          <SkeletonList />
         ) : recordings.length === 0 ? (
           <div className="text-center py-20">
             <VideoOff size={40} className="mx-auto mb-3 text-zinc-300" />

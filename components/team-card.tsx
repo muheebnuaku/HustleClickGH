@@ -5,10 +5,11 @@
 
 import { useEffect, useState } from "react";
 import { Network, Loader2, Phone, CheckCircle2, AlertTriangle, Clock, Crown, UserCog } from "lucide-react";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
+import { formatMoney } from "@/lib/currency";
 
 interface Payable {
-  id: string; projectTitle: string; amount: number; status: "owed" | "sent" | "paid";
+  id: string; projectTitle: string; currency: string; amount: number; status: "owed" | "sent" | "paid";
   paidAt: string | null; createdAt: string; contributorConfirmedAt: string | null; disputeNote: string | null; paidReceiptUrl: string | null;
 }
 interface TeamInfo {
@@ -108,7 +109,7 @@ export function TeamCard({ mode = "team" }: { mode?: "team" | "payments" }) {
                         {p.paidReceiptUrl && <> · <a href={p.paidReceiptUrl} target="_blank" rel="noreferrer" className="font-medium text-blue-600 hover:underline">View proof of payment</a></>}
                       </p>
                     </div>
-                    <p className="shrink-0 font-semibold tabular-nums text-foreground">{formatCurrency(p.amount)}</p>
+                    <p className="shrink-0 font-semibold tabular-nums text-foreground">{formatMoney(p.amount, p.currency)}</p>
                   </div>
                   {p.disputeNote ? (
                     <p className="mt-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300"><AlertTriangle size={11} className="mr-1 inline" />You reported: {p.disputeNote}. Our team is looking into it.</p>

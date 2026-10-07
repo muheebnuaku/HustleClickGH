@@ -2,37 +2,47 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminLayout } from "@/components/admin-layout";
-import { PageHeader, StatCard, Panel, Segmented, EmptyState, Notice } from "@/components/admin/admin-ui";
+import { PageHeader, StatCard, Panel, Segmented, EmptyState, Notice, SkeletonList } from "@/components/admin/admin-ui";
 import { Button } from "@/components/ui/button";
 import {
   Network, Crown, UserCog, Users, Wallet, AlertTriangle, Plus, X, Loader2, Send, Copy, Check, Trash2, Globe2, ChevronRight, UserPlus,
 } from "lucide-react";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
+import { CURRENCIES, formatMoney, currencySymbol, currencyForCountry } from "@/lib/currency";
+import { UserPicker, type PickedUser } from "@/components/admin/user-picker";
+import { COUNTRIES } from "@/lib/countries";
 import { ReceiptUpload } from "@/components/receipt-upload";
 
 type Money = { amount: number; fee: number; count: number };
+type MoneyMap = Record<string, { owed: Money; sent: Money; paid: Money }>;
 interface Leader {
   id: string; userId: string; fullName: string; email: string; phone: string; country: string | null; status: string;
   leaderRole: "representative" | "supervisor"; leaderCountry: string | null; leaderFeePercent: number | null; teamCode: string | null; teamLeaderId: string | null;
-  memberCount: number; disputes: number; advanceCredit: number; money: { owed: Money; sent: Money; paid: Money };
+  memberCount: number; disputes: number; currency: string; advanceCredit: Record<string, number>; money: MoneyMap;
 }
 interface Payout {
-  id: string; leaderId: string; leaderName: string; amount: number; feeAmount: number; total: number; itemCount: number; method: string;
+  id: string; leaderId: string; leaderName: string; kind: string; currency: string; amount: number; feeAmount: number; total: number; itemCount: number; method: string;
   reference: string | null; receiptUrl: string | null; localCurrency: string | null; localAmount: number | null; notes: string | null;
   status: string; createdAt: string; acknowledgedAt: string | null;
 }
 interface Detail {
-  leader: { id: string; fullName: string; userId: string; leaderRole: string; leaderCountry: string | null; leaderFeePercent: number | null; teamCode: string | null; phone: string };
+  leader: { id: string; fullName: string; userId: string; leaderRole: string; leaderCountry: string | null; leaderFeePercent: number | null; leaderCurrency: string | null; teamCode: string | null; phone: string };
+  currency: string;
   members: { id: string; userId: string; fullName: string; phone: string; country: string | null; city: string | null; status: string; leaderRole: string | null; teamJoinedAt: string | null }[];
-  money: { owed: Money; sent: Money; paid: Money };
-  advances: { id: string; projectId: string | null; total: number; creditRemaining: number; itemCount: number; method: string; createdAt: string; receiptUrl: string | null }[];
-  advanceCredit: number;
-  payables: { id: string; leaderId: string; leaderName: string; contributorName: string; contributorRef: string; projectTitle: string; amount: number; feeAmount: number; status: string; createdAt: string; disputeNote: string | null; contributorConfirmedAt: string | null; paidReceiptUrl: string | null }[];
+  money: MoneyMap;
+  advances: { id: string; projectId: string | null; currency: string; total: number; creditRemaining: number; itemCount: number; method: string; createdAt: string; receiptUrl: string | null }[];
+  advanceCredit: Record<string, number>;
+  payables: { id: string; leaderId: string; leaderName: string; contributorName: string; contributorRef: string; projectTitle: string; currency: string; amount: number; feeAmount: number; status: string; createdAt: string; disputeNote: string | null; contributorConfirmedAt: string | null; paidReceiptUrl: string | null }[];
 }
 
 const inputCls = "w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 dark:border-zinc-700 dark:bg-zinc-900";
 const initials = (n: string) => n.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
-const owedTotal = (l: { money: { owed: Money } }) => l.money.owed.amount + l.money.owed.fee;
+// Amounts are kept per currency (MK and GH₵ are never added together).
+type Pairs = Record<string, number>;
+const owedPairs = (m: MoneyMap): Pairs =>
+  Object.fromEntries(Object.entries(m).map(([c, v]) => [c, v.owed.amount + v.owed.fee]).filter(([, a]) => (a as number) > 0.0001));
+const addPairs = (a: Pairs, b: Pairs): Pairs => { const o = { ...a }; for (const [c, v] of Object.entries(b)) o[c] = (o[c] ?? 0) + v; return o; };
+const fmtPairs = (p: Pairs, fallback = "GHS") => (Object.keys(p).length ? Object.entries(p).map(([c, a]) => formatMoney(a, c)).join(" · ") : formatMoney(0, fallback));
 
 function RoleBadge({ role }: { role: string }) {
   return role === "representative" ? (
@@ -57,6 +67,12 @@ export default function FieldTeamsPage() {
       const d = await r.json();
       setLeaders(d.leaders || []);
       setPayouts(d.payouts || []);
+      // Deep link from the Users page: /admin/teams?leader=<id> opens that team.
+      const want = new URLSearchParams(window.location.search).get("leader");
+      if (want && (d.leaders || []).some((l: Leader) => l.id === want)) {
+        setOpenId(want);
+        window.history.replaceState(null, "", window.location.pathname);
+      }
     } finally {
       setLoading(false);
     }
@@ -81,7 +97,7 @@ export default function FieldTeamsPage() {
 
   const reps = leaders.filter((l) => l.leaderRole === "representative");
   const sups = leaders.filter((l) => l.leaderRole === "supervisor");
-  const owedAll = leaders.reduce((s, l) => s + owedTotal(l), 0);
+  const owedAll = leaders.reduce<Pairs>((s, l) => addPairs(s, owedPairs(l.money)), {});
   const disputes = leaders.reduce((s, l) => s + l.disputes, 0);
 
   return (
@@ -98,7 +114,7 @@ export default function FieldTeamsPage() {
           <StatCard icon={Crown} tone="purple" label="Representatives" value={reps.length} hint={(() => { const n = new Set(leaders.map((l) => l.leaderCountry)).size; return `${n} countr${n === 1 ? "y" : "ies"}`; })()} />
           <StatCard icon={UserCog} tone="sky" label="Supervisors" value={sups.length} />
           <StatCard icon={Users} tone="blue" label="Team members" value={leaders.reduce((s, l) => s + l.memberCount, 0)} />
-          <StatCard icon={Wallet} tone="amber" label="Owed (not yet sent)" value={formatCurrency(owedAll)} hint={disputes ? `${disputes} disputed payment${disputes === 1 ? "" : "s"}` : undefined} />
+          <StatCard icon={Wallet} tone="amber" label="Owed (not yet sent)" value={fmtPairs(owedAll)} hint={disputes ? `${disputes} disputed payment${disputes === 1 ? "" : "s"}` : undefined} />
         </div>
 
         {notice && <Notice tone={notice.ok ? "success" : "error"}>{notice.text}</Notice>}
@@ -106,7 +122,7 @@ export default function FieldTeamsPage() {
         <Segmented value={tab} onChange={setTab} options={[{ value: "structure", label: "Structure" }, { value: "payouts", label: "Bulk payments", count: payouts.length }]} />
 
         {loading ? (
-          <div className="flex justify-center py-16"><Loader2 className="animate-spin text-blue-600" /></div>
+          <SkeletonList />
         ) : tab === "structure" ? (
           leaders.length === 0 ? (
             <EmptyState icon={Network} title="No field teams yet" description="Appoint a Country Representative or Supervisor to start building teams in a country." action={<Button size="sm" onClick={() => setAppointOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white"><Plus size={16} />Appoint leader</Button>} />
@@ -115,12 +131,12 @@ export default function FieldTeamsPage() {
               {byCountry.map(([country, list]) => {
                 const countryReps = list.filter((l) => l.leaderRole === "representative");
                 const loose = list.filter((l) => l.leaderRole === "supervisor" && !list.some((r) => r.id === l.teamLeaderId));
-                const total = list.reduce((s, l) => s + owedTotal(l), 0);
+                const total = list.reduce<Pairs>((s, l) => addPairs(s, owedPairs(l.money)), {});
                 return (
                   <Panel key={country} className="overflow-hidden">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
                       <h2 className="flex items-center gap-2 font-semibold text-foreground"><Globe2 size={16} className="text-zinc-400" />{country}</h2>
-                      <span className="text-xs text-zinc-500">{list.length} leader{list.length === 1 ? "" : "s"} · owed <strong className="text-foreground">{formatCurrency(total)}</strong></span>
+                      <span className="text-xs text-zinc-500">{list.length} leader{list.length === 1 ? "" : "s"} · owed <strong className="text-foreground">{fmtPairs(total, list[0]?.currency)}</strong></span>
                     </div>
                     <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
                       {countryReps.map((rep) => (
@@ -152,9 +168,9 @@ export default function FieldTeamsPage() {
                     <tr key={p.id} className="border-t border-zinc-100 dark:border-zinc-800">
                       <td className="px-4 py-3 whitespace-nowrap text-zinc-500">{formatDate(p.createdAt)}</td>
                       <td className="px-4 py-3 font-medium text-foreground">{p.leaderName}<span className="block text-xs font-normal text-zinc-500">{p.itemCount} item{p.itemCount === 1 ? "" : "s"}</span></td>
-                      <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(p.amount)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(p.feeAmount)}</td>
-                      <td className="px-4 py-3 text-right font-semibold tabular-nums">{formatCurrency(p.total)}{p.localAmount && <span className="block text-xs font-normal text-zinc-500">{p.localAmount.toLocaleString()} {p.localCurrency}</span>}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{formatMoney(p.amount, p.currency)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{formatMoney(p.feeAmount, p.currency)}</td>
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums">{formatMoney(p.total, p.currency)}{p.kind === "advance" && <span className="ml-1 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">advance</span>}{p.localAmount && <span className="block text-xs font-normal text-zinc-500">{p.localAmount.toLocaleString()} {p.localCurrency}</span>}</td>
                       <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">{p.method}{p.reference && <span className="block text-xs text-zinc-400">Ref {p.reference}</span>}{p.receiptUrl && <a href={p.receiptUrl} target="_blank" rel="noreferrer" className="block text-xs text-blue-600 hover:underline">Receipt</a>}</td>
                       <td className="px-4 py-3">
                         <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", p.status === "acknowledged" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400" : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400")}>
@@ -197,19 +213,20 @@ export default function FieldTeamsPage() {
 }
 
 function LeaderRow({ l, nested, onOpen }: { l: Leader; nested?: boolean; onOpen: () => void }) {
-  const owed = owedTotal(l);
+  const owed = owedPairs(l.money);
+  const hasOwed = Object.keys(owed).length > 0;
   return (
     <button onClick={onOpen} className={cn("flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-900/60", nested && "pl-10 sm:pl-14")}>
       {nested && <span className="-ml-5 h-6 w-3 shrink-0 rounded-bl-lg border-b-2 border-l-2 border-zinc-200 dark:border-zinc-700" />}
       <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white", l.leaderRole === "representative" ? "bg-gradient-to-br from-violet-500 to-indigo-600" : "bg-gradient-to-br from-sky-500 to-blue-600")}>{initials(l.fullName)}</span>
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-2"><span className="font-medium text-foreground">{l.fullName}</span><RoleBadge role={l.leaderRole} /></span>
-        <span className="block truncate text-xs text-zinc-500">{l.userId} · code {l.teamCode} · fee {l.leaderFeePercent ?? 0}% · {l.memberCount} member{l.memberCount === 1 ? "" : "s"}</span>
+        <span className="block truncate text-xs text-zinc-500">{l.userId} · code {l.teamCode} · {l.currency} · fee {l.leaderFeePercent ?? 0}% · {l.memberCount} member{l.memberCount === 1 ? "" : "s"}</span>
       </span>
       {l.disputes > 0 && <span className="hidden items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 sm:inline-flex dark:bg-red-500/10 dark:text-red-300"><AlertTriangle size={11} />{l.disputes}</span>}
       <span className="shrink-0 text-right">
-        <span className={cn("block text-sm font-semibold tabular-nums", owed > 0 ? "text-amber-600" : "text-zinc-400")}>{formatCurrency(owed)}</span>
-        <span className="block text-[11px] text-zinc-400">owed{l.advanceCredit > 0 ? ` · ${formatCurrency(l.advanceCredit)} advance left` : ""}</span>
+        <span className={cn("block text-sm font-semibold tabular-nums", hasOwed ? "text-amber-600" : "text-zinc-400")}>{fmtPairs(owed, l.currency)}</span>
+        <span className="block text-[11px] text-zinc-400">owed{Object.keys(l.advanceCredit).length ? ` · ${fmtPairs(l.advanceCredit)} advance left` : ""}</span>
       </span>
       <ChevronRight size={16} className="shrink-0 text-zinc-300" />
     </button>
@@ -231,7 +248,8 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
 }
 
 function AppointDialog({ reps, onClose, onSubmit }: { reps: Leader[]; onClose: () => void; onSubmit: (b: Record<string, unknown>) => Promise<{ ok: boolean; message: string }> }) {
-  const [form, setForm] = useState({ user: "", role: "supervisor", country: "", feePercent: "10", parentId: "" });
+  const [form, setForm] = useState({ role: "supervisor", country: "", feePercent: "10", parentId: "", currency: "" });
+  const [person, setPerson] = useState<PickedUser | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const set = (p: Partial<typeof form>) => setForm((f) => ({ ...f, ...p }));
@@ -239,10 +257,19 @@ function AppointDialog({ reps, onClose, onSubmit }: { reps: Leader[]; onClose: (
   return (
     <Modal title="Appoint a field-team leader" onClose={onClose}>
       <div className="space-y-4">
-        <label className="block"><span className="mb-1 block text-sm font-medium">Person</span>
-          <input className={inputCls} value={form.user} onChange={(e) => set({ user: e.target.value })} placeholder="User ID (e.g. USER1234) or email" autoFocus />
-          <span className="mt-1 block text-xs text-zinc-500">They must already have a HustleClickGH account.</span>
-        </label>
+        <div><span className="mb-1 block text-sm font-medium">Person</span>
+          <UserPicker
+            autoFocus
+            value={person}
+            // Their profile country becomes the team's country (editable below).
+            onChange={(u) => { setPerson(u); if (u?.country && !form.country) set({ country: COUNTRIES.find((c) => c.name.toLowerCase() === u.country!.trim().toLowerCase())?.name ?? u.country }); }}
+          />
+          {person?.leaderRole ? (
+            <span className="mt-1 block text-xs text-amber-600">Already a {person.leaderRole === "representative" ? "Country Representative" : "Supervisor"} — appointing changes their position.</span>
+          ) : (
+            <span className="mt-1 block text-xs text-zinc-500">They must already have a HustleClickGH account.</span>
+          )}
+        </div>
         <div>
           <span className="mb-1 block text-sm font-medium">Position</span>
           <div className="grid grid-cols-2 gap-2">
@@ -256,7 +283,17 @@ function AppointDialog({ reps, onClose, onSubmit }: { reps: Leader[]; onClose: (
         </div>
         <div className="grid grid-cols-2 gap-3">
           <label className="block"><span className="mb-1 block text-sm font-medium">Country</span>
-            <input className={inputCls} value={form.country} onChange={(e) => set({ country: e.target.value })} placeholder="e.g. Malawi" />
+            <select className={inputCls} value={form.country} onChange={(e) => set({ country: e.target.value, parentId: "" })}>
+              <option value="">Select…</option>
+              {form.country && !COUNTRIES.some((c) => c.name === form.country) && <option value={form.country}>{form.country}</option>}
+              <optgroup label="Africa">{COUNTRIES.filter((c) => c.africa).map((c) => <option key={c.code} value={c.name}>{c.name}</option>)}</optgroup>
+              <optgroup label="Rest of the world">{COUNTRIES.filter((c) => !c.africa).map((c) => <option key={c.code} value={c.name}>{c.name}</option>)}</optgroup>
+            </select>
+          </label>
+          <label className="block"><span className="mb-1 block text-sm font-medium">Team currency</span>
+            <select className={inputCls} value={form.currency || currencyForCountry(form.country)} onChange={(e) => set({ currency: e.target.value })}>
+              {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.label}</option>)}
+            </select>
           </label>
           <label className="block"><span className="mb-1 block text-sm font-medium">Fee per approved item</span>
             <div className="relative"><input type="number" min="0" max="100" step="0.5" className={cn(inputCls, "pr-8")} value={form.feePercent} onChange={(e) => set({ feePercent: e.target.value })} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">%</span></div>
@@ -277,9 +314,9 @@ function AppointDialog({ reps, onClose, onSubmit }: { reps: Leader[]; onClose: (
         {err && <p className="text-sm text-red-600">{err}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button disabled={busy || !form.user.trim()} className="bg-blue-600 hover:bg-blue-700 text-white" onClick={async () => {
+          <Button disabled={busy || !person} className="bg-blue-600 hover:bg-blue-700 text-white" onClick={async () => {
             setBusy(true); setErr("");
-            const r = await onSubmit(form);
+            const r = await onSubmit({ ...form, user: person!.id, currency: form.currency || currencyForCountry(form.country) });
             if (!r.ok) setErr(r.message || "Couldn't appoint.");
             setBusy(false);
           }}>{busy && <Loader2 size={15} className="animate-spin" />}Appoint</Button>
@@ -297,15 +334,16 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState(false);
-  const [newMember, setNewMember] = useState("");
+  const [newMember, setNewMember] = useState<PickedUser | null>(null);
   const [fee, setFee] = useState("");
   const [parent, setParent] = useState(currentParent ?? "");
+  const [teamCur, setTeamCur] = useState("");
   const [pay, setPay] = useState({ method: "Mobile Money", reference: "", receiptUrl: "", localCurrency: "", localAmount: "", notes: "" });
-  const [payOpen, setPayOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState<string | null>(null); // currency being paid
   // Advance (pay upfront for N items of a project)
   const [advOpen, setAdvOpen] = useState(false);
-  const [adv, setAdv] = useState({ projectId: "", items: "", amount: "", method: "Mobile Money", reference: "", receiptUrl: "", localCurrency: "", localAmount: "", notes: "" });
-  const [projects, setProjects] = useState<{ id: string; title: string; reward: number; status: string }[]>([]);
+  const [adv, setAdv] = useState({ projectId: "", items: "", amount: "", currency: "", method: "Mobile Money", reference: "", receiptUrl: "", localCurrency: "", localAmount: "", notes: "" });
+  const [projects, setProjects] = useState<{ id: string; title: string; reward: number; status: string; currency: string }[]>([]);
   useEffect(() => {
     if (!advOpen || projects.length) return;
     let alive = true;
@@ -338,10 +376,11 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
     return true;
   };
 
-  if (!d) return <Modal title="Leader" onClose={onClose} wide><div className="flex justify-center py-16">{err ? <p className="text-sm text-red-600">{err}</p> : <Loader2 className="animate-spin text-blue-600" />}</div></Modal>;
+  if (!d) return <Modal title="Leader" onClose={onClose} wide><div className="flex justify-center py-16">{err ? <p className="text-sm text-red-600">{err}</p> : <div className="w-full"><SkeletonList rows={4} className="border-0" /></div>}</div></Modal>;
 
   const L = d.leader;
-  const owed = d.money.owed.amount + d.money.owed.fee;
+  const owedByCur = owedPairs(d.money);
+  const currencies = Object.keys(d.money).length ? Object.keys(d.money) : [d.currency];
   const joinLink = typeof window !== "undefined" && L.teamCode ? `${window.location.origin}/join/${L.teamCode}` : "";
   const owedRows = d.payables.filter((p) => p.status === "owed");
 
@@ -365,18 +404,20 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
         </div>
 
         {/* Money */}
-        <div className="grid grid-cols-3 gap-2 text-center">
-          {[["Owed", d.money.owed, "text-amber-600"], ["Sent, not yet paid out", d.money.sent, "text-sky-600"], ["Paid to contributors", d.money.paid, "text-emerald-600"]].map(([label, m, cls]) => {
-            const mm = m as Money;
-            return (
-              <div key={label as string} className="rounded-xl bg-zinc-50 p-3 dark:bg-zinc-900">
-                <p className="text-[11px] text-zinc-500">{label as string}</p>
-                <p className={cn("text-base font-semibold tabular-nums", cls as string)}>{formatCurrency(mm.amount + mm.fee)}</p>
-                <p className="text-[11px] text-zinc-400">{mm.count} item{mm.count === 1 ? "" : "s"}</p>
-              </div>
-            );
-          })}
-        </div>
+        {currencies.map((cur) => {
+          const M = d.money[cur] ?? { owed: { amount: 0, fee: 0, count: 0 }, sent: { amount: 0, fee: 0, count: 0 }, paid: { amount: 0, fee: 0, count: 0 } };
+          return (
+            <div key={cur} className="grid grid-cols-3 gap-2 text-center">
+              {([["Owed", M.owed, "text-amber-600"], ["Sent, not yet paid out", M.sent, "text-sky-600"], ["Paid to contributors", M.paid, "text-emerald-600"]] as const).map(([label, mm, cls]) => (
+                <div key={label} className="rounded-xl bg-zinc-50 p-3 dark:bg-zinc-900">
+                  <p className="text-[11px] text-zinc-500">{label}{currencies.length > 1 ? ` (${cur})` : ""}</p>
+                  <p className={cn("text-base font-semibold tabular-nums", cls)}>{formatMoney(mm.amount + mm.fee, cur)}</p>
+                  <p className="text-[11px] text-zinc-400">{mm.count} item{mm.count === 1 ? "" : "s"}</p>
+                </div>
+              ))}
+            </div>
+          );
+        })}
 
         {/* Bulk payment */}
         <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 dark:border-amber-900 dark:bg-amber-500/5">
@@ -384,10 +425,14 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
             <div>
               <p className="font-semibold text-foreground">Send bulk payment</p>
               <p className="text-xs text-zinc-500">
-                {owed > 0 ? <>Covers {d.money.owed.count} approved item{d.money.owed.count === 1 ? "" : "s"}: {formatCurrency(d.money.owed.amount)} for contributors + {formatCurrency(d.money.owed.fee)} fees{L.leaderRole === "representative" ? " (incl. supervisors under them)" : ""}.</> : "Nothing owed right now."}
+                {Object.keys(owedByCur).length ? Object.keys(owedByCur).map((c) => (
+                  <span key={c} className="block">Covers {d.money[c].owed.count} approved item{d.money[c].owed.count === 1 ? "" : "s"}: {formatMoney(d.money[c].owed.amount, c)} for contributors + {formatMoney(d.money[c].owed.fee, c)} fees{L.leaderRole === "representative" ? " (incl. supervisors under them)" : ""}.</span>
+                )) : "Nothing owed right now."}
               </p>
             </div>
-            {owed > 0 && !payOpen && <Button size="sm" onClick={() => setPayOpen(true)} className="bg-amber-500 hover:bg-amber-600 text-white"><Send size={14} />Pay {formatCurrency(owed)}</Button>}
+            {!payOpen && <div className="flex flex-wrap gap-2">{Object.entries(owedByCur).map(([c, a]) => (
+              <Button key={c} size="sm" onClick={() => setPayOpen(c)} className="bg-amber-500 hover:bg-amber-600 text-white"><Send size={14} />Pay {formatMoney(a, c)}</Button>
+            ))}</div>}
           </div>
           {payOpen && (
             <div className="mt-4 space-y-3">
@@ -398,20 +443,20 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
                   {["Mobile Money", "Crypto", "Bank transfer", "Cash", "Other"].map((m) => <option key={m}>{m}</option>)}
                 </select>
                 <input className={inputCls} value={pay.reference} onChange={(e) => setPay({ ...pay, reference: e.target.value })} placeholder={pay.method === "Crypto" ? "Transaction hash" : "Transaction reference"} />
-                <input className={inputCls} value={pay.localAmount} onChange={(e) => setPay({ ...pay, localAmount: e.target.value })} placeholder="Amount sent in local currency (optional)" type="number" />
-                <input className={inputCls} value={pay.localCurrency} onChange={(e) => setPay({ ...pay, localCurrency: e.target.value })} placeholder={pay.method === "Crypto" ? "Coin, e.g. USDT" : "Currency, e.g. MWK"} />
+                <input className={inputCls} value={pay.localAmount} onChange={(e) => setPay({ ...pay, localAmount: e.target.value })} placeholder="Amount actually sent, if different (optional)" type="number" />
+                <input className={inputCls} value={pay.localCurrency} onChange={(e) => setPay({ ...pay, localCurrency: e.target.value })} placeholder={pay.method === "Crypto" ? "Coin, e.g. USDT" : "Its currency, e.g. USD"} />
               </div>
               <textarea className={inputCls} rows={2} value={pay.notes} onChange={(e) => setPay({ ...pay, notes: e.target.value })} placeholder="Notes (optional)" />
               <div className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => setPayOpen(false)}>Cancel</Button>
+                <Button variant="outline" size="sm" onClick={() => setPayOpen(null)}>Cancel</Button>
                 <Button size="sm" disabled={busy === "pay" || !pay.receiptUrl} title={!pay.receiptUrl ? "Upload the receipt first" : undefined} className="bg-amber-500 hover:bg-amber-600 text-white" onClick={async () => {
                   setBusy("pay"); setErr("");
-                  const r = await fetch(`/api/admin/teams/${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pay) });
+                  const r = await fetch(`/api/admin/teams/${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...pay, currency: payOpen }) });
                   const data = await r.json().catch(() => ({}));
                   setBusy("");
                   if (!r.ok) { setErr(data.message || "Failed"); return; }
-                  setPayOpen(false); onChanged(data.message); load();
-                }}>{busy === "pay" && <Loader2 size={14} className="animate-spin" />}Record payment of {formatCurrency(owed)}</Button>
+                  setPayOpen(null); onChanged(data.message); load();
+                }}>{busy === "pay" && <Loader2 size={14} className="animate-spin" />}Record payment of {payOpen ? formatMoney(owedByCur[payOpen] ?? 0, payOpen) : ""}</Button>
               </div>
             </div>
           )}
@@ -422,7 +467,7 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
                 {owedRows.map((p) => (
                   <li key={p.id} className="flex justify-between gap-2 py-1.5">
                     <span className="min-w-0 truncate">{p.contributorName} <span className="text-zinc-400">· {p.projectTitle}{p.leaderId !== id ? ` · via ${p.leaderName}` : ""}</span></span>
-                    <span className="shrink-0 tabular-nums">{formatCurrency(p.amount)} + {formatCurrency(p.feeAmount)}</span>
+                    <span className="shrink-0 tabular-nums">{formatMoney(p.amount, p.currency)} + {formatMoney(p.feeAmount, p.currency)}</span>
                   </li>
                 ))}
               </ul>
@@ -436,7 +481,7 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
             <div>
               <p className="font-semibold text-foreground">Pay in advance</p>
               <p className="text-xs text-zinc-500">
-                {d.advanceCredit > 0 ? <>{formatCurrency(d.advanceCredit)} advance not used yet — approved items are counted against it automatically.</> : "Pay upfront for a number of items; approvals then use it up so nothing is paid twice."}
+                {Object.keys(d.advanceCredit).length ? <>{fmtPairs(d.advanceCredit)} advance not used yet — approved items are counted against it automatically.</> : "Pay upfront for a number of items; approvals then use it up so nothing is paid twice."}
               </p>
             </div>
             {!advOpen && <Button size="sm" variant="outline" onClick={() => setAdvOpen(true)}>Record advance</Button>}
@@ -446,18 +491,27 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
             const feePct = L.leaderFeePercent ?? 0;
             const suggested = proj && Number(adv.items) > 0 ? Math.round(Number(adv.items) * proj.reward * (1 + feePct / 100) * 100) / 100 : 0;
             const amount = adv.amount || (suggested ? String(suggested) : "");
+            // A project's advance is in that project's currency; otherwise the team's default (changeable).
+            const advCur = proj?.currency ?? (adv.currency || d.currency);
             return (
               <div className="mt-4 space-y-3">
                 <div className="grid grid-cols-3 gap-3">
                   <select className={cn(inputCls, "col-span-3 sm:col-span-2")} value={adv.projectId} onChange={(e) => setAdv({ ...adv, projectId: e.target.value, amount: "" })}>
                     <option value="">Any project</option>
-                    {projects.map((pr) => <option key={pr.id} value={pr.id}>{pr.title} — {formatCurrency(pr.reward)}/item</option>)}
+                    {projects.map((pr) => <option key={pr.id} value={pr.id}>{pr.title} — {formatMoney(pr.reward, pr.currency)}/item</option>)}
                   </select>
                   <input type="number" min="1" className={cn(inputCls, "col-span-3 sm:col-span-1")} value={adv.items} onChange={(e) => setAdv({ ...adv, items: e.target.value, amount: "" })} placeholder="No. of items" />
                 </div>
-                <label className="block"><span className="mb-1 block text-xs font-medium text-zinc-500">Amount (GH₵){suggested ? ` — ${adv.items} × ${formatCurrency(proj!.reward)} + ${feePct}% fee` : ""}</span>
-                  <input type="number" min="0" step="0.01" className={inputCls} value={amount} onChange={(e) => setAdv({ ...adv, amount: e.target.value })} placeholder="0.00" />
-                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  <label className="col-span-2 block"><span className="mb-1 block text-xs font-medium text-zinc-500">Amount ({currencySymbol(advCur)}){suggested ? ` — ${adv.items} × ${formatMoney(proj!.reward, advCur)} + ${feePct}% fee` : ""}</span>
+                    <input type="number" min="0" step="0.01" className={inputCls} value={amount} onChange={(e) => setAdv({ ...adv, amount: e.target.value })} placeholder="0.00" />
+                  </label>
+                  <label className="block"><span className="mb-1 block text-xs font-medium text-zinc-500">Currency</span>
+                    <select className={inputCls} value={advCur} disabled={!!proj} onChange={(e) => setAdv({ ...adv, currency: e.target.value })}>
+                      {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
+                    </select>
+                  </label>
+                </div>
                 <ReceiptUpload value={adv.receiptUrl} onChange={(url) => setAdv((a) => ({ ...a, receiptUrl: url }))} required />
                 <div className="grid grid-cols-2 gap-3">
                   <select className={inputCls} value={adv.method} onChange={(e) => setAdv({ ...adv, method: e.target.value })}>
@@ -471,14 +525,14 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
                   <Button variant="outline" size="sm" onClick={() => setAdvOpen(false)}>Cancel</Button>
                   <Button size="sm" disabled={busy === "adv" || !adv.receiptUrl || !(Number(amount) > 0)} className="bg-sky-600 text-white hover:bg-sky-700" onClick={async () => {
                     setBusy("adv"); setErr("");
-                    const r = await fetch(`/api/admin/teams/${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...adv, amount, kind: "advance" }) });
+                    const r = await fetch(`/api/admin/teams/${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...adv, amount, currency: advCur, kind: "advance" }) });
                     const data = await r.json().catch(() => ({}));
                     setBusy("");
                     if (!r.ok) { setErr(data.message || "Failed"); return; }
                     setAdvOpen(false);
-                    setAdv({ projectId: "", items: "", amount: "", method: "Mobile Money", reference: "", receiptUrl: "", localCurrency: "", localAmount: "", notes: "" });
+                    setAdv({ projectId: "", items: "", amount: "", currency: "", method: "Mobile Money", reference: "", receiptUrl: "", localCurrency: "", localAmount: "", notes: "" });
                     onChanged(data.message); load();
-                  }}>{busy === "adv" && <Loader2 size={14} className="animate-spin" />}Record advance{Number(amount) > 0 ? ` of ${formatCurrency(Number(amount))}` : ""}</Button>
+                  }}>{busy === "adv" && <Loader2 size={14} className="animate-spin" />}Record advance{Number(amount) > 0 ? ` of ${formatMoney(Number(amount), advCur)}` : ""}</Button>
                 </div>
               </div>
             );
@@ -488,7 +542,7 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
               {d.advances.map((a) => (
                 <li key={a.id} className="flex justify-between gap-2">
                   <span>{formatDate(a.createdAt)} · {a.method}{a.itemCount ? ` · ${a.itemCount} items` : ""}{a.receiptUrl && <> · <a href={a.receiptUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">receipt</a></>}</span>
-                  <span className="tabular-nums">{formatCurrency(a.total)} · <strong>{formatCurrency(a.creditRemaining)} left</strong></span>
+                  <span className="tabular-nums">{formatMoney(a.total, a.currency)} · <strong>{formatMoney(a.creditRemaining, a.currency)} left</strong></span>
                 </li>
               ))}
             </ul>
@@ -501,7 +555,7 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
             <p className="mb-2 flex items-center gap-1.5 font-semibold text-red-700 dark:text-red-300"><AlertTriangle size={15} />Reported by contributors</p>
             <ul className="space-y-1.5 text-xs">
               {d.payables.filter((p) => p.disputeNote).map((p) => (
-                <li key={p.id}><strong>{p.contributorName}</strong> ({p.projectTitle}, {formatCurrency(p.amount)}): {p.disputeNote}{p.paidReceiptUrl ? <> · <a href={p.paidReceiptUrl} target="_blank" rel="noreferrer" className="font-medium underline">leader&apos;s proof</a></> : " · no proof uploaded by leader"}</li>
+                <li key={p.id}><strong>{p.contributorName}</strong> ({p.projectTitle}, {formatMoney(p.amount, p.currency)}): {p.disputeNote}{p.paidReceiptUrl ? <> · <a href={p.paidReceiptUrl} target="_blank" rel="noreferrer" className="font-medium underline">leader&apos;s proof</a></> : " · no proof uploaded by leader"}</li>
               ))}
             </ul>
           </div>
@@ -515,6 +569,15 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
               {Number(fee) !== (L.leaderFeePercent ?? 0) && <Button size="sm" disabled={busy === "fee"} onClick={() => run("fee", { action: "update", userId: id, feePercent: fee })} className="bg-blue-600 text-white hover:bg-blue-700">Save</Button>}
             </div>
             <span className="mt-1 block text-[11px] text-zinc-400">Applies to items approved from now on.</span>
+          </label>
+          <label className="block"><span className="mb-1 block text-xs font-medium text-zinc-500">Team currency</span>
+            <div className="flex gap-2">
+              <select className={inputCls} value={teamCur || d.currency} onChange={(e) => setTeamCur(e.target.value)}>
+                {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.label}</option>)}
+              </select>
+              {teamCur && teamCur !== d.currency && <Button size="sm" disabled={busy === "cur"} onClick={() => run("cur", { action: "update", userId: id, currency: teamCur }, () => setTeamCur(""))} className="bg-blue-600 text-white hover:bg-blue-700">Save</Button>}
+            </div>
+            <span className="mt-1 block text-[11px] text-zinc-400">Default for new projects assigned to this team.</span>
           </label>
           {L.leaderRole === "supervisor" && (
             <label className="block"><span className="mb-1 block text-xs font-medium text-zinc-500">Reports to</span>
@@ -535,8 +598,8 @@ function LeaderDrawer({ id, reps, currentParent, post, onClose, onChanged }: {
             <p className="font-semibold text-foreground">Team ({d.members.length})</p>
           </div>
           <div className="mb-3 flex gap-2">
-            <input className={inputCls} value={newMember} onChange={(e) => setNewMember(e.target.value)} placeholder="Add by User ID or email" />
-            <Button size="sm" disabled={!newMember.trim() || busy === "add"} onClick={() => run("add", { action: "assign", user: newMember, leaderId: id }, () => setNewMember(""))} className="bg-blue-600 text-white hover:bg-blue-700"><UserPlus size={14} />Add</Button>
+            <div className="min-w-0 flex-1"><UserPicker value={newMember} onChange={setNewMember} placeholder="Add someone — User ID, name or phone" /></div>
+            <Button size="sm" disabled={!newMember || busy === "add"} onClick={() => newMember && run("add", { action: "assign", user: newMember.id, leaderId: id }, () => setNewMember(null))} className="bg-blue-600 text-white hover:bg-blue-700"><UserPlus size={14} />Add</Button>
           </div>
           {d.members.length === 0 ? (
             <p className="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">No members yet — share the invite link.</p>

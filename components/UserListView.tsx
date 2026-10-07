@@ -6,7 +6,8 @@ import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { VerifiedBadge } from "@/components/verified-badge";
-import { Loader2, ArrowLeft, UserPlus, UserCheck } from "lucide-react";
+import { ArrowLeft, UserPlus, UserCheck } from "lucide-react";
+import { SkeletonList } from "@/components/ui/page-kit";
 
 interface UserRow {
   id: string; userId: string; fullName: string; image?: string | null; verified?: boolean;
@@ -49,7 +50,7 @@ export function UserListView({ title, endpoint, backHref, emptyText = "No people
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-16"><Loader2 className="animate-spin text-blue-600" /></div>
+          <SkeletonList />
         ) : users.length === 0 ? (
           <Card className="p-10 text-center text-zinc-500">{emptyText}</Card>
         ) : (

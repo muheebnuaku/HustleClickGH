@@ -12,6 +12,7 @@ import {
   Star,
   Loader2,
 } from "lucide-react";
+import { SkeletonList, Skeleton } from "@/components/ui/page-kit";
 
 interface Question {
   id: string;
@@ -123,7 +124,7 @@ export default function PublicSurveyPage({
   if (loading) {
     return (
       <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
+        <div className="w-full max-w-2xl space-y-4 p-4"><Skeleton className="h-8 w-2/3" /><Skeleton className="h-4 w-full" /><SkeletonList rows={4} /></div>
       </div>
     );
   }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { AdminLayout } from "@/components/admin-layout";
-import { PageHeader } from "@/components/admin/admin-ui";
+import { PageHeader, SkeletonList } from "@/components/admin/admin-ui";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Building2, Search, Mail, Phone, ChevronLeft, ChevronRight } from "lucide-react";
@@ -122,9 +122,7 @@ export default function AdminPartnersPage() {
 
         {/* List */}
         {isLoading ? (
-          <div className="flex items-center justify-center min-h-[300px]">
-            <div className="w-10 h-10 border-t-2 border-b-2 border-green-500 rounded-full animate-spin" />
-          </div>
+          <SkeletonList />
         ) : inquiries.length === 0 ? (
           <Card>
             <CardContent className="p-12 text-center text-zinc-500">No inquiries found.</CardContent>

@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Sparkles, Eye, EyeOff, CheckCircle2, XCircle, Loader2, ArrowLeft, Home } from "lucide-react";
+import { Sparkles, Eye, EyeOff, CheckCircle2, XCircle, ArrowLeft, Home } from "lucide-react";
+import { Skeleton } from "@/components/ui/page-kit";
 
 function ResetInner() {
   const token = useSearchParams().get("token") || "";
@@ -62,10 +63,7 @@ function ResetInner() {
         </div>
 
         {checking ? (
-          <div className="flex flex-col items-center py-10 gap-3">
-            <Loader2 className="animate-spin text-blue-600" />
-            <p className="text-sm text-zinc-500">Checking your link…</p>
-          </div>
+          <div className="space-y-3 py-6"><Skeleton className="h-4 w-3/4" /><Skeleton className="h-11 w-full rounded-xl" /><Skeleton className="h-11 w-full rounded-xl" /></div>
         ) : done ? (
           <div className="text-center space-y-4 py-4">
             <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto">
@@ -147,7 +145,7 @@ function ResetInner() {
 export default function ResetPasswordPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-zinc-100 dark:bg-zinc-950 p-4 overflow-x-hidden">
-      <Suspense fallback={<Loader2 className="animate-spin text-blue-600" />}>
+      <Suspense fallback={<Skeleton className="h-80 w-full max-w-md rounded-2xl" />}>
         <ResetInner />
       </Suspense>
       <Link

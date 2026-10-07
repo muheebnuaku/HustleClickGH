@@ -4,7 +4,8 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
-import { PageHeader, StatCard, Panel, Segmented, EmptyState } from "@/components/admin/admin-ui";
+import { PageHeader, StatCard, Panel, Segmented, EmptyState, PageSkeleton } from "@/components/admin/admin-ui";
+import { UserDrawer } from "@/components/admin/user-drawer";
 import { Button } from "@/components/ui/button";
 import {
   Download, Mail, Phone, Search, Wallet, TrendingUp, Users, Lock, Unlock, MapPin, BadgeCheck,
@@ -41,6 +42,9 @@ interface UserData {
   suspectedDuplicateOfUserId?: string | null;
   referredById?: string | null;
   commissionEarned?: number;
+  leaderRole?: string | null;
+  leaderCountry?: string | null;
+  teamLeaderId?: string | null;
 }
 
 interface UserStats {
@@ -85,6 +89,8 @@ export default function AdminUsersPage() {
   const [notice, setNotice] = useState<string | null>(null);
   // Manager position changes (confirm dialog)
   const [roleChange, setRoleChange] = useState<RoleChange | null>(null);
+  // The person open in the side panel
+  const [openUserId, setOpenUserId] = useState<string | null>(null);
   const [changingRole, setChangingRole] = useState(false);
   const [roleError, setRoleError] = useState("");
   // Admin → user direct message composer
@@ -202,7 +208,7 @@ export default function AdminUsersPage() {
       setNotice(roleChange.action === "make_manager"
         ? `${roleChange.user.fullName} is now a manager.`
         : `${roleChange.user.fullName}'s manager position was revoked.`);
-      if (roleChange.action === "make_manager") setTab("managers");
+      if (roleChange.action === "make_manager" && !openUserId) setTab("managers");
       setRoleChange(null);
       await fetchUsers();
     } catch {
@@ -339,9 +345,7 @@ export default function AdminUsersPage() {
   if (status === "loading" || isLoading) {
     return (
       <AdminLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <Loader2 size={28} className="animate-spin text-blue-600" />
-        </div>
+        <PageSkeleton stats={8} rows={8} />
       </AdminLayout>
     );
   }
@@ -475,7 +479,7 @@ export default function AdminUsersPage() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="flex items-center gap-1.5 font-semibold text-foreground">
-                            <span className="truncate">{m.fullName}</span>
+                            <button onClick={() => setOpenUserId(m.id)} className="truncate hover:underline">{m.fullName}</button>
                             {m.verified && <VerifiedBadge size={15} />}
                           </p>
                           <p className="truncate text-xs text-zinc-500">{m.userId} · {m.phone}</p>
@@ -545,6 +549,7 @@ export default function AdminUsersPage() {
                           View team<ChevronRight size={13} />
                         </button>
                         <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                          <button onClick={() => setOpenUserId(m.id)} className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800">Open</button>
                           <MessageButton onClick={() => openMessage(m)} />
                           <VerifyButton user={m} busy={verifyingId === m.id} onClick={() => handleVerifyUser(m.id, m.verified)} />
                           <SuspendButton user={m} busy={suspendingId === m.id} onClick={() => handleSuspendUser(m.id, m.status)} />
@@ -593,12 +598,12 @@ export default function AdminUsersPage() {
                     {filteredUsers.map((user) => {
                       const mgr = managerOf(user);
                       return (
-                        <tr key={user.id} className="border-t border-zinc-100 dark:border-zinc-800/60 hover:bg-zinc-50/70 dark:hover:bg-zinc-900/50">
+                        <tr key={user.id} onClick={() => setOpenUserId(user.id)} className="cursor-pointer border-t border-zinc-100 dark:border-zinc-800/60 hover:bg-zinc-50/70 dark:hover:bg-zinc-900/50">
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-3">
                               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 text-xs font-semibold text-zinc-600 dark:text-zinc-300">{initials(user.fullName)}</div>
                               <div className="min-w-0">
-                                <p className="font-medium text-foreground flex items-center gap-1.5 break-words">{user.fullName}{user.verified && <VerifiedBadge size={14} />}</p>
+                                <p className="font-medium text-foreground flex flex-wrap items-center gap-1.5 break-words">{user.fullName}{user.verified && <VerifiedBadge size={14} />}<LeaderBadge user={user} /></p>
                                 <p className="text-xs text-zinc-500">{user.userId} · joined {formatDate(user.createdAt)}</p>
                               </div>
                             </div>
@@ -613,7 +618,7 @@ export default function AdminUsersPage() {
                           <td className="py-3 px-4 text-sm text-zinc-600 dark:text-zinc-400">{locationLabel(user)}</td>
                           <td className="py-3 px-4">
                             {mgr ? (
-                              <button onClick={() => setFilterManager(mgr.id)} className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 hover:bg-violet-100 dark:bg-violet-500/10 dark:text-violet-300" title="Show this manager's team">
+                              <button onClick={(e) => { e.stopPropagation(); setFilterManager(mgr.id); }} className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 hover:bg-violet-100 dark:bg-violet-500/10 dark:text-violet-300" title="Show this manager's team">
                                 <Crown size={11} />{mgr.fullName}
                               </button>
                             ) : <span className="text-xs text-zinc-400">—</span>}
@@ -622,11 +627,9 @@ export default function AdminUsersPage() {
                           <td className="py-3 px-4 text-right font-medium text-emerald-600 tabular-nums">{formatCurrency(user.balance)}</td>
                           <td className="py-3 px-4 text-right text-foreground tabular-nums">{formatCurrency(user.totalEarned)}</td>
                           <td className="py-3 px-4">
-                            <div className="flex items-center justify-end gap-1.5">
+                            <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                               <MessageButton onClick={() => openMessage(user)} />
-                              <VerifyButton user={user} busy={verifyingId === user.id} onClick={() => handleVerifyUser(user.id, user.verified)} />
-                              <SuspendButton user={user} busy={suspendingId === user.id} onClick={() => handleSuspendUser(user.id, user.status)} />
-                              <MakeManagerButton onClick={() => { setRoleError(""); setRoleChange({ user, action: "make_manager" }); }} />
+                              <button onClick={() => setOpenUserId(user.id)} title="Open" className={cn(iconBtn, "border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800")}><ChevronRight size={15} /></button>
                             </div>
                           </td>
                         </tr>
@@ -641,12 +644,12 @@ export default function AdminUsersPage() {
                 {filteredUsers.map((user) => {
                   const mgr = managerOf(user);
                   return (
-                    <div key={user.id} className="p-4">
+                    <div key={user.id} onClick={() => setOpenUserId(user.id)} className="cursor-pointer p-4 active:bg-zinc-50 dark:active:bg-zinc-900">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-3">
                           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 text-xs font-semibold text-zinc-600 dark:text-zinc-300">{initials(user.fullName)}</div>
                           <div className="min-w-0">
-                            <p className="font-medium text-foreground truncate flex items-center gap-1.5">{user.fullName}{user.verified && <VerifiedBadge size={14} />}</p>
+                            <p className="font-medium text-foreground truncate flex items-center gap-1.5">{user.fullName}{user.verified && <VerifiedBadge size={14} />}<LeaderBadge user={user} /></p>
                             <p className="text-xs text-zinc-500">{user.userId}</p>
                           </div>
                         </div>
@@ -668,11 +671,9 @@ export default function AdminUsersPage() {
                           </div>
                         ))}
                       </div>
-                      <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5">
+                      <div className="mt-3 flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+                        <button onClick={() => setOpenUserId(user.id)} className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600">Open<ChevronRight size={13} /></button>
                         <MessageButton onClick={() => openMessage(user)} />
-                        <VerifyButton user={user} busy={verifyingId === user.id} onClick={() => handleVerifyUser(user.id, user.verified)} />
-                        <SuspendButton user={user} busy={suspendingId === user.id} onClick={() => handleSuspendUser(user.id, user.status)} />
-                        <MakeManagerButton onClick={() => { setRoleError(""); setRoleChange({ user, action: "make_manager" }); }} />
                       </div>
                     </div>
                   );
@@ -682,6 +683,26 @@ export default function AdminUsersPage() {
           )
         )}
       </div>
+
+      {/* One person, every action */}
+      {openUserId && byId.get(openUserId) && (() => {
+        const u = byId.get(openUserId)!;
+        return (
+          <UserDrawer
+            user={u}
+            byId={byId}
+            teamSize={teamOf.get(u.id)?.length ?? 0}
+            busy={{ verify: verifyingId === u.id, suspend: suspendingId === u.id }}
+            onClose={() => setOpenUserId(null)}
+            onMessage={() => openMessage(u)}
+            onVerify={() => handleVerifyUser(u.id, u.verified)}
+            onSuspend={() => handleSuspendUser(u.id, u.status)}
+            onManager={(action) => { setRoleError(""); setRoleChange({ user: u, action }); }}
+            onShowTeam={(id) => { setOpenUserId(null); viewTeam(byId.get(id)!); }}
+            onChanged={(msg) => { setNotice(msg); fetchUsers(); }}
+          />
+        );
+      })()}
 
       {/* Manager position confirm dialog */}
       {roleChange && (
@@ -797,11 +818,12 @@ function MessageButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-function MakeManagerButton({ onClick }: { onClick: () => void }) {
+function LeaderBadge({ user }: { user: UserData }) {
+  if (!user.leaderRole) return null;
   return (
-    <button onClick={onClick} title="Make manager" className={cn(iconBtn, "border-zinc-200 text-violet-600 hover:bg-violet-50 dark:border-zinc-700 dark:hover:bg-violet-900/20")}>
-      <Crown size={15} />
-    </button>
+    <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
+      {user.leaderRole === "representative" ? "Country Rep" : "Supervisor"}{user.leaderCountry ? ` · ${user.leaderCountry}` : ""}
+    </span>
   );
 }
 

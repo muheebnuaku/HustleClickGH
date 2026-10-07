@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Suspense } from "react";
 import { AdminLayout } from "@/components/admin-layout";
-import { PageHeader, Notice } from "@/components/admin/admin-ui";
+import { PageHeader, Notice, PageSkeleton, SkeletonList } from "@/components/admin/admin-ui";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -110,7 +110,7 @@ function OrganizationsContent() {
         )}
 
         {loading ? (
-          <div className="flex justify-center py-16"><Loader2 className="animate-spin text-emerald-600" /></div>
+          <SkeletonList />
         ) : orgs.length === 0 ? (
           <Card><CardContent className="p-10 text-center text-zinc-500">No organizations yet.</CardContent></Card>
         ) : (
@@ -148,7 +148,7 @@ function OrganizationsContent() {
 
 export default function AdminOrganizationsPage() {
   return (
-    <Suspense fallback={<AdminLayout><div className="flex justify-center py-20"><Loader2 className="animate-spin text-emerald-600" /></div></AdminLayout>}>
+    <Suspense fallback={<AdminLayout><PageSkeleton /></AdminLayout>}>
       <OrganizationsContent />
     </Suspense>
   );

@@ -13,6 +13,7 @@ import { pingNewMessage } from "@/lib/message-realtime";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Loader2, Send, Search, ArrowLeft, MessageCircle, PenSquare, Check, CheckCheck } from "lucide-react";
+import { PageSkeleton, SkeletonList } from "@/components/ui/page-kit";
 
 interface UserCard {
   id: string; userId: string; fullName: string; image?: string | null; verified?: boolean; online?: boolean;
@@ -210,7 +211,7 @@ function MessagesContent() {
           </div>
           <div className="flex-1 overflow-y-auto">
             {loadingList ? (
-              <div className="flex justify-center py-10"><Loader2 className="animate-spin text-blue-600" /></div>
+              <SkeletonList rows={4} className="rounded-none border-0 bg-transparent dark:bg-transparent" />
             ) : conversations.length === 0 ? (
               <div className="p-8 text-center text-zinc-500 text-sm">
                 <MessageCircle className="mx-auto mb-2 opacity-40" size={32} />
@@ -274,7 +275,7 @@ function MessagesContent() {
 
               <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-2 bg-zinc-50 dark:bg-zinc-900/40">
                 {loadingThread && messages.length === 0 ? (
-                  <div className="flex justify-center py-10"><Loader2 className="animate-spin text-blue-600" /></div>
+                  <SkeletonList rows={4} className="rounded-none border-0 bg-transparent dark:bg-transparent" />
                 ) : messages.map((m) => {
                   const mine = m.senderId === myId;
                   return (
@@ -352,7 +353,7 @@ function NewMessageModal({ onClose, onPick }: { onClose: () => void; onPick: (us
         </div>
         <div className="max-h-80 overflow-y-auto">
           {loading ? (
-            <div className="flex justify-center py-8"><Loader2 className="animate-spin text-blue-600" /></div>
+            <SkeletonList rows={4} className="rounded-none border-0 bg-transparent dark:bg-transparent" />
           ) : results.length === 0 ? (
             <p className="p-6 text-center text-sm text-zinc-500">{q ? "No people found" : "Type to search"}</p>
           ) : results.map((u) => (
@@ -372,7 +373,7 @@ function NewMessageModal({ onClose, onPick }: { onClose: () => void; onPick: (us
 
 export default function MessagesPage() {
   return (
-    <Suspense fallback={<DashboardLayout><div className="flex justify-center py-20"><Loader2 className="animate-spin text-blue-600" /></div></DashboardLayout>}>
+    <Suspense fallback={<DashboardLayout><PageSkeleton /></DashboardLayout>}>
       <MessagesContent />
     </Suspense>
   );

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/dashboard-layout";
-import { PageHeader, Panel, Segmented, EmptyState } from "@/components/ui/page-kit";
+import { PageHeader, Panel, Segmented, EmptyState, PageSkeleton } from "@/components/ui/page-kit";
 import {
   WalletCards, CheckCircle2, Clock, XCircle, Loader2, ArrowUpRight, Receipt, Smartphone, ShieldCheck, Sparkles, Check,
 } from "lucide-react";
@@ -141,9 +141,7 @@ export default function IncomePage() {
   if (status === "loading" || isFetching) {
     return (
       <DashboardLayout>
-        <div className="flex min-h-[400px] items-center justify-center">
-          <Loader2 size={28} className="animate-spin text-emerald-600" />
-        </div>
+        <PageSkeleton stats={3} />
       </DashboardLayout>
     );
   }

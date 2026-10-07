@@ -1,3 +1,4 @@
+import { normalizeCurrency, BASE_CURRENCY } from "@/lib/currency";
 // Shared (server + client) shapes for a DataProject's collection setup:
 //   - captureMode / captureConfig — how contributors record (upload a file, record
 //     in-site, or the guided "connect the dots with your nose" task)
@@ -282,6 +283,7 @@ export function buildProjectSetupData(body: Record<string, unknown>) {
     reviewOrgId: str(body.reviewOrgId, 60),
     payoutMode: body.payoutMode === "via_leader" ? "via_leader" : "individual",
     assignedLeaderIds: stringListToDb(body.assignedLeaderIds),
+    currency: normalizeCurrency(body.currency),
   };
 }
 
@@ -289,6 +291,9 @@ export function buildProjectSetupData(body: Record<string, unknown>) {
 export function validateProjectSetup(data: ReturnType<typeof buildProjectSetupData>, projectType: string): string | null {
   if (data.captureMode !== "upload" && projectType === "voice") {
     return "In-app camera capture is for video or face projects. Use a Video or Face project type.";
+  }
+  if (data.currency !== BASE_CURRENCY && data.payoutMode !== "via_leader") {
+    return "Projects in a currency other than GH₵ must be paid through team leaders (contributors' own balances are in GH₵).";
   }
   if (data.captureMode === "nose_dots") {
     const dots = parseCaptureConfig(data.captureConfig).dots;

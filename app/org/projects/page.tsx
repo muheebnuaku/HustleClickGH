@@ -11,6 +11,7 @@ import { formatUsd } from "@/lib/utils";
 import { orgStatusLabel, orgStatusClass } from "@/lib/org-status";
 import { LICENSES, DEFAULT_LICENSE } from "@/lib/licenses";
 import { Loader2, Plus, X, Mic, Video, ArrowRight } from "lucide-react";
+import { SkeletonList } from "@/components/ui/page-kit";
 
 interface P { id: string; title: string; projectType: string; status: string; reward: number; maxSubmissions: number; currentSubmissions: number; budget: number; spent: number; counts: { pending: number; approved: number; rejected: number }; access?: "owner" | "review"; }
 
@@ -98,7 +99,7 @@ export default function OrgProjects() {
         )}
 
         {loading ? (
-          <div className="flex justify-center py-16"><Loader2 className="animate-spin text-emerald-600" /></div>
+          <SkeletonList />
         ) : projects.length === 0 ? (
           <Card><CardContent className="p-10 text-center text-zinc-500">No projects yet.</CardContent></Card>
         ) : (

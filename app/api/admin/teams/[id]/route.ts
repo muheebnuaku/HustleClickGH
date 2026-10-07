@@ -4,7 +4,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { logActivity, getIp } from "@/lib/activity-log";
-import { leaderScope, round2, summarize } from "@/lib/field-teams";
+import { leaderScope, round2, summarizeByCurrency } from "@/lib/field-teams";
+import { formatMoney, normalizeCurrency, currencyForCountry } from "@/lib/currency";
 
 // GET /api/admin/teams/[id] — a leader's members and the payments a bulk payout
 // to them would cover (their own team + supervisors under them, for a rep).
@@ -14,7 +15,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const leader = await prisma.user.findUnique({
     where: { id },
-    select: { id: true, fullName: true, userId: true, leaderRole: true, leaderCountry: true, leaderFeePercent: true, teamCode: true, phone: true },
+    select: { id: true, fullName: true, userId: true, leaderRole: true, leaderCountry: true, leaderFeePercent: true, leaderCurrency: true, teamCode: true, phone: true },
   });
   if (!leader?.leaderRole) return NextResponse.json({ message: "Leader not found" }, { status: 404 });
 
@@ -36,9 +37,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   return NextResponse.json({
     leader,
     members,
-    money: summarize(payables),
+    currency: leader.leaderCurrency ?? currencyForCountry(leader.leaderCountry),
+    money: summarizeByCurrency(payables),
     advances,
-    advanceCredit: round2(advances.reduce((s, a) => s + a.creditRemaining, 0)),
+    advanceCredit: advances.reduce<Record<string, number>>((m, a) => {
+      if (a.creditRemaining > 0.0001) m[a.currency] = round2((m[a.currency] ?? 0) + a.creditRemaining);
+      return m;
+    }, {}),
     payables: payables.map((p) => ({
       ...p,
       contributorName: names.get(p.contributorId)?.fullName ?? "—",
@@ -54,10 +59,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== "admin") return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
   const { id } = await params;
-  const leader = await prisma.user.findUnique({ where: { id }, select: { id: true, fullName: true, leaderRole: true } });
+  const leader = await prisma.user.findUnique({ where: { id }, select: { id: true, fullName: true, leaderRole: true, leaderCurrency: true, leaderCountry: true } });
   if (!leader?.leaderRole) return NextResponse.json({ message: "Leader not found" }, { status: 404 });
 
   const body = await request.json().catch(() => ({}));
+  const leaderCurrency = leader.leaderCurrency ?? currencyForCountry(leader.leaderCountry);
   const method = typeof body.method === "string" && body.method.trim() ? body.method.trim().slice(0, 60) : "";
   if (!method) return NextResponse.json({ message: "How did you send the money? (e.g. Mobile Money, bank transfer)" }, { status: 400 });
   const str = (v: unknown, n: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : null);
@@ -71,15 +77,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const amt = round2(Number(body.amount));
     if (!(amt > 0)) return NextResponse.json({ message: "Enter the advance amount in GH₵." }, { status: 400 });
     let projectId: string | null = null;
+    let currency = body.currency ? normalizeCurrency(body.currency) : leaderCurrency;
     if (body.projectId) {
-      const proj = await prisma.dataProject.findUnique({ where: { id: String(body.projectId) }, select: { id: true } });
+      const proj = await prisma.dataProject.findUnique({ where: { id: String(body.projectId) }, select: { id: true, currency: true } });
       if (!proj) return NextResponse.json({ message: "Project not found." }, { status: 404 });
       projectId = proj.id;
+      currency = proj.currency; // an advance for a project is in that project's currency
     }
     const advance = await prisma.leaderPayout.create({
       data: {
         leaderId: id,
         kind: "advance",
+        currency,
         projectId,
         creditRemaining: amt,
         amount: amt,
@@ -103,11 +112,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       metadata: { area: "field_teams", kind: "advance", payoutId: advance.id, leaderId: id, leaderName: leader.fullName, total: amt, projectId, method },
       ip: getIp(request),
     });
-    return NextResponse.json({ message: `Advance of GH₵${amt.toFixed(2)} to ${leader.fullName} recorded. Approved items will be counted against it.`, payout: advance });
+    return NextResponse.json({ message: `Advance of ${formatMoney(amt, currency)} to ${leader.fullName} recorded. Approved items will be counted against it.`, payout: advance });
   }
 
   const scope = await leaderScope(id);
-  const owed = await prisma.leaderPayable.findMany({ where: { leaderId: { in: scope }, status: "owed" }, select: { id: true, amount: true, feeAmount: true } });
+  // One bulk payment = one currency. Pay each currency separately if a team has several.
+  const owedAll = await prisma.leaderPayable.findMany({ where: { leaderId: { in: scope }, status: "owed" }, select: { id: true, amount: true, feeAmount: true, currency: true } });
+  const owedCurrencies = Array.from(new Set(owedAll.map((p) => p.currency)));
+  const currency = body.currency ? normalizeCurrency(body.currency) : owedCurrencies.length === 1 ? owedCurrencies[0] : "";
+  if (!currency) return NextResponse.json({ message: `This team is owed in ${owedCurrencies.join(" and ")} — record each currency as its own payment.` }, { status: 400 });
+  const owed = owedAll.filter((p) => p.currency === currency);
   if (!owed.length) return NextResponse.json({ message: "Nothing is owed to this team right now." }, { status: 400 });
   const amount = round2(owed.reduce((s, p) => s + p.amount, 0));
   const feeAmount = round2(owed.reduce((s, p) => s + p.feeAmount, 0));
@@ -116,6 +130,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const created = await tx.leaderPayout.create({
       data: {
         leaderId: id,
+        currency,
         amount,
         feeAmount,
         total: round2(amount + feeAmount),
@@ -150,7 +165,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   });
 
   return NextResponse.json({
-    message: `Recorded GH₵${payout.total.toFixed(2)} sent to ${leader.fullName} for ${payout.itemCount} approved item${payout.itemCount === 1 ? "" : "s"}.`,
+    message: `Recorded ${formatMoney(payout.total, currency)} sent to ${leader.fullName} for ${payout.itemCount} approved item${payout.itemCount === 1 ? "" : "s"}.`,
     payout,
   });
 }

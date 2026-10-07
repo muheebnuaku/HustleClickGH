@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatUsd, formatDate } from "@/lib/utils";
 import { Loader2, Wallet, Plus, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
+import { PageSkeleton } from "@/components/ui/page-kit";
 
 interface Tx { id: string; type: string; amount: number; status: string; provider?: string | null; createdAt: string; meta?: { projectId?: string } | null; }
 
@@ -58,7 +59,7 @@ function WalletContent() {
     } catch { setNotice("Could not start payment."); } finally { setFunding(false); }
   };
 
-  if (loading) return <OrgLayout><div className="flex justify-center py-20"><Loader2 className="animate-spin text-emerald-600" /></div></OrgLayout>;
+  if (loading) return <OrgLayout><PageSkeleton /></OrgLayout>;
 
   return (
     <OrgLayout>
@@ -122,7 +123,7 @@ function WalletContent() {
 
 export default function OrgWalletPage() {
   return (
-    <Suspense fallback={<OrgLayout><div className="flex justify-center py-20"><Loader2 className="animate-spin text-emerald-600" /></div></OrgLayout>}>
+    <Suspense fallback={<OrgLayout><PageSkeleton /></OrgLayout>}>
       <WalletContent />
     </Suspense>
   );

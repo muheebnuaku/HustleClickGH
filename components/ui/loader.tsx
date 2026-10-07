@@ -1,15 +1,9 @@
+import { PageSkeleton } from "@/components/ui/page-kit";
 import { cn } from "@/lib/utils";
 
-/**
- * Standard page/section loading spinner used across the app.
- * Matches the My Surveys loading style: a green ring spinner centered in the viewport.
- */
+/** Standard page loading placeholder (a skeleton, not a spinner). */
 export function PageLoader({ className }: { className?: string }) {
-  return (
-    <div className={cn("flex items-center justify-center min-h-[60vh]", className)}>
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500" />
-    </div>
-  );
+  return <PageSkeleton className={cn("mx-auto w-full max-w-5xl p-4 sm:p-6", className)} />;
 }
 
 /** Smaller inline spinner for buttons/sections. */

@@ -53,7 +53,20 @@ export async function leaderScope(leaderId: string): Promise<string[]> {
   return [leaderId, ...subs.map((s) => s.id)];
 }
 
-/** Totals per status for a set of payables. */
+export type MoneySummary = ReturnType<typeof summarize>;
+
+/** Totals per status, kept separate per currency (never add MK to GH₵). */
+export function summarizeByCurrency(rows: { amount: number; feeAmount: number; status: string; currency?: string | null }[]): Record<string, MoneySummary> {
+  const groups = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const c = r.currency || "GHS";
+    if (!groups.has(c)) groups.set(c, []);
+    groups.get(c)!.push(r);
+  }
+  return Object.fromEntries(Array.from(groups.entries()).map(([c, list]) => [c, summarize(list)]));
+}
+
+/** Totals per status for a set of payables (one currency). */
 export function summarize(rows: { amount: number; feeAmount: number; status: string }[]) {
   const out = {
     owed: { amount: 0, fee: 0, count: 0 },
@@ -94,9 +107,9 @@ type Tx = Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction
  * it's never paid twice. Project-specific advances are used first, oldest first.
  * Only whole items are covered. Returns the advance used, or null.
  */
-export async function coverWithAdvance(tx: Tx, payableId: string, leaderIds: string[], projectId: string, cost: number) {
+export async function coverWithAdvance(tx: Tx, payableId: string, leaderIds: string[], projectId: string, cost: number, currency: string) {
   const advances = await tx.leaderPayout.findMany({
-    where: { kind: "advance", leaderId: { in: leaderIds }, creditRemaining: { gte: cost - 0.0001 }, OR: [{ projectId }, { projectId: null }] },
+    where: { kind: "advance", currency, leaderId: { in: leaderIds }, creditRemaining: { gte: cost - 0.0001 }, OR: [{ projectId }, { projectId: null }] },
     orderBy: [{ createdAt: "asc" }],
     select: { id: true, projectId: true },
   });

@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminLayout } from "@/components/admin-layout";
-import { PageHeader } from "@/components/admin/admin-ui";
+import { PageHeader, PageSkeleton, SkeletonList, SkeletonStats } from "@/components/admin/admin-ui";
 import { SurveysTabs } from "@/components/admin/surveys-tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,6 @@ import {
   Eye, 
   FileText, 
   LayoutGrid, 
-  Loader2, 
   PieChart, 
   RefreshCw, 
   Table as TableIcon, 
@@ -292,9 +291,7 @@ function AdminResponsesPageContent() {
   if (status === "loading" || isLoading) {
     return (
       <AdminLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="w-12 h-12 border-t-2 border-b-2 border-green-500 rounded-full animate-spin"></div>
-        </div>
+        <PageSkeleton />
       </AdminLayout>
     );
   }
@@ -352,12 +349,7 @@ function AdminResponsesPageContent() {
             )}
           </div>
         ) : loadingResponses ? (
-          <Card>
-            <CardContent className="py-12 flex flex-col items-center justify-center gap-4">
-              <Loader2 className="animate-spin text-blue-600" size={48} />
-              <p className="text-zinc-500">Loading analytics data...</p>
-            </CardContent>
-          </Card>
+          <div className="space-y-4"><SkeletonStats /><SkeletonList rows={4} /></div>
         ) : filteredResponses.length === 0 && !searchTerm ? (
           <Card>
             <CardContent className="py-12 text-center">
@@ -927,9 +919,7 @@ export default function AdminResponsesPage() {
   return (
     <Suspense fallback={
       <AdminLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
+        <PageSkeleton />
       </AdminLayout>
     }>
       <AdminResponsesPageContent />

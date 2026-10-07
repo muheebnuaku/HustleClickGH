@@ -13,8 +13,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { uploadFile } from "@/lib/upload-file";
-import { GHANA_REGIONS } from "@/lib/constants";
-import { formatCurrency } from "@/lib/utils";
+import { MultiSelect } from "@/components/admin/multi-select";
+import { CURRENCIES, currencySymbol, formatMoney } from "@/lib/currency";
 import {
   DEFAULT_CAPTURE_CONFIG, IN_APP_CAPTURE_FORMATS,
   type CaptureConfig, type CaptureMode, type MetadataField,
@@ -58,6 +58,7 @@ export interface WizardProject {
   reviewOrgId?: string | null;
   payoutMode?: string | null;
   assignedLeaderIds?: string[];
+  currency?: string;
 }
 
 const TYPES: { value: string; label: string; help: string; icon: LucideIcon; tint: string }[] = [
@@ -119,11 +120,12 @@ function initialForm(p?: WizardProject | null) {
     reviewOrgId: p?.reviewOrgId ?? "",
     payoutMode: p?.payoutMode === "via_leader" ? "via_leader" : "individual",
     assignedLeaderIds: p?.assignedLeaderIds ?? ([] as string[]),
+    currency: p?.currency ?? "GHS",
     referenceCode: p?.referenceCode ?? "",
     captureMode: (p?.captureMode ?? "upload") as CaptureMode,
-    targetCountries: (p?.targetCountries ?? []).join(", "),
+    targetCountries: p?.targetCountries ?? ([] as string[]),
     targetRegions: p?.targetRegions ?? ([] as string[]),
-    targetCities: (p?.targetCities ?? []).join(", "),
+    targetCities: p?.targetCities ?? ([] as string[]),
     requireGeo: !!p?.requireGeo,
   };
 }
@@ -230,12 +232,22 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
   // Client organizations that can be given review access.
   const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
   // Field-team leaders that can be assigned to run the project.
-  const [leaders, setLeaders] = useState<{ id: string; fullName: string; leaderRole: string; leaderCountry: string | null; memberCount: number }[]>([]);
+  const [leaders, setLeaders] = useState<{ id: string; fullName: string; leaderRole: string; leaderCountry: string | null; memberCount: number; currency?: string }[]>([]);
+  const [currencyTouched, setCurrencyTouched] = useState(!!project);
   const [useTeams, setUseTeams] = useState((project?.assignedLeaderIds?.length ?? 0) > 0);
   useEffect(() => {
     fetch("/api/admin/teams")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setLeaders(d?.leaders ?? []))
+      .catch(() => {});
+  }, []);
+  // Locations people in our system have — the targeting dropdowns offer only these.
+  type Loc = { name: string; count: number; country?: string; region?: string | null };
+  const [locs, setLocs] = useState<{ countries: Loc[]; regions: Loc[]; cities: Loc[] }>({ countries: [], regions: [], cities: [] });
+  useEffect(() => {
+    fetch("/api/admin/locations")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setLocs(d))
       .catch(() => {});
   }, []);
   useEffect(() => {
@@ -275,7 +287,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
         return null;
       case "audience":
         if (useQuota && !(Number(form.malesNeeded) > 0) && !(Number(form.femalesNeeded) > 0)) return "Enter how many men and/or women you need, or turn the quota off.";
-        if (useLocation && !form.targetRegions.length && !splitList(form.targetCities).length && !splitList(form.targetCountries).length) return "Pick at least one region, city or country, or turn location off.";
+        if (useLocation && !form.targetRegions.length && !form.targetCities.length && !form.targetCountries.length) return "Pick at least one region, city or country, or turn location off.";
         if (useLanguages && !splitList(form.languages).length) return "List at least one language, or turn languages off.";
         return null;
       case "setup": return form.captureMode === "nose_dots" && captureConfig.dots.length === 0 ? "Add at least one dot." : null;
@@ -286,6 +298,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
         return null;
       case "pay":
         if (!(Number(form.reward) > 0)) return "Set a reward per approved submission.";
+        if (form.currency !== "GHS" && form.payoutMode !== "via_leader") return `A ${form.currency} project must be paid through team leaders (contributors' balances are in GH₵).`;
         if (!(Number(form.maxSubmissions) > 0)) return "Set how many submissions you need.";
         if (Number(form.maxDurationSecs) < Number(form.minDurationSecs)) return "Max duration must be at least the min duration.";
         return null;
@@ -335,9 +348,9 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
       captureMode: form.captureMode,
       captureConfig: form.captureMode === "upload" ? null : captureConfig,
       metadataFields: useDetails ? fromEditable(metaFields) : [],
-      targetCountries: useLocation ? splitList(form.targetCountries) : [],
+      targetCountries: useLocation ? form.targetCountries : [],
       targetRegions: useLocation ? form.targetRegions : [],
-      targetCities: useLocation ? splitList(form.targetCities) : [],
+      targetCities: useLocation ? form.targetCities : [],
       requireGeo: form.requireGeo,
       assignedLeaderIds: useTeams ? form.assignedLeaderIds : [],
       languages: useLanguages ? splitList(form.languages) : [],
@@ -377,7 +390,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
 
   const typeMeta = TYPES.find((t) => t.value === form.projectType);
   const captureMeta = CAPTURE.find((c) => c.value === form.captureMode);
-  const locationSummary = [splitList(form.targetCities).join(", "), form.targetRegions.join(", "), splitList(form.targetCountries).join(", ")].filter(Boolean).join(" · ");
+  const locationSummary = [form.targetCities.join(", "), form.targetRegions.join(", "), form.targetCountries.join(", ")].filter(Boolean).join(" · ");
 
   // ── Step bodies ──
   const body = (() => {
@@ -476,30 +489,41 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
             <div className="space-y-3">
               <Reveal title="Limit to certain locations" help="Matched against each contributor's profile location." on={useLocation} onChange={setUseLocation}>
                 <div className="space-y-4">
-                  <div>
-                    <span className="mb-2 block text-sm font-medium">Regions</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {GHANA_REGIONS.map((r) => {
-                        const on = form.targetRegions.includes(r);
-                        return (
-                          <button key={r} type="button"
-                            onClick={() => set({ targetRegions: on ? form.targetRegions.filter((x) => x !== r) : [...form.targetRegions, r] })}
-                            className={cn("rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                              on ? "border-blue-600 bg-blue-600 text-white" : "border-zinc-200 bg-white text-zinc-600 hover:border-blue-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300")}>
-                            {on && <Check size={11} className="mr-1 inline" />}{r}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Cities / towns" hint="Comma-separated, e.g. Accra, Kumasi">
-                      <input className={inputCls} value={form.targetCities} onChange={(e) => set({ targetCities: e.target.value })} />
-                    </Field>
-                    <Field label="Countries" hint="Leave blank for any country">
-                      <input className={inputCls} value={form.targetCountries} onChange={(e) => set({ targetCountries: e.target.value })} placeholder="Ghana" />
-                    </Field>
-                  </div>
+                  <Field label="Countries" hint="Leave empty for any country">
+                    <MultiSelect
+                      placeholder="Any country"
+                      emptyText="No contributors with a country yet"
+                      value={form.targetCountries}
+                      onChange={(v) => set({ targetCountries: v })}
+                      options={locs.countries.map((c) => ({ value: c.name, count: c.count }))}
+                    />
+                  </Field>
+                  <Field label="Regions" hint={form.targetCountries.length ? "Only regions in the countries above" : "Leave empty for any region"}>
+                    <MultiSelect
+                      placeholder="Any region"
+                      emptyText="No regions on record for these countries"
+                      value={form.targetRegions}
+                      onChange={(v) => set({ targetRegions: v })}
+                      options={locs.regions
+                        .filter((r) => !form.targetCountries.length || form.targetCountries.includes(r.country!))
+                        .map((r) => ({ value: r.name, hint: r.country, count: r.count }))
+                        .filter((o, k, a) => a.findIndex((x) => x.value === o.value) === k)}
+                    />
+                  </Field>
+                  <Field label="Cities / towns" hint="Leave empty for any city">
+                    <MultiSelect
+                      placeholder="Any city"
+                      emptyText="No cities on record for this selection"
+                      value={form.targetCities}
+                      onChange={(v) => set({ targetCities: v })}
+                      options={locs.cities
+                        .filter((c) => !form.targetCountries.length || form.targetCountries.includes(c.country!))
+                        .filter((c) => !form.targetRegions.length || (!!c.region && form.targetRegions.includes(c.region)))
+                        .map((c) => ({ value: c.name, hint: [c.region, c.country].filter(Boolean).join(", "), count: c.count }))
+                        .filter((o, k, a) => a.findIndex((x) => x.value === o.value) === k)}
+                    />
+                  </Field>
+                  <p className="text-xs text-zinc-500">Numbers show how many contributors are there right now.</p>
                 </div>
               </Reveal>
               <Reveal title="Capture phone GPS with each submission" help="Proof of where it was recorded. Contributors must allow location." on={form.requireGeo} onChange={(v) => set({ requireGeo: v })} />
@@ -541,13 +565,16 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
                       const Icon = l.leaderRole === "representative" ? Crown : UserCog;
                       return (
                         <button key={l.id} type="button"
-                          onClick={() => set({ assignedLeaderIds: on ? form.assignedLeaderIds.filter((x) => x !== l.id) : [...form.assignedLeaderIds, l.id] })}
+                          onClick={() => set({
+                            assignedLeaderIds: on ? form.assignedLeaderIds.filter((x) => x !== l.id) : [...form.assignedLeaderIds, l.id],
+                            ...(!on && !currencyTouched && l.currency ? { currency: l.currency } : {}),
+                          })}
                           className={cn("flex w-full items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left transition-colors",
                             on ? "border-violet-500 bg-violet-50/60 dark:bg-violet-500/10" : "border-zinc-200 hover:border-violet-300 dark:border-zinc-700")}>
                           <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", l.leaderRole === "representative" ? "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300" : "bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300")}><Icon size={15} /></span>
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">{l.fullName}</span>
-                            <span className="block text-xs text-zinc-500">{l.leaderRole === "representative" ? "Country Representative (incl. their supervisors)" : "Supervisor"}{l.leaderCountry ? ` · ${l.leaderCountry}` : ""} · {l.memberCount} member{l.memberCount === 1 ? "" : "s"}</span>
+                            <span className="block text-xs text-zinc-500">{l.leaderRole === "representative" ? "Country Representative (incl. their supervisors)" : "Supervisor"}{l.leaderCountry ? ` · ${l.leaderCountry}` : ""}{l.currency ? ` · ${l.currency}` : ""} · {l.memberCount} member{l.memberCount === 1 ? "" : "s"}</span>
                           </span>
                           <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", on ? "border-violet-600 bg-violet-600 text-white" : "border-zinc-300 dark:border-zinc-600")}>{on && <Check size={13} />}</span>
                         </button>
@@ -601,7 +628,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
               <div>
                 <span className="mb-1.5 block text-sm font-medium text-zinc-800 dark:text-zinc-200">How contributors get paid</span>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <ChoiceCard icon={Wallet} label="Pay each contributor" help="Approved rewards go straight to each person's balance; they withdraw to Mobile Money." selected={form.payoutMode !== "via_leader"} onClick={() => set({ payoutMode: "individual" })} tint="from-emerald-500 to-teal-600" />
+                  <ChoiceCard icon={Wallet} label="Pay each contributor" help="Approved rewards go straight to each person's balance; they withdraw to Mobile Money." selected={form.payoutMode !== "via_leader"} onClick={() => set({ payoutMode: "individual", currency: "GHS" })} tint="from-emerald-500 to-teal-600" />
                   <ChoiceCard icon={Users} label="Pay through team leaders" help="You send one bulk payment to their Supervisor or Country Representative, who pays their team." selected={form.payoutMode === "via_leader"} onClick={() => set({ payoutMode: "via_leader" })} tint="from-violet-500 to-indigo-600" />
                 </div>
                 {form.payoutMode === "via_leader" && (
@@ -612,10 +639,23 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
               </div>
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field label="Reward per approved submission" required>
-                  <div className="relative">
-                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-zinc-400">GH₵</span>
-                    <input type="number" step="0.5" min="0.5" className={cn(inputCls, "pl-12")} value={form.reward} onChange={(e) => set({ reward: e.target.value })} placeholder="2.00" />
+                  <div className="flex gap-2">
+                    <select
+                      aria-label="Currency"
+                      className={cn(inputCls, "w-28 shrink-0")}
+                      value={form.currency}
+                      onChange={(e) => { setCurrencyTouched(true); set({ currency: e.target.value, ...(e.target.value !== "GHS" ? { payoutMode: "via_leader" } : {}) }); }}
+                    >
+                      {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
+                    </select>
+                    <div className="relative flex-1">
+                      <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-zinc-400">{currencySymbol(form.currency)}</span>
+                      <input type="number" step="0.5" min="0.5" className={cn(inputCls, "pl-12")} value={form.reward} onChange={(e) => set({ reward: e.target.value })} placeholder="2.00" />
+                    </div>
                   </div>
+                  {form.currency !== "GHS" && (
+                    <span className="mt-1.5 block text-xs text-violet-700 dark:text-violet-300">Paid in {form.currency} through team leaders — contributors&apos; own balances are in GH₵.</span>
+                  )}
                 </Field>
                 <Field label="Submissions needed" required hint="The project closes when this many are approved.">
                   <input type="number" min="1" className={inputCls} value={form.maxSubmissions} onChange={(e) => set({ maxSubmissions: e.target.value })} placeholder="500" />
@@ -624,7 +664,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
               {Number(form.reward) > 0 && Number(form.maxSubmissions) > 0 && (
                 <div className="flex items-center justify-between rounded-xl bg-zinc-50 px-4 py-3 text-sm dark:bg-zinc-900">
                   <span className="text-zinc-500">Total contributor payout</span>
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-50">{formatCurrency(Number(form.reward) * Number(form.maxSubmissions))}</span>
+                  <span className="font-semibold text-zinc-900 dark:text-zinc-50">{formatMoney(Number(form.reward) * Number(form.maxSubmissions), form.currency)}</span>
                 </div>
               )}
               <div className="grid gap-5 sm:grid-cols-2">
@@ -718,7 +758,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
               <Row step="pay" label="Payment" value={form.payoutMode === "via_leader" ? "Through team leaders (bulk)" : "Directly to each contributor"} />
               <Row step="pay" label="Pay & limits" value={
                 <>
-                  {Number(form.reward) > 0 ? formatCurrency(Number(form.reward)) : "—"} each · {form.maxSubmissions || "—"} needed · {form.maxSubmissionsPerUser}× per person
+                  {Number(form.reward) > 0 ? formatMoney(Number(form.reward), form.currency) : "—"} each · {form.maxSubmissions || "—"} needed · {form.maxSubmissionsPerUser}× per person
                   {useDeadline && form.expiresAt && ` · closes ${form.expiresAt}`}
                 </>
               } />

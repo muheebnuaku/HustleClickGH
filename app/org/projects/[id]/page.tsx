@@ -8,7 +8,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatUsd } from "@/lib/utils";
 import { orgStatusLabel, orgStatusClass } from "@/lib/org-status";
-import { Loader2, ArrowLeft, Download, Database, ShieldCheck, AlertTriangle, ClipboardCheck, ChevronRight } from "lucide-react";
+import { ArrowLeft, Download, Database, ShieldCheck, AlertTriangle, ClipboardCheck, ChevronRight } from "lucide-react";
+import { PageSkeleton } from "@/components/ui/page-kit";
 
 interface Detail {
   project: { id: string; title: string; description: string; projectType: string; status: string; reward: number; maxSubmissions: number; currentSubmissions: number; budget: number; spent: number; languages: string[]; license?: { key: string; label: string; description: string }; usageTerms?: string | null };
@@ -29,7 +30,7 @@ export default function OrgProjectDetail() {
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
-  if (loading) return <OrgLayout><div className="flex justify-center py-20"><Loader2 className="animate-spin text-emerald-600" /></div></OrgLayout>;
+  if (loading) return <OrgLayout><PageSkeleton /></OrgLayout>;
   if (!d?.project) return <OrgLayout><Card><CardContent className="p-10 text-center text-zinc-500">Project not found.</CardContent></Card></OrgLayout>;
 
   const p = d.project;

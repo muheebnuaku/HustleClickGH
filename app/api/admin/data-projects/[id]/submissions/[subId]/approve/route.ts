@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client";
 import { canReward, buyerCost } from "@/lib/org";
 import { DEFAULT_MANAGER_COMMISSION } from "@/lib/constants";
 import { leaderFee, coverWithAdvance } from "@/lib/field-teams";
+import { formatMoney } from "@/lib/currency";
 
 export async function POST(
   _req: Request,
@@ -94,6 +95,7 @@ export async function POST(
             submissionId: subId,
             projectId,
             projectTitle: project.title,
+            currency: project.currency,
             amount: project.reward,
             feePercent,
             feeAmount,
@@ -102,13 +104,18 @@ export async function POST(
         // Already paid upfront? Use the leader's (or their representative's) advance.
         const lead = await tx.user.findUnique({ where: { id: leader.id }, select: { teamLeaderId: true } });
         const leaderIds = [leader.id, ...(lead?.teamLeaderId ? [lead.teamLeaderId] : [])];
-        return coverWithAdvance(tx, payable.id, leaderIds, projectId, project.reward + feeAmount);
+        return coverWithAdvance(tx, payable.id, leaderIds, projectId, project.reward + feeAmount, project.currency);
       });
       return NextResponse.json({
         message: advanceId
-          ? `Submission approved. GH₵${(project.reward + feeAmount).toFixed(2)} covered by the advance already paid to ${leader.fullName}.`
-          : `Submission approved. GH₵${project.reward.toFixed(2)} (+ GH₵${feeAmount.toFixed(2)} fee) added to ${leader.fullName}'s next bulk payment.`,
+          ? `Submission approved. ${formatMoney(project.reward + feeAmount, project.currency)} covered by the advance already paid to ${leader.fullName}.`
+          : `Submission approved. ${formatMoney(project.reward, project.currency)} (+ ${formatMoney(feeAmount, project.currency)} fee) added to ${leader.fullName}'s next bulk payment.`,
       });
+    }
+
+    // Contributor balances are GH₵ only; other currencies are paid via team leaders.
+    if (project.currency && project.currency !== "GHS") {
+      return NextResponse.json({ message: `This project is in ${project.currency}. Switch it to "Pay through team leaders" — contributor balances are in GH₵.` }, { status: 400 });
     }
 
     // Manager commission: if the contributor was referred by a manager, that

@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/dashboard-layout";
-import { PageHeader, Notice, Panel, EmptyState } from "@/components/ui/page-kit";
+import { PageHeader, Notice, Panel, EmptyState, PageSkeleton } from "@/components/ui/page-kit";
 import { Database } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { formatCurrency } from "@/lib/utils";
-import { Mic, Video, ScanFace, Loader2, ChevronRight, CheckCircle2, Clock, XCircle, MapPin, Camera } from "lucide-react";
+import { formatMoney } from "@/lib/currency";
+import { Mic, Video, ScanFace, ChevronRight, CheckCircle2, Clock, XCircle, MapPin, Camera } from "lucide-react";
 import Link from "next/link";
 
 interface DataProject {
@@ -22,6 +22,7 @@ interface DataProject {
   acceptedFormats: string[];
   status: string;
   userSubmissionStatus: string | null;
+  currency?: string;
   captureMode?: string;
   locationLabel?: string | null;
   eligible?: boolean;
@@ -63,9 +64,7 @@ export default function DataProjectsPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center py-20 text-zinc-400">
-          <Loader2 size={24} className="animate-spin mr-2" />Loading projects...
-        </div>
+        <PageSkeleton stats={0} />
       </DashboardLayout>
     );
   }
@@ -106,7 +105,7 @@ export default function DataProjectsPage() {
                       <p className="mt-0.5 text-sm text-zinc-500 line-clamp-2">{p.description}</p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="text-lg font-semibold text-emerald-600 tabular-nums">{formatCurrency(p.reward)}</p>
+                      <p className="text-lg font-semibold text-emerald-600 tabular-nums">{formatMoney(p.reward, p.currency)}</p>
                       <p className="text-[11px] text-zinc-400">per approval</p>
                     </div>
                   </div>

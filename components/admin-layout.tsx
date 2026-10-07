@@ -91,12 +91,9 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const sidebar = (onNavigate?: () => void) => (
     <div className="flex h-full flex-col bg-zinc-950 text-zinc-300">
       {/* Brand */}
-      <div className="flex h-16 shrink-0 items-center gap-3 px-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 font-bold text-white shadow-lg shadow-blue-600/30">
-          H
-        </div>
+      <div className="flex h-16 shrink-0 items-center px-5">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-white">HustleClickGH</p>
+          <p className="truncate text-[15px] font-semibold tracking-tight text-white">HustleClickGH</p>
           <p className="text-[11px] text-zinc-500">{isManager ? "Manager console" : "Admin console"}</p>
         </div>
       </div>

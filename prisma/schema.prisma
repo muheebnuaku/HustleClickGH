@@ -54,6 +54,7 @@ model User {
   leaderRole       String?   // "representative" | "supervisor" | null
   leaderCountry    String?   // country the leader runs
   leaderFeePercent Float?    // % of each approved item they earn when paid through them
+  leaderCurrency   String?   // default currency for this leader's team (e.g. MWK)
   teamCode         String?   @unique // invite code contributors use to join this leader's team
   teamLeaderId     String?   // who this person reports to (contributor → supervisor/rep, supervisor → rep)
   teamJoinedAt     DateTime?
@@ -243,7 +244,8 @@ model LeaderPayable {
   submissionId           String    @unique // one payable per approved submission
   projectId              String
   projectTitle           String
-  amount                 Float     // the contributor's reward (GH₵)
+  currency               String    @default("GHS") // the project's currency
+  amount                 Float     // the contributor's reward (in `currency`)
   feePercent             Float     // leader's fee rate at approval time
   feeAmount              Float     // leader's fee on top (GH₵)
   status                 String    @default("owed") // owed | sent (in a bulk payment) | paid (leader paid contributor)
@@ -265,6 +267,7 @@ model LeaderPayout {
   id             String    @id @default(cuid())
   leaderId       String    // who received the money
   kind           String    @default("bulk") // bulk (settles owed items) | advance (paid upfront; covers future approvals)
+  currency       String    @default("GHS") // amounts below are in this currency
   projectId      String?   // advance earmarked for one project (null = any)
   creditRemaining Float    @default(0) // advance not yet used up by approvals
   amount         Float     // contributors' share (GH₵)
@@ -368,6 +371,7 @@ model DataProject {
   reviewOrgId        String?          // client Organization allowed to review (pass/fail) submissions on its portal
   payoutMode         String           @default("individual") // individual | via_leader (paid in bulk to the contributor's team leader)
   assignedLeaderIds  String?          // JSON string[] of field-team leaders running this project; null = open to everyone
+  currency           String           @default("GHS") // reward currency; non-GHS projects must be paid via team leaders
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 

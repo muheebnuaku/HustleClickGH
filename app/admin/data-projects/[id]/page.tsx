@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { AdminLayout } from "@/components/admin-layout";
 import { Card } from "@/components/ui/card";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatMoney } from "@/lib/currency";
 import { Loader2, CheckCircle2, XCircle, ArrowLeft, Mic, Video, ScanFace, Download, MessageSquare, Send, X, Trash2, Sparkles, MapPin, FileSpreadsheet } from "lucide-react";
 import type { CaptureTrace, MetadataField } from "@/lib/project-config";
 import { CaptureTraceView } from "@/components/capture-trace-view";
@@ -13,6 +14,7 @@ import { downloadSubmissionsZip } from "@/lib/zip-download";
 import { toDownloadUrl } from "@/lib/upload-file";
 import type { AiReviewResult } from "@/lib/ai-review";
 import Link from "next/link";
+import { SkeletonList } from "@/components/ui/page-kit";
 
 interface Submission {
   id: string;
@@ -64,6 +66,7 @@ interface Project {
   clientName?: string | null;
   referenceCode?: string | null;
   reviewOrgName?: string | null;
+  currency?: string;
 }
 
 const parseJson = <T,>(raw?: string | null): T | null => {
@@ -361,7 +364,7 @@ export default function AdminProjectSubmissionsPage() {
                   <h1 className="text-xl font-bold text-foreground break-words">{project.title}</h1>
                 </div>
                 <p className="text-sm text-zinc-500">
-                  Reward: <strong className="text-green-600">{formatCurrency(project.reward)}</strong> per approval &nbsp;·&nbsp;
+                  Reward: <strong className="text-green-600">{formatMoney(project.reward, project.currency)}</strong> per approval &nbsp;·&nbsp;
                   Slots: <strong>{project.currentSubmissions}/{project.maxSubmissions}</strong>
                   {(project.clientName || project.referenceCode) && <> &nbsp;·&nbsp; {[project.clientName, project.referenceCode].filter(Boolean).join(" · ")}</>}
                 </p>
@@ -501,9 +504,7 @@ export default function AdminProjectSubmissionsPage() {
 
         {/* Submissions */}
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-zinc-400">
-            <Loader2 size={24} className="animate-spin mr-2" />Loading submissions...
-          </div>
+          <SkeletonList />
         ) : filteredSubmissions.length === 0 ? (
           <Card className="p-12 text-center text-zinc-400">
             <p className="font-medium">No {filter === "all" ? "" : filter} submissions</p>
@@ -745,7 +746,7 @@ export default function AdminProjectSubmissionsPage() {
                             : <CheckCircle2 size={22} />}
                         </button>
                         <span className="text-[11px] font-medium tracking-wide text-slate-300">
-                          Approve · {formatCurrency(project?.reward || 0)}
+                          Approve · {formatMoney(project?.reward || 0, project?.currency)}
                         </span>
                       </div>
 

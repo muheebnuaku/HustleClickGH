@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/dashboard-layout";
-import { PageHeader } from "@/components/ui/page-kit";
+import { PageHeader, PageSkeleton } from "@/components/ui/page-kit";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -218,9 +218,7 @@ export default function ProfilePage() {
   if (status === "loading" || isFetching) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="w-12 h-12 border-t-2 border-b-2 border-green-500 rounded-full animate-spin"></div>
-        </div>
+        <PageSkeleton stats={0} rows={4} />
       </DashboardLayout>
     );
   }

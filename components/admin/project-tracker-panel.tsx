@@ -5,11 +5,12 @@
 
 import { useEffect, useState } from "react";
 import { Crown, UserCog, Users, AlertTriangle } from "lucide-react";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { formatMoney } from "@/lib/currency";
 import type { TrackerRow } from "@/lib/project-tracker";
 
 interface Tracker {
-  project: { payoutMode: string; maxSubmissions: number; currentSubmissions: number; reviewOrgId: string | null; assignedLeaderIds: string[] };
+  project: { payoutMode: string; currency?: string; maxSubmissions: number; currentSubmissions: number; reviewOrgId: string | null; assignedLeaderIds: string[] };
   rows: TrackerRow[];
   total: Omit<TrackerRow, "key" | "leaderName" | "leaderRole">;
 }
@@ -29,7 +30,7 @@ export function ProjectTrackerPanel({ projectId, data, compact }: { projectId?: 
   const viaLeaders = t.project.payoutMode === "via_leader";
   const hasClient = !!t.project.reviewOrgId;
   const steps = [
-    ...(viaLeaders && T.advancePaid > 0 ? [{ label: "Advance paid", value: formatCurrency(T.advancePaid), sub: `${formatCurrency(T.advanceLeft)} left` }] : []),
+    ...(viaLeaders && T.advancePaid > 0 ? [{ label: "Advance paid", value: formatMoney(T.advancePaid, t.project.currency), sub: `${formatMoney(T.advanceLeft, t.project.currency)} left` }] : []),
     { label: "Submitted", value: String(T.submitted), sub: `${T.contributors} people` },
     { label: "Awaiting check", value: String(T.pending), sub: T.rejected ? `${T.rejected} rejected` : "by you" },
     { label: "Approved", value: String(T.approved), sub: `of ${t.project.maxSubmissions} needed` },
@@ -98,7 +99,7 @@ export function ProjectTrackerPanel({ projectId, data, compact }: { projectId?: 
                     {viaLeaders && <td className="px-3 py-2.5 text-right tabular-nums">{r.owed || "—"}</td>}
                     {viaLeaders && <td className="px-3 py-2.5 text-right tabular-nums">{r.sentToLeader || "—"}</td>}
                     {viaLeaders && <td className="px-3 py-2.5 text-right tabular-nums">{r.paidOut}/{r.confirmed}{r.disputed ? <span className="ml-1 text-red-600">· {r.disputed}!</span> : null}</td>}
-                    {viaLeaders && <td className="px-4 py-2.5 text-right tabular-nums">{r.advanceLeft ? formatCurrency(r.advanceLeft) : "—"}</td>}
+                    {viaLeaders && <td className="px-4 py-2.5 text-right tabular-nums">{r.advanceLeft ? formatMoney(r.advanceLeft, t.project.currency) : "—"}</td>}
                   </tr>
                 );
               })}

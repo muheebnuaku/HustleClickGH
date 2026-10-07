@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Mail, Send, History, RefreshCw, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/page-kit";
 
 type Target = "all" | "verified" | "unverified" | "no_location" | "country" | "custom";
 
@@ -320,7 +321,7 @@ export function EmailBroadcast() {
                   {expandedId === b.id && (
                     <div className="border-t border-zinc-100 dark:border-zinc-800 p-3 text-sm">
                       {detailLoading ? (
-                        <div className="flex justify-center py-3"><Loader2 className="animate-spin text-zinc-400" size={18} /></div>
+                        <div className="space-y-2 py-2"><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-2/3" /></div>
                       ) : (
                         <div className="space-y-3">
                           {detail && detail.failed.length > 0 && (

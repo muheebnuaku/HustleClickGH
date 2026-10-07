@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/admin-layout";
-import { PageHeader, StatCard, Notice } from "@/components/admin/admin-ui";
+import { PageHeader, StatCard, Notice, SkeletonList } from "@/components/admin/admin-ui";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatUsd, formatDate } from "@/lib/utils";
+import { formatMoney } from "@/lib/currency";
 import { convertUsdToGhs, fallbackRate } from "@/lib/fx";
-import { Database, Plus, Mic, Video, ScanFace, Loader2, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload, Pencil, Building2, Check, X, MapPin, Search, Camera, Tag } from "lucide-react";
+import { Database, Plus, Mic, Video, ScanFace, Trash2, PauseCircle, PlayCircle, CheckCircle, ChevronRight, Upload, Pencil, Building2, Check, X, MapPin, Search, Camera, Tag } from "lucide-react";
 import Link from "next/link";
 import type { CaptureConfig, CaptureMode, MetadataField } from "@/lib/project-config";
 import { ProjectWizard } from "@/components/admin/project-wizard";
@@ -64,6 +65,7 @@ interface DataProject {
   reviewOrgId?: string | null;
   reviewOrgName?: string | null;
   referenceCode: string | null;
+  currency?: string;
 }
 
 
@@ -246,9 +248,7 @@ export default function AdminDataProjectsPage() {
 
         {/* Projects List */}
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-zinc-400">
-            <Loader2 size={24} className="animate-spin mr-2" />Loading projects...
-          </div>
+          <SkeletonList />
         ) : projects.length === 0 ? (
           <Card className="p-12 text-center text-zinc-400">
             <ScanFace size={40} className="mx-auto mb-3 opacity-40" />
@@ -304,7 +304,7 @@ export default function AdminDataProjectsPage() {
                           {(p.budget ?? 0) > 0 && <span className="text-zinc-500">Budget: {formatUsd(p.spent ?? 0)}/{formatUsd(p.budget ?? 0)}</span>}
                         </>
                       ) : (
-                        <span className="text-zinc-500">Reward: <strong className="text-green-600">{formatCurrency(p.reward)}</strong></span>
+                        <span className="text-zinc-500">Reward: <strong className="text-green-600">{formatMoney(p.reward, p.currency)}</strong></span>
                       )}
                       <span className="text-zinc-500">Slots: <strong>{p.currentSubmissions}/{p.maxSubmissions}</strong></span>
                       <span className="text-yellow-600 font-medium">{p.pendingCount} pending</span>

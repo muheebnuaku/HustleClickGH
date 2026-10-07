@@ -7,7 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatUsd } from "@/lib/utils";
 import { orgStatusLabel, orgStatusClass } from "@/lib/org-status";
-import { Loader2, Wallet, Database, Plus, ArrowRight, ShieldCheck, X } from "lucide-react";
+import { Wallet, Database, Plus, ArrowRight, ShieldCheck, X } from "lucide-react";
+import { PageSkeleton } from "@/components/ui/page-kit";
 
 interface P { id: string; title: string; status: string; currentSubmissions: number; maxSubmissions: number; counts: { pending: number; approved: number }; budget: number; spent: number; }
 
@@ -32,7 +33,7 @@ export default function OrgDashboard() {
   const pending = projects.reduce((s, p) => s + (p.counts?.pending || 0), 0);
   const collected = projects.reduce((s, p) => s + (p.counts?.approved || 0), 0);
 
-  if (loading) return <OrgLayout><div className="flex justify-center py-20"><Loader2 className="animate-spin text-emerald-600" /></div></OrgLayout>;
+  if (loading) return <OrgLayout><PageSkeleton /></OrgLayout>;
 
   return (
     <OrgLayout>

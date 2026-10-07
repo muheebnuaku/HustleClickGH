@@ -6,8 +6,10 @@ import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConsentAgreement } from "@/components/consent-agreement";
-import { GHANA_REGIONS, ID_TYPES } from "@/lib/constants";
+import { ID_TYPES } from "@/lib/constants";
+import { LocationFields, dialPrefix, isBarePrefix } from "@/components/location-fields";
 import { ShieldCheck, MapPin, IdCard, Sparkles } from "lucide-react";
+import { Skeleton } from "@/components/ui/page-kit";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -49,7 +51,7 @@ export default function OnboardingPage() {
     setError("");
 
     if (!form.phone || form.phone.trim().length < 10) return setError("Please enter a valid phone number.");
-    if (!form.region || !form.city) return setError("Please select your region and enter your city.");
+    if (!form.country || !form.region || !form.city) return setError("Please pick your country and region, and enter your city.");
     if (form.idNumber && form.idNumber.trim().length < 4) {
       return setError("Please enter a valid ID number, or leave it blank.");
     }
@@ -82,7 +84,7 @@ export default function OnboardingPage() {
   if (status === "loading") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-        <div className="w-10 h-10 border-t-2 border-b-2 border-green-500 rounded-full animate-spin" />
+        <div className="w-full max-w-xl space-y-4 p-4"><Skeleton className="mx-auto h-14 w-14 rounded-2xl" /><Skeleton className="mx-auto h-7 w-56" /><Skeleton className="h-96 w-full rounded-2xl" /></div>
       </div>
     );
   }
@@ -117,7 +119,7 @@ export default function OnboardingPage() {
             <Input
               value={form.phone}
               onChange={(e) => update_("phone", e.target.value)}
-              placeholder="+233 XX XXX XXXX"
+              placeholder={`${dialPrefix(form.country) || "+233 "}XX XXX XXXX`}
               disabled={loading}
             />
           </div>
@@ -128,33 +130,16 @@ export default function OnboardingPage() {
               <MapPin size={16} className="text-blue-600" />
               <span className="font-medium text-sm">Location</span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs text-zinc-500">Country</label>
-                <Input value={form.country} onChange={(e) => update_("country", e.target.value)} disabled={loading} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-zinc-500">Region</label>
-                <select
-                  value={form.region}
-                  onChange={(e) => update_("region", e.target.value)}
-                  disabled={loading}
-                  className="flex h-10 w-full rounded-md border border-zinc-200 dark:border-zinc-800 bg-transparent px-3 text-sm"
-                >
-                  <option value="">Select…</option>
-                  {GHANA_REGIONS.map((r) => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-zinc-500">City / Town</label>
-                <Input value={form.city} onChange={(e) => update_("city", e.target.value)} disabled={loading} />
-              </div>
-            </div>
-            <p className="text-xs text-zinc-500 mt-1">
-              Not in Ghana? Enter your country and type your region/state and city.
-            </p>
+            <LocationFields
+              disabled={loading}
+              value={{ country: form.country, region: form.region, city: form.city }}
+              onChange={(patch) => setForm((f) => ({
+                ...f,
+                ...patch,
+                // Pre-fill the phone's country code while it's still empty.
+                ...(patch.country !== undefined && isBarePrefix(f.phone) ? { phone: dialPrefix(patch.country) } : {}),
+              }))}
+            />
           </div>
 
           {/* Identity */}

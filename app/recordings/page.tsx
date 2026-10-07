@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/dashboard-layout";
-import { PageHeader } from "@/components/ui/page-kit";
+import { PageHeader, SkeletonList } from "@/components/ui/page-kit";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Video, Mic, Download, Play, X, ChevronLeft, ChevronRight, Loader2, VideoOff } from "lucide-react";
@@ -60,8 +60,8 @@ export default function RecordingsPage() {
   const [playing, setPlaying]       = useState<CallRecording | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
 
+  // Loading is switched on where the page changes (the pager buttons).
   useEffect(() => {
-    setLoading(true);
     fetch(`/api/call-recordings?page=${page}&limit=20`)
       .then(r => r.json())
       .then(d => {
@@ -88,9 +88,7 @@ export default function RecordingsPage() {
         />
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 size={32} className="animate-spin text-blue-600" />
-          </div>
+          <SkeletonList />
         ) : recordings.length === 0 ? (
           <Card className="p-12 text-center">
             <VideoOff size={40} className="mx-auto mb-4 text-zinc-300" />
@@ -231,7 +229,7 @@ export default function RecordingsPage() {
               <div className="flex items-center justify-center gap-3">
                 <Button
                   variant="outline" size="sm"
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  onClick={() => { setLoading(true); setPage(p => Math.max(1, p - 1)); }}
                   disabled={page <= 1}
                 >
                   <ChevronLeft size={16} />
@@ -239,7 +237,7 @@ export default function RecordingsPage() {
                 <span className="text-sm text-zinc-500">Page {page} of {pages}</span>
                 <Button
                   variant="outline" size="sm"
-                  onClick={() => setPage(p => Math.min(pages, p + 1))}
+                  onClick={() => { setLoading(true); setPage(p => Math.min(pages, p + 1)); }}
                   disabled={page >= pages}
                 >
                   <ChevronRight size={16} />

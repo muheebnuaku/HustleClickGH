@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Network, Loader2, CheckCircle2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/page-kit";
 
 export default function JoinTeamPage() {
   const { code } = useParams<{ code: string }>();
@@ -47,7 +48,7 @@ export default function JoinTeamPage() {
             {busy && <Loader2 size={16} className="animate-spin" />}Join this team
           </button>
         ) : status === "loading" ? (
-          <Loader2 className="mx-auto mt-6 animate-spin text-zinc-400" />
+          <Skeleton className="mt-6 h-11 w-full rounded-xl" />
         ) : (
           <div className="mt-6 space-y-3">
             <p className="text-sm text-zinc-600 dark:text-zinc-300">Create an account (or log in), then open this link again — or enter the code under <strong>Profile → Your team</strong>.</p>

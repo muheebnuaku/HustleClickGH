@@ -76,6 +76,10 @@ export async function GET() {
       suspectedDuplicateOfUserId: user.suspectedDuplicateOfUserId,
       referredById: referredBy.get(user.id) ?? null,
       commissionEarned: commissionBy.get(user.id) ?? 0,
+      // Field-team position (Country Representative / Supervisor) and team.
+      leaderRole: user.leaderRole,
+      leaderCountry: user.leaderCountry,
+      teamLeaderId: user.teamLeaderId,
     }));
 
     // Calculate stats

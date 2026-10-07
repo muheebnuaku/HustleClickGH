@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Building2, Mail, Phone, MapPin, KeyRound, ShieldCheck } from "lucide-react";
+import { PageSkeleton } from "@/components/ui/page-kit";
 
 interface Me { name: string; workEmail: string; phone?: string | null; country?: string | null; mustSetPassword: boolean; }
 
@@ -33,7 +34,7 @@ export default function OrgSettings() {
     } catch { setNotice({ ok: false, text: "Could not update password." }); } finally { setBusy(false); }
   };
 
-  if (loading) return <OrgLayout><div className="flex justify-center py-20"><Loader2 className="animate-spin text-emerald-600" /></div></OrgLayout>;
+  if (loading) return <OrgLayout><PageSkeleton /></OrgLayout>;
 
   return (
     <OrgLayout>

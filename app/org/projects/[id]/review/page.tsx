@@ -12,6 +12,7 @@ import { CaptureTraceView } from "@/components/capture-trace-view";
 import type { CaptureTrace, MetadataField } from "@/lib/project-config";
 import { formatDate, cn } from "@/lib/utils";
 import { ArrowLeft, Check, X, Loader2, MapPin, RotateCcw, ClipboardCheck, ExternalLink } from "lucide-react";
+import { SkeletonList } from "@/components/ui/page-kit";
 
 interface Sub {
   id: string;
@@ -145,7 +146,7 @@ export default function OrgReviewPage() {
         {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
         {loading ? (
-          <div className="flex justify-center py-16"><Loader2 className="animate-spin text-emerald-600" /></div>
+          <SkeletonList />
         ) : subs.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700 py-14 text-center text-zinc-500">
             {filter === "todo" ? "All caught up — nothing waiting for review." : "Nothing here yet."}

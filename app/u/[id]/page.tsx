@@ -7,7 +7,8 @@ import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { VerifiedBadge } from "@/components/verified-badge";
-import { Loader2, MessageCircle, UserPlus, UserCheck, MapPin, Ban, MoreVertical, Phone, Video } from "lucide-react";
+import { MessageCircle, UserPlus, UserCheck, MapPin, Ban, MoreVertical, Phone, Video } from "lucide-react";
+import { PageSkeleton } from "@/components/ui/page-kit";
 
 interface Profile {
   id: string; userId: string; fullName: string; image?: string | null; verified: boolean;
@@ -66,7 +67,7 @@ export default function PublicProfilePage() {
     } catch { /* ignore */ } finally { setBusy(false); }
   };
 
-  if (loading) return <DashboardLayout><div className="flex justify-center py-20"><Loader2 className="animate-spin text-blue-600" /></div></DashboardLayout>;
+  if (loading) return <DashboardLayout><PageSkeleton stats={0} rows={3} /></DashboardLayout>;
   if (!p) return <DashboardLayout><Card className="p-12 text-center text-zinc-500">User not found.</Card></DashboardLayout>;
 
   return (
