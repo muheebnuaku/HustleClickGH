@@ -23,9 +23,10 @@ function WalletContent() {
   const [funding, setFunding] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [filter, setFilter] = useState<TxFilter>("all");
+  const [usdToGhs, setUsdToGhs] = useState<number | null>(null);
 
   const load = useCallback(() => fetch("/api/org/wallet").then((r) => (r.ok ? r.json() : null)).then((d) => {
-    if (d) { setBalance(d.walletBalance ?? 0); setConfigured(d.paystackConfigured); setTxs(d.transactions ?? []); }
+    if (d) { setBalance(d.walletBalance ?? 0); setConfigured(d.paystackConfigured); setTxs(d.transactions ?? []); setUsdToGhs(d.chargeCurrency === "GHS" ? d.usdToGhs ?? null : null); }
   }).catch(() => {}).finally(() => setLoading(false)), []);
 
   useEffect(() => { load(); }, [load]);
@@ -40,6 +41,7 @@ function WalletContent() {
         if (res.ok && d.credited) setNotice({ ok: true, text: "Payment received — your wallet has been topped up." });
         else if (res.ok && d.status === "already_credited") setNotice({ ok: true, text: "This payment was already applied." });
         else if (res.ok && d.status === "not_successful") setNotice({ ok: false, text: "The payment wasn't completed." });
+        else if (res.ok && d.status === "amount_mismatch") setNotice({ ok: false, text: d.message || "The amount paid didn't match. Contact HustleClickGH." });
         else setNotice({ ok: false, text: d.message || "Couldn't verify the payment." });
       } catch { setNotice({ ok: false, text: "Couldn't verify the payment." }); }
       router.replace("/org/wallet");
@@ -101,7 +103,10 @@ function WalletContent() {
                       {funding ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}Add {Number(amount) >= 1 ? formatUsd(Number(amount)) : "funds"}
                     </button>
                   </div>
-                  <p className="flex items-center gap-1.5 text-xs text-zinc-400"><Lock size={12} />Secure checkout by Paystack — card or mobile money.</p>
+                  {usdToGhs && Number(amount) >= 1 && (
+                    <p className="text-sm text-emerald-200">You&apos;ll pay <strong className="tabular-nums">GH₵{(Math.round(Number(amount) * usdToGhs * 100) / 100).toFixed(2)}</strong> · {formatUsd(Number(amount))} is added to your wallet</p>
+                  )}
+                  <p className="flex items-center gap-1.5 text-xs text-zinc-400"><Lock size={12} />Secure checkout by Paystack — card or mobile money{usdToGhs ? ` · charged in Ghana cedis at today's rate ($1 = GH₵${usdToGhs.toFixed(2)})` : ""}.</p>
                 </div>
               ) : (
                 <p className="mt-6 rounded-xl bg-white/5 p-3 text-sm text-zinc-300 ring-1 ring-white/10">Online top-ups aren&apos;t switched on yet. Contact HustleClickGH and we&apos;ll add funds for you.</p>

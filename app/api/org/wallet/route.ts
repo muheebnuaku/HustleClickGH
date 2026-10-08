@@ -2,7 +2,8 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { currentOrg } from "@/lib/org-auth";
-import { isPaystackConfigured } from "@/lib/paystack";
+import { isPaystackConfigured, chargeCurrency } from "@/lib/paystack";
+import { getUsdToGhsRate } from "@/lib/fx";
 
 // GET /api/org/wallet — balance + recent transactions.
 export async function GET() {
@@ -18,6 +19,8 @@ export async function GET() {
   return NextResponse.json({
     walletBalance: org.walletBalance,
     paystackConfigured: isPaystackConfigured(),
+    chargeCurrency: chargeCurrency(),
+    usdToGhs: chargeCurrency() === "GHS" ? await getUsdToGhsRate() : null,
     transactions: transactions.map((t) => ({
       id: t.id, type: t.type, amount: t.amount, status: t.status,
       provider: t.provider, createdAt: t.createdAt,

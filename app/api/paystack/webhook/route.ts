@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     // Re-verify against the API before trusting the amount/status, then credit.
     const v = await verifyTransaction(event.data.reference);
     if (v.ok && v.success) {
-      await creditFundByRef(event.data.reference).catch(() => {});
+      await creditFundByRef(event.data.reference, { amount: v.amount, currency: v.currency }).catch(() => {});
     }
   }
 

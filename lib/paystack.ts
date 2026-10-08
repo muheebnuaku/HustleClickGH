@@ -6,13 +6,23 @@ import crypto from "crypto";
  * Env:
  *   PAYSTACK_SECRET_KEY            server-only secret (sk_test_… / sk_live_…)
  *   NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY  public key (browser, optional for inline)
+ *   PAYSTACK_CURRENCY              currency Paystack charges in: "GHS" (default) or "USD"
  *
- * Amounts are handled in $ at the API boundary and converted to the smallest
- * unit (pesewas) for Paystack. If the secret key is absent, isPaystackConfigured
- * returns false and callers disable funding gracefully.
+ * Org wallets are in US dollars. A Ghana Paystack account only takes USD once
+ * USD is enabled on it (otherwise checkout fails with "No active channel to
+ * process transaction"), so by default we charge the cedi equivalent at the live
+ * rate and credit the dollar amount. Amounts go to Paystack in the smallest unit.
+ * If the secret key is absent, isPaystackConfigured returns false and callers
+ * disable funding gracefully.
  */
 
-const BASE = "https://api.paystack.co";
+export type ChargeCurrency = "GHS" | "USD";
+export function chargeCurrency(): ChargeCurrency {
+  return process.env.PAYSTACK_CURRENCY?.toUpperCase() === "USD" ? "USD" : "GHS";
+}
+
+// Overridable only so tests can point at a local fake Paystack.
+const BASE = process.env.PAYSTACK_BASE_URL || "https://api.paystack.co";
 
 export function isPaystackConfigured(): boolean {
   return Boolean(process.env.PAYSTACK_SECRET_KEY);
@@ -34,7 +44,9 @@ export interface InitResult {
 /** Start a transaction; returns the hosted checkout URL to redirect the org to. */
 export async function initTransaction(opts: {
   email: string;
-  amountGhs: number;
+  /** Amount in `currency` (major units). */
+  amount: number;
+  currency: ChargeCurrency;
   reference: string;
   callbackUrl: string;
   metadata?: Record<string, unknown>;
@@ -46,8 +58,8 @@ export async function initTransaction(opts: {
       headers: { Authorization: `Bearer ${secret()}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         email: opts.email,
-        amount: Math.round(opts.amountGhs * 100), // pesewas
-        currency: "USD",
+        amount: Math.round(opts.amount * 100), // pesewas / cents
+        currency: opts.currency,
         reference: opts.reference,
         callback_url: opts.callbackUrl,
         metadata: opts.metadata ?? {},
@@ -64,7 +76,9 @@ export async function initTransaction(opts: {
 export interface VerifyResult {
   ok: boolean;
   success: boolean;
-  amountGhs?: number;
+  /** Amount actually paid, major units, in `currency`. */
+  amount?: number;
+  currency?: string;
   reference?: string;
   error?: string;
 }
@@ -81,7 +95,8 @@ export async function verifyTransaction(reference: string): Promise<VerifyResult
     return {
       ok: true,
       success: data.data.status === "success",
-      amountGhs: (data.data.amount ?? 0) / 100,
+      amount: (data.data.amount ?? 0) / 100,
+      currency: data.data.currency,
       reference: data.data.reference,
     };
   } catch (e) {

@@ -12,9 +12,21 @@ export async function getOrgForUser(userId: string) {
  * exactly once even if the webhook and the return-verify both fire.
  * Caller must have already confirmed success with Paystack.
  */
-export async function creditFundByRef(reference: string): Promise<{ credited: boolean }> {
+export async function creditFundByRef(reference: string, paid?: { amount?: number; currency?: string }): Promise<{ credited: boolean; mismatch?: boolean }> {
   const tx = await prisma.orgTransaction.findUnique({ where: { providerRef: reference } });
   if (!tx || tx.status === "success") return { credited: false };
+
+  // The payment must cover what we asked Paystack to charge (currency + amount).
+  if (paid) {
+    let expected: { chargedAmount?: number; chargedCurrency?: string } = {};
+    try { expected = tx.meta ? JSON.parse(tx.meta) : {}; } catch { /* older rows */ }
+    const wantCur = expected.chargedCurrency ?? "USD";
+    const wantAmt = expected.chargedAmount ?? tx.amount;
+    if ((paid.currency && paid.currency.toUpperCase() !== wantCur) || (paid.amount ?? 0) + 0.01 < wantAmt) {
+      await prisma.orgTransaction.updateMany({ where: { providerRef: reference, status: "pending" }, data: { status: "failed" } });
+      return { credited: false, mismatch: true };
+    }
+  }
 
   const flip = await prisma.orgTransaction.updateMany({
     where: { providerRef: reference, status: "pending" },

@@ -29,7 +29,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, credited: false, status: "not_successful" });
   }
 
-  const r = await creditFundByRef(String(reference));
+  const r = await creditFundByRef(String(reference), { amount: v.amount, currency: v.currency });
+  if (r.mismatch) return NextResponse.json({ ok: true, credited: false, status: "amount_mismatch", message: "The amount paid didn't match the top-up. Contact HustleClickGH." });
   const updated = await prisma.organization.findUnique({ where: { id: org.id }, select: { walletBalance: true } });
   return NextResponse.json({ ok: true, credited: r.credited, walletBalance: updated?.walletBalance ?? org.walletBalance });
 }
