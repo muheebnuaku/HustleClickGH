@@ -49,6 +49,7 @@ model User {
   // How many times a MANAGER may submit to the same project. Null = unlimited
   // (managers are exempt from the project's maxSubmissionsPerUser). Admin-set.
   managerSubmitLimit Int?
+  submitLimit        Int?  // admin-set submissions per project for this person (overrides the project's per-person limit); null = use the project's
   // Field-team hierarchy: Country Representative → Supervisors → Contributors.
   // leaderRole is a position held on top of the normal account role.
   leaderRole       String?   // "representative" | "supervisor" | null

@@ -60,6 +60,7 @@ export async function GET() {
       role: user.role,
       commissionPercent: user.commissionPercent,
       managerSubmitLimit: user.managerSubmitLimit,
+      submitLimit: user.submitLimit,
       status: user.status,
       verified: user.verified,
       locationRequested: user.locationRequested,
@@ -134,7 +135,7 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const { userId, action, value } = body;
 
-    const VALID = ["suspend", "unsuspend", "verify", "unverify", "request_location", "set_commission", "set_submit_limit", "make_manager", "revoke_manager"];
+    const VALID = ["suspend", "unsuspend", "verify", "unverify", "request_location", "set_commission", "set_submit_limit", "set_user_submit_limit", "make_manager", "revoke_manager"];
     if (!userId || !VALID.includes(action)) {
       return NextResponse.json(
         { message: "Invalid request: userId and a valid action are required" },
@@ -207,6 +208,19 @@ export async function PATCH(request: Request) {
             return NextResponse.json({ message: "Submit limit must be a positive number, or blank for unlimited" }, { status: 400 });
           }
           data = { managerSubmitLimit: n };
+        }
+        break;
+      }
+      case "set_user_submit_limit": {
+        // Blank → back to each project's own per-person limit (null).
+        if (value === "" || value === null || value === undefined) {
+          data = { submitLimit: null };
+        } else {
+          const n = Math.floor(Number(value));
+          if (!isFinite(n) || n < 1 || n > 1000) {
+            return NextResponse.json({ message: "Enter a number from 1 to 1000, or leave it blank to use each project's limit" }, { status: 400 });
+          }
+          data = { submitLimit: n };
         }
         break;
       }

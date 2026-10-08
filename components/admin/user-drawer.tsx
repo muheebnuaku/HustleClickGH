@@ -22,6 +22,7 @@ export interface DrawerUser {
   id: string; userId: string; fullName: string; email: string; phone: string;
   balance: number; totalEarned: number; referralCount: number; createdAt: string;
   role: string; commissionPercent: number | null; status: string; verified: boolean;
+  managerSubmitLimit?: number | null; submitLimit?: number | null;
   country: string | null; region: string | null; city: string | null;
   duplicatePhone?: boolean; fraudRiskScore?: number | null; fraudRiskReason?: string | null;
   referredById?: string | null; commissionEarned?: number;
@@ -46,6 +47,26 @@ export function UserDrawer({ user, byId, teamSize, busy, onClose, onMessage, onV
   const [appoint, setAppoint] = useState<null | "representative" | "supervisor">(null);
   const [form, setForm] = useState({ country: "", feePercent: "10", parentId: "", both: false });
   const [saving, setSaving] = useState(false);
+  // Submissions per project: managers' own limit (blank = unlimited), or a personal
+  // override for anyone else (blank = each project's own per-person limit).
+  const currentLimit = user.role === "manager" ? user.managerSubmitLimit : user.submitLimit;
+  const [limitDraft, setLimitDraft] = useState(currentLimit != null ? String(currentLimit) : "");
+  const [limitBusy, setLimitBusy] = useState(false);
+  const [limitErr, setLimitErr] = useState("");
+  const saveLimit = async () => {
+    setLimitBusy(true); setLimitErr("");
+    try {
+      const r = await fetch("/api/admin/users", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, action: user.role === "manager" ? "set_submit_limit" : "set_user_submit_limit", value: limitDraft.trim() }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setLimitErr(d.message || "Couldn't save."); return; }
+      onChanged(limitDraft.trim()
+        ? `${user.fullName} can now submit up to ${limitDraft.trim()} time${limitDraft.trim() === "1" ? "" : "s"} per project.`
+        : user.role === "manager" ? `${user.fullName} can submit without a limit.` : `${user.fullName} now follows each project's own limit.`);
+    } finally { setLimitBusy(false); }
+  };
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -156,6 +177,26 @@ export function UserDrawer({ user, byId, teamSize, busy, onClose, onMessage, onV
               )}
             </section>
           )}
+
+          {/* Submissions per project */}
+          <section className="rounded-xl border border-zinc-200 p-3.5 dark:border-zinc-800">
+            <p className="text-sm font-semibold text-foreground">Submissions per project</p>
+            <p className="text-xs text-zinc-500">
+              {user.role === "manager"
+                ? "How many times this manager can submit to one project — managers can also go past a project's total slots. Blank = no limit."
+                : "How many times this person can submit to one project, whatever the project allows. Blank = use each project's own limit."}
+            </p>
+            <div className="mt-2.5 flex items-center gap-2">
+              <input type="number" min={1} max={1000} value={limitDraft} onChange={(e) => setLimitDraft(e.target.value)}
+                placeholder={user.role === "manager" ? "No limit" : "Project's limit"}
+                className="h-10 w-36 rounded-xl border border-zinc-200 bg-white px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 dark:border-zinc-700 dark:bg-zinc-900" />
+              {limitDraft.trim() !== (currentLimit != null ? String(currentLimit) : "") && (
+                <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-700" disabled={limitBusy} onClick={saveLimit}>{limitBusy ? "Saving…" : "Save"}</Button>
+              )}
+              <span className="text-xs text-zinc-400">{currentLimit != null ? `Now: ${currentLimit}×` : user.role === "manager" ? "Now: no limit" : "Now: project's limit"}</span>
+            </div>
+            {limitErr && <p className="mt-1.5 text-xs text-red-600">{limitErr}</p>}
+          </section>
 
           {/* Positions */}
           <section className="space-y-2">

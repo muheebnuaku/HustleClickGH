@@ -8,7 +8,7 @@ import { VELOCITY_WINDOW_MS, VELOCITY_MAX } from "@/lib/anti-fraud";
 import {
   checkLocationEligibility, parseCaptureConfig, parseMetadataFields, sanitizeCaptureTrace,
   validateMetadataAnswers, IN_APP_CAPTURE_FORMATS,
-  parseStringList,
+  parseStringList, perPersonLimit,
 } from "@/lib/project-config";
 import { teamChain, canTakeAssigned } from "@/lib/field-teams";
 
@@ -137,15 +137,10 @@ export async function POST(
       );
     }
 
-    // Managers are exempt from the project's per-user limit — their cap is set
-    // per-manager by an admin (null = unlimited).
-    let maxPerUser: number | null;
-    if (isManager) {
-      const mgr = await prisma.user.findUnique({ where: { id: userId }, select: { managerSubmitLimit: true } });
-      maxPerUser = mgr?.managerSubmitLimit ?? null; // null → unlimited
-    } else {
-      maxPerUser = project.maxSubmissionsPerUser ?? 1;
-    }
+    // Per-person cap: managers use their own admin-set limit (null = unlimited);
+    // anyone with a personal admin-set limit uses that; everyone else the project's.
+    const limits = await prisma.user.findUnique({ where: { id: userId }, select: { managerSubmitLimit: true, submitLimit: true } });
+    const maxPerUser = perPersonLimit({ isManager, managerSubmitLimit: limits?.managerSubmitLimit, submitLimit: limits?.submitLimit }, project.maxSubmissionsPerUser);
     if (maxPerUser !== null && userSubmissionCount >= maxPerUser) {
       const times = maxPerUser === 1 ? "once" : maxPerUser === 2 ? "twice" : `${maxPerUser} times`;
       return NextResponse.json(

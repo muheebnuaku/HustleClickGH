@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { checkLocationEligibility, parseCaptureConfig, parseMetadataFields, targetingSummary, parseStringList, contributorMoneyView } from "@/lib/project-config";
+import { checkLocationEligibility, parseCaptureConfig, parseMetadataFields, targetingSummary, parseStringList, contributorMoneyView, perPersonLimit } from "@/lib/project-config";
 import { teamChain, canTakeAssigned } from "@/lib/field-teams";
 
 // GET: Single project detail + user's submission if any
@@ -40,13 +40,11 @@ export async function GET(
     const userSubmission = userSubmissions[0] ?? null; // newest, for back-compat
     // Rejected submissions don't count against the per-user limit (users may retry).
     const userSubmissionsUsed = userSubmissions.filter((s) => s.status !== "rejected").length;
-    // Managers use their own admin-set limit (null = unlimited); others use the project's.
+    // Managers use their own admin-set limit (null = unlimited); people with a
+    // personal limit use that; everyone else the project's per-person limit.
     const isManager = session.user.role === "manager";
-    let maxPerUser: number | null = project.maxSubmissionsPerUser ?? 1;
-    if (isManager) {
-      const mgr = await prisma.user.findUnique({ where: { id: userId }, select: { managerSubmitLimit: true } });
-      maxPerUser = mgr?.managerSubmitLimit ?? null;
-    }
+    const limits = await prisma.user.findUnique({ where: { id: userId }, select: { managerSubmitLimit: true, submitLimit: true } });
+    const maxPerUser = perPersonLimit({ isManager, managerSubmitLimit: limits?.managerSubmitLimit, submitLimit: limits?.submitLimit }, project.maxSubmissionsPerUser);
     const canSubmitMore = maxPerUser === null || userSubmissionsUsed < maxPerUser;
 
     // Count pending+approved submissions per gender so users see accurate remaining slots

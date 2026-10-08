@@ -30,6 +30,7 @@ interface UserData {
   role: string;
   commissionPercent: number | null;
   managerSubmitLimit: number | null;
+  submitLimit?: number | null;
   status: string;
   verified: boolean;
   locationRequested: boolean;

@@ -426,3 +426,18 @@ export function isProjectAvailableToMe(p: {
   return p.status === "active" && p.slotsRemaining > 0 && p.eligible !== false &&
     (!p.userSubmissionStatus || p.userSubmissionStatus === "rejected");
 }
+
+// ── Submissions per person ──────────────────────────────────────────────────
+
+/**
+ * How many times this person may submit to one project (null = no limit).
+ * Managers: their own admin-set limit (blank = unlimited). Everyone else: their
+ * personal admin-set limit if there is one, otherwise the project's per-person limit.
+ */
+export function perPersonLimit(
+  user: { isManager: boolean; managerSubmitLimit?: number | null; submitLimit?: number | null },
+  projectLimit: number | null | undefined,
+): number | null {
+  if (user.isManager) return user.managerSubmitLimit ?? null;
+  return user.submitLimit ?? projectLimit ?? 1;
+}
