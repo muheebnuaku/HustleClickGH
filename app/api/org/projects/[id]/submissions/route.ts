@@ -7,7 +7,7 @@ import { parseMetadataFields, sanitizeCaptureTrace } from "@/lib/project-config"
 
 const PAGE = 20;
 
-// GET /api/org/projects/[id]/submissions?filter=todo|pass|fail|all&skip=0
+// GET /api/org/projects/[id]/submissions?filter=todo|pass|fail|all&skip=0&q=USER12
 // Submissions for the client to review (pass/fail). Contributors are
 // pseudonymous — ref id only, never name/phone/email. Submissions an admin has
 // already rejected are hidden.
@@ -25,7 +25,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     filter === "fail" ? { clientVerdict: "fail" } :
     filter === "all" ? {} : { clientVerdict: null };
 
-  const where = { projectId: id, status: { not: "rejected" }, ...verdictWhere };
+  // Optional search by the contributor's reference ID (e.g. USER1234).
+  const q = (req.nextUrl.searchParams.get("q") || "").trim().slice(0, 40);
+  const where = { projectId: id, status: { not: "rejected" }, ...verdictWhere, ...(q ? { user: { userId: { contains: q.toUpperCase() } } } : {}) };
   const [rows, total] = await Promise.all([
     prisma.dataSubmission.findMany({
       where,
