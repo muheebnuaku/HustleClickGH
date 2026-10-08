@@ -138,7 +138,7 @@ export default function DataProjectDetailPage() {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [language, setLanguage] = useState("");
   const [promptUsed, setPromptUsed] = useState("");
-  const [gender, setGender] = useState("");
+  const [gender, setGenderState] = useState("");
   const [consent, setConsent] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [message, setMessage] = useState("");
@@ -273,7 +273,25 @@ export default function DataProjectDetailPage() {
     await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, list.length) }, worker));
   };
 
+  // Projects with a gender quota may also ask "Gender" as a details question —
+  // answering either one fills in the other, so nobody is stuck on a grey button.
+  const genderField = project?.metadataFields.find((f) =>
+    f.type === "select" && /gender|sex/i.test(`${f.key} ${f.label}`) &&
+    (f.options ?? []).some((o) => /^(male|female)$/i.test(o.trim())));
+  const hasQuota = !!project && (project.malesNeeded !== null || project.femalesNeeded !== null);
+  const setGender = (g: string) => {
+    setGenderState(g);
+    const opt = genderField?.options?.find((o) => o.trim().toLowerCase() === g);
+    if (genderField && opt) setMetaAnswers((a) => ({ ...a, [genderField.key]: opt }));
+  };
+  const onMetaAnswer = (key: string, v: string) => {
+    setMetaAnswers((a) => ({ ...a, [key]: v }));
+    const g = v.trim().toLowerCase();
+    if (hasQuota && genderField?.key === key && (g === "male" || g === "female")) setGenderState(g);
+  };
+
   const preflight = (): string | null => {
+    if (!items.length) return project?.captureMode && project.captureMode !== "upload" ? "Record your video first." : "Add your file first.";
     if (!consent) return "You must give consent before submitting.";
     if (project && (project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
       return "Please select your gender before submitting.";
@@ -971,7 +989,7 @@ export default function DataProjectDetailPage() {
                       <p className="text-sm font-semibold">Your details for this submission</p>
                       {project.metadataFields.map((f) => {
                         const val = metaAnswers[f.key] ?? "";
-                        const set = (v: string) => setMetaAnswers((a) => ({ ...a, [f.key]: v }));
+                        const set = (v: string) => onMetaAnswer(f.key, v);
                         const inputCls = "w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500";
                         return (
                           <div key={f.key}>
@@ -1033,10 +1051,9 @@ export default function DataProjectDetailPage() {
                   <Button
                     type="submit"
                     disabled={
-                      items.length === 0 || !consent || processing ||
+                      processing ||
                       items.some((it) => it.status === "analyzing") ||
-                      Object.values(metaUploading).some(Boolean) ||
-                      ((project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
+                      Object.values(metaUploading).some(Boolean)
                     }
                     className="w-full bg-green-500 hover:bg-green-600 text-white"
                   >
@@ -1046,6 +1063,15 @@ export default function DataProjectDetailPage() {
                       <><Upload size={16} className="mr-2" />Submit {items.length || ""} File{items.length === 1 ? "" : "s"}</>
                     )}
                   </Button>
+                  {!processing && (() => {
+                    // Live: the first thing still missing, right under the button.
+                    const waiting = items.some((it) => it.status === "analyzing") ? "Checking your file…" : Object.values(metaUploading).some(Boolean) ? "Uploading your photo…" : null;
+                    const invalid = items.some((it) => it.status === "invalid") ? "Replace the file that doesn't meet the requirements." : null;
+                    const missing = waiting ?? invalid ?? preflight();
+                    return missing ? (
+                      <p className="-mt-1 flex items-center justify-center gap-1.5 text-center text-xs font-medium text-amber-600"><AlertCircle size={13} className="shrink-0" />{missing}</p>
+                    ) : null;
+                  })()}
                   <p className="text-xs text-zinc-500 text-center -mt-1">All your files are submitted together as one submission.</p>
 
                   <p className="text-xs text-zinc-400 text-center">
