@@ -21,7 +21,7 @@ import {
   type CaptureConfig, type CaptureMode, type MetadataField,
 } from "@/lib/project-config";
 import { DotPatternEditor } from "@/components/admin/dot-pattern-editor";
-import { MetadataFieldsEditor, toEditable, fromEditable, type EditableField } from "@/components/admin/metadata-fields-editor";
+import { MetadataFieldsEditor, toEditable, fromEditable, metadataProblem, type EditableField } from "@/components/admin/metadata-fields-editor";
 
 /** The fields of an existing project the wizard needs to edit it. */
 export interface WizardProject {
@@ -294,6 +294,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
         if (useLanguages && !splitList(form.languages).length) return "List at least one language, or turn languages off.";
         return null;
       case "setup": return form.captureMode === "nose_dots" && captureConfig.dots.length === 0 ? "Add at least one dot." : null;
+      case "details": return useDetails ? metadataProblem(metaFields) : null;
       case "basics":
         if (!form.title.trim()) return "Give the project a title.";
         if (!form.description.trim()) return "Add a short description.";

@@ -4,21 +4,34 @@
 // submission (age range, ID card photo, phone model…). Keys are derived from
 // labels on save (lib/project-config.ts parseMetadataFields).
 
-import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { useRef } from "react";
+import { Plus, Trash2, ArrowUp, ArrowDown, X } from "lucide-react";
 import { METADATA_FIELD_TYPES, METADATA_PRESETS, MAX_METADATA_FIELDS, type MetadataField, type MetadataFieldType } from "@/lib/project-config";
 
-// While editing, options are kept as the raw comma text so typing isn't fought.
-export type EditableField = Omit<MetadataField, "options"> & { optionsText: string };
+// While editing, a pick-one question's options are a list of rows (blank rows allowed).
+export type EditableField = Omit<MetadataField, "options"> & { optionList: string[] };
+export const MAX_OPTIONS = 50;
 
 export function toEditable(fields: MetadataField[]): EditableField[] {
-  return fields.map(({ options, ...f }) => ({ ...f, optionsText: options?.join(", ") ?? "" }));
+  return fields.map(({ options, ...f }) => ({ ...f, optionList: options?.length ? [...options] : [] }));
 }
 
 export function fromEditable(fields: EditableField[]): MetadataField[] {
-  return fields.map(({ optionsText, ...f }) => ({
+  return fields.map(({ optionList, ...f }) => ({
     ...f,
-    ...(f.type === "select" ? { options: optionsText.split(",").map((o) => o.trim()).filter(Boolean) } : {}),
+    ...(f.type === "select" ? { options: Array.from(new Set(optionList.map((o) => o.trim()).filter(Boolean))) } : {}),
   }));
+}
+
+/** First problem with the questions, if any (used by the wizard before moving on). */
+export function metadataProblem(fields: EditableField[]): string | null {
+  for (const f of fields) {
+    if (!f.label.trim()) return "Every question needs a label.";
+    if (f.type === "select" && new Set(f.optionList.map((o) => o.trim()).filter(Boolean)).size < 2) {
+      return `Add at least two options for "${f.label.trim()}".`;
+    }
+  }
+  return null;
 }
 
 interface Props {
@@ -30,7 +43,7 @@ export function MetadataFieldsEditor({ value, onChange }: Props) {
   const update = (i: number, patch: Partial<EditableField>) => onChange(value.map((f, k) => (k === i ? { ...f, ...patch } : f)));
   const add = (f: Omit<MetadataField, "key">) => {
     if (value.length >= MAX_METADATA_FIELDS) return;
-    onChange([...value, { key: "", label: f.label, type: f.type, required: f.required, help: f.help, optionsText: f.options?.join(", ") ?? "" }]);
+    onChange([...value, { key: "", label: f.label, type: f.type, required: f.required, help: f.help, optionList: f.options ? [...f.options] : [] }]);
   };
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir;
@@ -72,12 +85,16 @@ export function MetadataFieldsEditor({ value, onChange }: Props) {
             <div key={i} className="border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 space-y-2 bg-white dark:bg-zinc-900">
               <div className="flex flex-col sm:flex-row gap-2">
                 <input className={`${inputCls} sm:flex-1`} value={f.label} onChange={(e) => update(i, { label: e.target.value })} placeholder="Question / label" />
-                <select className={`${inputCls} sm:w-48`} value={f.type} onChange={(e) => update(i, { type: e.target.value as MetadataFieldType })}>
+                <select className={`${inputCls} sm:w-48`} value={f.type} onChange={(e) => {
+                  const type = e.target.value as MetadataFieldType;
+                  // A new pick-one question starts with two empty options to fill in.
+                  update(i, { type, ...(type === "select" && f.optionList.length === 0 ? { optionList: ["", ""] } : {}) });
+                }}>
                   {METADATA_FIELD_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </div>
               {f.type === "select" && (
-                <input className={inputCls} value={f.optionsText} onChange={(e) => update(i, { optionsText: e.target.value })} placeholder="Options, comma-separated (e.g. Indoor, Outdoor)" />
+                <OptionsEditor options={f.optionList} onChange={(optionList) => update(i, { optionList })} inputCls={inputCls} />
               )}
               <input className={inputCls} value={f.help ?? ""} onChange={(e) => update(i, { help: e.target.value })} placeholder="Help text (optional)" />
               <div className="flex items-center gap-3">
@@ -95,6 +112,63 @@ export function MetadataFieldsEditor({ value, onChange }: Props) {
             </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+/** One row per option; Enter adds the next one, pasting a list splits it into rows. */
+function OptionsEditor({ options, onChange, inputCls }: { options: string[]; onChange: (o: string[]) => void; inputCls: string }) {
+  const list = options.length ? options : [""];
+  const refs = useRef<(HTMLInputElement | null)[]>([]);
+  const focus = (k: number) => setTimeout(() => refs.current[k]?.focus(), 0);
+  const set = (k: number, v: string) => onChange(list.map((o, j) => (j === k ? v : o)));
+  const insertAfter = (k: number, items: string[]) => {
+    const next = [...list.slice(0, k + 1), ...items, ...list.slice(k + 1)].slice(0, MAX_OPTIONS);
+    onChange(next);
+    focus(Math.min(k + items.length, next.length - 1));
+  };
+  const remove = (k: number) => {
+    onChange(list.filter((_, j) => j !== k));
+    focus(Math.max(0, k - 1));
+  };
+
+  return (
+    <div className="space-y-1.5 rounded-lg bg-zinc-50 p-2.5 dark:bg-zinc-950/60">
+      <p className="text-[11px] font-medium text-zinc-500">Options — contributors pick one</p>
+      {list.map((o, k) => (
+        <div key={k} className="flex items-center gap-2">
+          <span className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-zinc-300 dark:border-zinc-600" />
+          <input
+            ref={(el) => { refs.current[k] = el; }}
+            className={inputCls}
+            value={o}
+            placeholder={`Option ${k + 1}`}
+            onChange={(e) => set(k, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); insertAfter(k, [""]); }
+              if (e.key === "Backspace" && !o && list.length > 1) { e.preventDefault(); remove(k); }
+            }}
+            onPaste={(e) => {
+              // Pasting "Indoor, Outdoor, Studio" (or one per line) fills several rows.
+              const parts = e.clipboardData.getData("text").split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
+              if (parts.length < 2) return;
+              e.preventDefault();
+              const next = [...list];
+              next[k] = (o + parts[0]).trim();
+              onChange([...next.slice(0, k + 1), ...parts.slice(1), ...next.slice(k + 1)].slice(0, MAX_OPTIONS));
+              focus(Math.min(k + parts.length - 1, MAX_OPTIONS - 1));
+            }}
+          />
+          <button type="button" onClick={() => remove(k)} disabled={list.length <= 1} className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-200 hover:text-red-600 disabled:opacity-30 dark:hover:bg-zinc-800" aria-label={`Remove option ${k + 1}`}>
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+      {list.length < MAX_OPTIONS && (
+        <button type="button" onClick={() => insertAfter(list.length - 1, [""])} className="ml-5 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10">
+          <Plus size={13} />Add option
+        </button>
       )}
     </div>
   );
