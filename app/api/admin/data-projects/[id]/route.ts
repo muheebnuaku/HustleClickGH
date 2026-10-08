@@ -58,6 +58,11 @@ export async function PUT(
         audioChannels: audioChannels ? parseInt(audioChannels) : null,
         audioBitDepth: audioBitDepth ? parseInt(audioBitDepth) : null,
         recordingType: recordingType || null,
+        // Example videos: the wizard sends the full list it wants kept.
+        ...(Array.isArray(body.sampleVideoUrls) ? (() => {
+          const urls = (body.sampleVideoUrls as unknown[]).filter((u): u is string => typeof u === "string" && /^https?:\/\//.test(u)).slice(0, 10);
+          return { sampleVideoUrls: urls.length ? JSON.stringify(urls) : null, sampleVideoUrl: urls[0] ?? null };
+        })() : {}),
       },
     });
 

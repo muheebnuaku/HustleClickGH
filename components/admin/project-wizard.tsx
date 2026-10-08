@@ -61,6 +61,9 @@ export interface WizardProject {
   showReward?: boolean;
   allowUpload?: boolean;
   assignedLeaderIds?: string[];
+  // Example videos (stored as a JSON list; older projects only have sampleVideoUrl).
+  sampleVideoUrls?: string[] | string | null;
+  sampleVideoUrl?: string | null;
   currency?: string;
 }
 
@@ -219,6 +222,15 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
   const [captureConfig, setCaptureConfig] = useState<CaptureConfig>(project?.captureConfig ?? DEFAULT_CAPTURE_CONFIG);
   const [metaFields, setMetaFields] = useState<EditableField[]>(toEditable(project?.metadataFields ?? []));
   const [sampleVideoFiles, setSampleVideoFiles] = useState<File[]>([]);
+  // Example videos already on the project — kept unless removed while editing.
+  const [savedSamples, setSavedSamples] = useState<string[]>(() => {
+    const raw = project?.sampleVideoUrls;
+    let list: string[] = [];
+    if (Array.isArray(raw)) list = raw;
+    else if (typeof raw === "string") { try { const v = JSON.parse(raw); if (Array.isArray(v)) list = v; } catch { /* ignore */ } }
+    if (!list.length && project?.sampleVideoUrl) list = [project.sampleVideoUrl];
+    return list.filter((u): u is string => typeof u === "string" && !!u);
+  });
   const sampleVideoRef = useRef<HTMLInputElement>(null);
   // Optional sections, revealed by toggles
   const [useQuota, setUseQuota] = useState(project ? project.malesNeeded != null || project.femalesNeeded != null : false);
@@ -369,21 +381,23 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
       samplePrompts: form.samplePrompts.split("\n").map((p) => p.trim()).filter(Boolean),
     };
     try {
+      // New example videos are uploaded first; kept ones stay as they are.
+      let newSampleUrls: string[] = [];
+      if (sampleVideoFiles.length && isCameraType) {
+        const uploaded = await Promise.all(sampleVideoFiles.map((f) => uploadFile(f, "sample-videos", f.name)));
+        newSampleUrls = uploaded.map((u) => u.url);
+      }
       if (editing && project) {
         const res = await fetch(`/api/admin/data-projects/${project.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ ...body, sampleVideoUrls: isCameraType ? [...savedSamples, ...newSampleUrls] : [] }),
         });
         const data = await res.json();
         if (!res.ok) { setError(data.message || "Failed to update project"); return; }
         onSaved("Project updated.");
       } else {
-        let sampleVideoUrls: string[] = [];
-        if (sampleVideoFiles.length && isCameraType) {
-          const uploaded = await Promise.all(sampleVideoFiles.map((f) => uploadFile(f, "sample-videos", f.name)));
-          sampleVideoUrls = uploaded.map((u) => u.url);
-        }
+        const sampleVideoUrls = newSampleUrls;
         const res = await fetch("/api/admin/data-projects", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -469,10 +483,20 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
                   <textarea className={cn(inputCls, "resize-y")} rows={3} value={form.samplePrompts} onChange={(e) => set({ samplePrompts: e.target.value })} placeholder={"Me din de Kwame\nWo ho te sɛn?"} />
                 </Field>
               )}
-              {isCameraType && !editing && (
+              {isCameraType && (
                 <div>
                   <span className="mb-1.5 block text-sm font-medium text-zinc-800 dark:text-zinc-200">Example videos (optional)</span>
                   <div className="space-y-2">
+                    {savedSamples.map((url, i) => (
+                      <div key={url} className="flex items-center gap-3 rounded-xl border border-zinc-200 p-2 dark:border-zinc-700">
+                        <video src={url} muted playsInline preload="metadata" className="h-16 w-12 shrink-0 rounded-lg bg-black object-cover" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm">Example {i + 1}</span>
+                          <a href={url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">Play</a>
+                        </span>
+                        <button type="button" onClick={() => setSavedSamples((p) => p.filter((u) => u !== url))} className="rounded-lg p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10" aria-label={`Remove example ${i + 1}`}><Trash2 size={15} /></button>
+                      </div>
+                    ))}
                     {sampleVideoFiles.map((f, i) => (
                       <div key={`${f.name}-${i}`} className="flex items-center gap-3 rounded-xl border border-zinc-200 px-3 py-2 dark:border-zinc-700">
                         <Video size={18} className="shrink-0 text-violet-500" />
@@ -484,7 +508,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
                     <button type="button" onClick={() => sampleVideoRef.current?.click()}
                       className="flex w-full flex-col items-center gap-1 rounded-xl border-2 border-dashed border-zinc-200 p-5 text-sm text-zinc-500 hover:border-blue-400 hover:bg-blue-50/40 dark:border-zinc-700 dark:hover:bg-blue-500/5">
                       <Upload size={20} className="opacity-60" />
-                      {sampleVideoFiles.length ? "Add another example" : "Upload example videos contributors watch first"}
+                      {sampleVideoFiles.length || savedSamples.length ? "Add another example" : "Upload example videos contributors watch first"}
                     </button>
                     <input ref={sampleVideoRef} type="file" multiple accept="video/*,.mp4,.mov,.webm" className="hidden"
                       onChange={(e) => { const picked = Array.from(e.target.files || []); if (picked.length) setSampleVideoFiles((p) => [...p, ...picked]); e.target.value = ""; }} />
