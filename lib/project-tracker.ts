@@ -35,7 +35,7 @@ const blank = (key: string, leaderName: string, leaderRole: string | null): Trac
 export async function buildTracker(projectId: string, onlyLeaders?: string[]) {
   const project = await prisma.dataProject.findUnique({
     where: { id: projectId },
-    select: { id: true, title: true, payoutMode: true, assignedLeaderIds: true, maxSubmissions: true, currentSubmissions: true, reward: true, reviewOrgId: true, status: true, currency: true },
+    select: { id: true, title: true, payoutMode: true, assignedLeaderIds: true, maxSubmissions: true, currentSubmissions: true, reward: true, reviewOrgId: true, reviewOrgIds: true, status: true, currency: true },
   });
   if (!project) return null;
 

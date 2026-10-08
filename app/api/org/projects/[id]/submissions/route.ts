@@ -42,6 +42,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     try { return JSON.parse(raw) as T; } catch { return null; }
   };
 
+  // Names of the clients who gave verdicts (several clients can review one project).
+  const byIds = Array.from(new Set(rows.map((s) => s.clientReviewedByOrgId).filter((x): x is string => !!x)));
+  const byName = new Map((byIds.length ? await prisma.organization.findMany({ where: { id: { in: byIds } }, select: { id: true, name: true } }) : []).map((o) => [o.id, o.name]));
+
   return NextResponse.json({
     fields: parseMetadataFields(project.metadataFields),
     total,
@@ -64,6 +68,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         clientVerdict: s.clientVerdict,
         clientNote: s.clientNote,
         clientReviewedAt: s.clientReviewedAt,
+        reviewedBy: s.clientReviewedByOrgId ? byName.get(s.clientReviewedByOrgId) ?? "Another client" : null,
+        reviewedByMe: s.clientReviewedByOrgId === org.id,
       };
     }),
   });

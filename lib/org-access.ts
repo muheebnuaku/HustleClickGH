@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { reviewOrgList } from "@/lib/project-config";
 
 export type OrgProjectAccess = "owner" | "review";
 
@@ -11,6 +12,6 @@ export async function orgProjectAccess(orgId: string, projectId: string) {
   const project = await prisma.dataProject.findUnique({ where: { id: projectId } });
   if (!project) return { project: null, access: null as OrgProjectAccess | null };
   const access: OrgProjectAccess | null =
-    project.orgId === orgId ? "owner" : project.reviewOrgId === orgId ? "review" : null;
+    project.orgId === orgId ? "owner" : reviewOrgList(project).includes(orgId) ? "review" : null;
   return { project: access ? project : null, access };
 }

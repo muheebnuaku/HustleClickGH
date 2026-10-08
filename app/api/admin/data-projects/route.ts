@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { buildProjectSetupData, validateProjectSetup, parseCaptureConfig, parseMetadataFields, parseStringList } from "@/lib/project-config";
+import { buildProjectSetupData, validateProjectSetup, parseCaptureConfig, parseMetadataFields, parseStringList, reviewOrgList } from "@/lib/project-config";
 
 // GET: All projects with submission counts
 export async function GET() {
@@ -52,7 +52,7 @@ export async function GET() {
     // Attach the owning organization's name for org-submitted projects.
     const orgIds = Array.from(new Set(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (projectsWithStats as any[]).flatMap((p) => [p.orgId, p.reviewOrgId]).filter(Boolean) as string[]
+      (projectsWithStats as any[]).flatMap((p) => [p.orgId, ...reviewOrgList(p)]).filter(Boolean) as string[]
     ));
     const orgs = orgIds.length
       ? await prisma.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } })
@@ -62,7 +62,8 @@ export async function GET() {
     const withOrg = (projectsWithStats as any[]).map((p) => ({
       ...p,
       orgName: p.orgId ? (orgById.get(p.orgId) ?? "Organization") : null,
-      reviewOrgName: p.reviewOrgId ? (orgById.get(p.reviewOrgId) ?? "Organization") : null,
+      reviewOrgIds: reviewOrgList(p),
+      reviewOrgName: reviewOrgList(p).length ? reviewOrgList(p).map((id) => orgById.get(id) ?? "Organization").join(", ") : null,
     }));
 
     return NextResponse.json({ projects: withOrg });

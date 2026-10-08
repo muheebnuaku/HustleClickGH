@@ -26,6 +26,8 @@ interface Sub {
   capture: CaptureTrace | null;
   clientVerdict: "pass" | "fail" | null;
   clientNote: string | null;
+  reviewedBy?: string | null; // which client gave the verdict (several can review)
+  reviewedByMe?: boolean;
   clientReviewedAt: string | null;
 }
 
@@ -94,7 +96,7 @@ export default function OrgReviewPage() {
       // Leave the current list if the item no longer belongs to this filter.
       const stillHere = filter === "all" || (filter === "todo" ? verdict === null : verdict === filter);
       setSubs((prev) => stillHere
-        ? prev.map((s) => (s.id === sub.id ? { ...s, clientVerdict: verdict, clientNote: d.note ?? null, clientReviewedAt: verdict ? new Date().toISOString() : null } : s))
+        ? prev.map((s) => (s.id === sub.id ? { ...s, clientVerdict: verdict, clientNote: d.note ?? null, clientReviewedAt: verdict ? new Date().toISOString() : null, reviewedBy: d.reviewedBy ?? null, reviewedByMe: !!verdict } : s))
         : prev.filter((s) => s.id !== sub.id));
       if (!stillHere) setTotal((t) => Math.max(0, t - 1));
       loadSummary();
@@ -158,7 +160,7 @@ export default function OrgReviewPage() {
                     {s.clientVerdict && (
                       <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold",
                         s.clientVerdict === "pass" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300")}>
-                        {s.clientVerdict === "pass" ? <Check size={13} /> : <X size={13} />}{s.clientVerdict === "pass" ? "Passed" : "Failed"}
+                        {s.clientVerdict === "pass" ? <Check size={13} /> : <X size={13} />}{s.clientVerdict === "pass" ? "Passed" : "Failed"}{s.reviewedByMe ? " by you" : s.reviewedBy ? ` by ${s.reviewedBy}` : ""}
                       </span>
                     )}
                   </div>

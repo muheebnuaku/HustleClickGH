@@ -28,6 +28,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       clientVerdict: verdict,
       clientNote: verdict ? note || null : null,
       clientReviewedAt: verdict ? new Date() : null,
+      // Shared across every reviewing client — record who set it.
+      clientReviewedByOrgId: verdict ? org.id : null,
     },
   });
   if (!updated.count) return NextResponse.json({ message: "Submission not found" }, { status: 404 });
@@ -41,5 +43,5 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     ip: getIp(request),
   });
 
-  return NextResponse.json({ ok: true, verdict, note: verdict ? note || null : null });
+  return NextResponse.json({ ok: true, verdict, note: verdict ? note || null : null, reviewedBy: verdict ? org.name : null, reviewedByMe: true });
 }

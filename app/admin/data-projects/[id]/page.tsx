@@ -33,6 +33,7 @@ interface Submission {
   location?: string | null; // JSON {country,region,city,lat?,lng?,accuracyM?}
   clientVerdict?: "pass" | "fail" | null;
   clientNote?: string | null;
+  clientReviewedBy?: string | null;
   status: string;
   rewarded: boolean;
   notes: string | null;
@@ -566,10 +567,10 @@ export default function AdminProjectSubmissionsPage() {
                       </div>
                       {sub.clientVerdict && (
                         <span
-                          title={sub.clientNote || undefined}
+                          title={[sub.clientReviewedBy, sub.clientNote].filter(Boolean).join(" — ") || undefined}
                           className={`px-2 py-1 rounded-full text-xs font-semibold ${sub.clientVerdict === "pass" ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"}`}
                         >
-                          Client: {sub.clientVerdict === "pass" ? "Pass" : "Fail"}
+                          {sub.clientReviewedBy ?? "Client"}: {sub.clientVerdict === "pass" ? "Pass" : "Fail"}
                         </span>
                       )}
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${

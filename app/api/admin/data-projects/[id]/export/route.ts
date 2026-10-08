@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { parseMetadataFields, sanitizeCaptureTrace } from "@/lib/project-config";
+import { parseMetadataFields, sanitizeCaptureTrace, reviewOrgList } from "@/lib/project-config";
 
 // GET /api/admin/data-projects/[id]/export?format=csv|json&status=approved|pending|all
 // Delivery manifest for a client: one row per submission with its files, the
@@ -77,7 +77,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       row.mirroredView = trace?.mirrored ?? "";
       row.visibleCrop = trace?.crop ? `${trace.crop.x},${trace.crop.y},${trace.crop.w},${trace.crop.h}` : "";
     }
-    if (project.reviewOrgId) {
+    if (reviewOrgList(project).length) {
       row.clientVerdict = s.clientVerdict ?? "";
       row.clientNote = s.clientNote ?? "";
       row.clientReviewedAt = s.clientReviewedAt?.toISOString() ?? "";

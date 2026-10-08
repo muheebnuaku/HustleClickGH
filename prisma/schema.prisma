@@ -369,7 +369,8 @@ model DataProject {
   // Internal organisation
   clientName         String?          // end client the data is for (admin-only label)
   referenceCode      String?          // internal job / batch code
-  reviewOrgId        String?          // client Organization allowed to review (pass/fail) submissions on its portal
+  reviewOrgId        String?          // first reviewing client (kept for older readers); full list in reviewOrgIds
+  reviewOrgIds       String?          // JSON list of client Organizations that review (pass/fail) submissions — they share one verdict
   payoutMode         String           @default("individual") // individual | via_leader (paid in bulk to the contributor's team leader)
   assignedLeaderIds  String?          // JSON string[] of field-team leaders running this project; null = open to everyone
   currency           String           @default("GHS") // reward currency; non-GHS projects must be paid via team leaders
@@ -476,6 +477,7 @@ model DataSubmission {
   clientVerdict   String?     // client review on the org portal: "pass" | "fail" (null = not reviewed)
   clientNote      String?
   clientReviewedAt DateTime?
+  clientReviewedByOrgId String? // which reviewing client gave the current verdict
   consentGiven    Boolean     @default(false)
   consentGivenAt  DateTime?
   status          String      @default("pending") // pending | approved | rejected

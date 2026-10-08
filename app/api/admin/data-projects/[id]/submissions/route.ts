@@ -59,8 +59,11 @@ export async function GET(
       (leaderIds.length ? await prisma.user.findMany({ where: { id: { in: leaderIds } }, select: { id: true, fullName: true, leaderRole: true } }) : [])
         .map((l) => [l.id, l]),
     );
+    const verdictOrgIds = Array.from(new Set(submissions.map((s) => s.clientReviewedByOrgId).filter((x): x is string => !!x)));
+    const verdictOrg = new Map((verdictOrgIds.length ? await prisma.organization.findMany({ where: { id: { in: verdictOrgIds } }, select: { id: true, name: true } }) : []).map((o) => [o.id, o.name]));
     const enriched = submissions.map((s) => ({
       ...s,
+      clientReviewedBy: s.clientReviewedByOrgId ? verdictOrg.get(s.clientReviewedByOrgId) ?? null : null,
       contributorQuality: quality.get(s.userId) ?? null,
       team: s.user.teamLeaderId ? { id: s.user.teamLeaderId, name: leaders.get(s.user.teamLeaderId)?.fullName ?? "Team", role: leaders.get(s.user.teamLeaderId)?.leaderRole ?? null } : null,
     }));

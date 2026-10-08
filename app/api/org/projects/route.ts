@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { currentOrg } from "@/lib/org-auth";
 import { LICENSES, DEFAULT_LICENSE } from "@/lib/licenses";
+import { reviewOrgList } from "@/lib/project-config";
 
 // GET /api/org/projects — the org's own projects with collection progress.
 export async function GET() {
@@ -12,7 +13,8 @@ export async function GET() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const projects = await (prisma.dataProject.findMany as any)({
     // Own (funded) projects + admin projects this org was granted review access to.
-    where: { OR: [{ orgId: org.id }, { reviewOrgId: org.id }] },
+    // Owned, or reviewed (any position in the reviewer list).
+    where: { OR: [{ orgId: org.id }, { reviewOrgId: org.id }, { reviewOrgIds: { contains: `"${org.id}"` } }] },
     orderBy: { createdAt: "desc" },
   });
   const ids = (projects as Array<{ id: string }>).map((p) => p.id);
@@ -32,7 +34,7 @@ export async function GET() {
   }
 
   // Submissions still waiting for this client's pass/fail, on projects they review.
-  const reviewIds = (projects as Array<{ id: string; reviewOrgId?: string | null }>).filter((p) => p.reviewOrgId === org.id).map((p) => p.id);
+  const reviewIds = (projects as Array<{ id: string; reviewOrgId?: string | null; reviewOrgIds?: string | null }>).filter((p) => reviewOrgList(p).includes(org.id)).map((p) => p.id);
   const todo = reviewIds.length
     ? await prisma.dataSubmission.groupBy({
         by: ["projectId"],
@@ -50,7 +52,7 @@ export async function GET() {
       budget: p.budget, spent: p.spent, createdAt: p.createdAt,
       counts: counts.get(p.id as string) || { pending: 0, approved: 0, rejected: 0 },
       access: p.orgId === org.id ? "owner" : "review",
-      canReview: p.reviewOrgId === org.id,
+      canReview: reviewOrgList(p as { reviewOrgId?: string | null; reviewOrgIds?: string | null }).includes(org.id),
       toReview: toReview.get(p.id as string) ?? 0,
     })),
   });

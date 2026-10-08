@@ -294,7 +294,7 @@ export function buildProjectSetupData(body: Record<string, unknown>) {
     requireGeo: body.requireGeo === true,
     clientName: str(body.clientName, 120),
     referenceCode: str(body.referenceCode, 60),
-    reviewOrgId: str(body.reviewOrgId, 60),
+    ...reviewOrgFields(body),
     payoutMode: body.payoutMode === "via_leader" ? "via_leader" : "individual",
     assignedLeaderIds: stringListToDb(body.assignedLeaderIds),
     currency: normalizeCurrency(body.currency),
@@ -303,6 +303,18 @@ export function buildProjectSetupData(body: Record<string, unknown>) {
     // Only via-leader projects may hide the pay; direct pay lands in their balance anyway.
     showReward: body.payoutMode === "via_leader" ? body.showReward !== false : true,
   };
+}
+
+/** All client organizations that review a project (new list + the older single field). */
+export function reviewOrgList(p: { reviewOrgId?: string | null; reviewOrgIds?: string | null }): string[] {
+  return Array.from(new Set([...parseStringList(p.reviewOrgIds), ...(p.reviewOrgId ? [p.reviewOrgId] : [])]));
+}
+
+/** Wizard input (reviewOrgIds list, or the older single reviewOrgId) → stored fields. */
+function reviewOrgFields(body: Record<string, unknown>) {
+  const raw = Array.isArray(body.reviewOrgIds) ? body.reviewOrgIds : body.reviewOrgId ? [body.reviewOrgId] : [];
+  const ids = Array.from(new Set(raw.filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim().slice(0, 60)))).slice(0, 20);
+  return { reviewOrgId: ids[0] ?? null, reviewOrgIds: ids.length ? JSON.stringify(ids) : null };
 }
 
 /** True when contributors must not see this project's reward (their leader pays them). */

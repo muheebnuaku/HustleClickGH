@@ -57,6 +57,7 @@ export interface WizardProject {
   referenceCode: string | null;
   orgName?: string | null;
   reviewOrgId?: string | null;
+  reviewOrgIds?: string[];
   payoutMode?: string | null;
   showReward?: boolean;
   allowUpload?: boolean;
@@ -123,7 +124,8 @@ function initialForm(p?: WizardProject | null) {
     malesNeeded: p?.malesNeeded != null ? String(p.malesNeeded) : "",
     femalesNeeded: p?.femalesNeeded != null ? String(p.femalesNeeded) : "",
     clientName: p?.clientName ?? "",
-    reviewOrgId: p?.reviewOrgId ?? "",
+    // Client organizations that review submissions (they share one set of verdicts).
+    reviewOrgIds: p?.reviewOrgIds?.length ? p.reviewOrgIds : p?.reviewOrgId ? [p.reviewOrgId] : ([] as string[]),
     payoutMode: p?.payoutMode === "via_leader" ? "via_leader" : "individual",
     showReward: p?.showReward ?? true,
     assignedLeaderIds: p?.assignedLeaderIds ?? ([] as string[]),
@@ -633,14 +635,20 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
               <Reveal
                 title="Let the client review submissions"
                 help="They log in to their client portal, check each recording and its details, and mark it Pass or Fail."
-                on={!!form.reviewOrgId}
-                onChange={(v) => set({ reviewOrgId: v ? orgs[0]?.id ?? "" : "" })}
+                on={form.reviewOrgIds.length > 0}
+                onChange={(v) => set({ reviewOrgIds: v ? (orgs[0] ? [orgs[0].id] : []) : [] })}
               >
                 {orgs.length ? (
-                  <Field label="Client account" hint="Contributors are shown to the client by reference ID only.">
-                    <select className={inputCls} value={form.reviewOrgId} onChange={(e) => set({ reviewOrgId: e.target.value })}>
-                      {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-                    </select>
+                  <Field label="Client accounts" hint="Contributors are shown to the client by reference ID only.">
+                    <MultiSelect
+                      placeholder="Choose one or more clients"
+                      value={form.reviewOrgIds}
+                      onChange={(v) => set({ reviewOrgIds: v })}
+                      options={orgs.map((o) => ({ value: o.id, label: o.name }))}
+                    />
+                    {form.reviewOrgIds.length > 1 && (
+                      <span className="mt-1.5 block text-xs text-zinc-500">They all see the same submissions and the same Pass / Fail — whatever one client marks, the others see (with who marked it).</span>
+                    )}
                   </Field>
                 ) : (
                   <p className="text-sm text-zinc-500">No client accounts yet. Create one under <strong>Organizations</strong> first, then come back.</p>
@@ -799,7 +807,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
               <Row step="basics" label="Title" value={<span className="font-medium">{form.title || "—"}</span>} />
               {(form.clientName || form.referenceCode) && <Row step="basics" label="Client / reference" value={[form.clientName, form.referenceCode].filter(Boolean).join(" · ")} />}
               <Row step="people" label="Field teams" value={useTeams && form.assignedLeaderIds.length ? form.assignedLeaderIds.map((id) => leaders.find((l) => l.id === id)?.fullName ?? "—").join(", ") : "Open to everyone"} />
-              <Row step="people" label="Client review" value={form.reviewOrgId ? orgs.find((o) => o.id === form.reviewOrgId)?.name ?? "Selected client" : "None"} />
+              <Row step="people" label="Client review" value={form.reviewOrgIds.length ? form.reviewOrgIds.map((id) => orgs.find((o) => o.id === id)?.name ?? "Client").join(", ") : "None"} />
               <Row step="audience" label="Who can take it" value={
                 <>
                   {useLocation && locationSummary ? locationSummary : "Anyone"}

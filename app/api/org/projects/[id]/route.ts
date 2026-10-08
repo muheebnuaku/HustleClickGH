@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { currentOrg } from "@/lib/org-auth";
+import { reviewOrgList } from "@/lib/project-config";
 import { getLicense } from "@/lib/licenses";
 
 // GET /api/org/projects/[id] — detail + submission summary (org must own it).
@@ -12,7 +13,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const project = await (prisma.dataProject.findUnique as any)({ where: { id } });
-  const access = project?.orgId === org.id ? "owner" : project?.reviewOrgId === org.id ? "review" : null;
+  const access = project?.orgId === org.id ? "owner" : project && reviewOrgList(project).includes(org.id) ? "review" : null;
   if (!project || !access) {
     return NextResponse.json({ message: "Project not found" }, { status: 404 });
   }
