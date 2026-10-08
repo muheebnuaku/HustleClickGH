@@ -31,6 +31,17 @@ export async function GET() {
     counts.set(g.projectId, c);
   }
 
+  // Submissions still waiting for this client's pass/fail, on projects they review.
+  const reviewIds = (projects as Array<{ id: string; reviewOrgId?: string | null }>).filter((p) => p.reviewOrgId === org.id).map((p) => p.id);
+  const todo = reviewIds.length
+    ? await prisma.dataSubmission.groupBy({
+        by: ["projectId"],
+        where: { projectId: { in: reviewIds }, status: { not: "rejected" }, clientVerdict: null },
+        _count: { _all: true },
+      })
+    : [];
+  const toReview = new Map(todo.map((t) => [t.projectId, t._count._all]));
+
   return NextResponse.json({
     walletBalance: org.walletBalance,
     projects: (projects as Array<Record<string, unknown>>).map((p) => ({
@@ -39,6 +50,8 @@ export async function GET() {
       budget: p.budget, spent: p.spent, createdAt: p.createdAt,
       counts: counts.get(p.id as string) || { pending: 0, approved: 0, rejected: 0 },
       access: p.orgId === org.id ? "owner" : "review",
+      canReview: p.reviewOrgId === org.id,
+      toReview: toReview.get(p.id as string) ?? 0,
     })),
   });
 }

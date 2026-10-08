@@ -12,7 +12,7 @@ import { CaptureTraceView } from "@/components/capture-trace-view";
 import type { CaptureTrace, MetadataField } from "@/lib/project-config";
 import { formatDate, cn } from "@/lib/utils";
 import { ArrowLeft, Check, X, Loader2, MapPin, RotateCcw, ClipboardCheck, ExternalLink } from "lucide-react";
-import { SkeletonList } from "@/components/ui/page-kit";
+import { SkeletonList, PageHeader, Segmented } from "@/components/ui/page-kit";
 
 interface Sub {
   id: string;
@@ -117,30 +117,21 @@ export default function OrgReviewPage() {
 
   return (
     <OrgLayout>
-      <div className="max-w-3xl mx-auto space-y-5">
-        <Link href={`/org/projects/${id}`} className="inline-flex items-center gap-2 text-sm text-zinc-500 hover:text-foreground"><ArrowLeft size={16} /> Back to project</Link>
+      <div className="space-y-5">
+        <Link href={`/org/projects/${id}`} className="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-foreground"><ArrowLeft size={15} />Project overview</Link>
 
-        <div className="flex items-start gap-3">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shrink-0"><ClipboardCheck size={21} /></div>
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground break-words">Review submissions</h1>
-            <p className="text-sm text-zinc-500 break-words">{title}</p>
-          </div>
-        </div>
+        <PageHeader icon={ClipboardCheck} eyebrow={title || "Project"} title="Review submissions"
+          description={`${review.toReview} to review · ${review.pass} passed · ${review.fail} failed`} />
 
-        <p className="text-sm text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3">
+        <p className="text-sm text-zinc-600 dark:text-zinc-400 bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4">
           Check each recording and its details, then mark it <strong className="text-emerald-600">Pass</strong> or <strong className="text-red-600">Fail</strong>.
           Our team uses your verdicts before final approval. Contributors are shown by reference ID only.
         </p>
 
-        <div className="inline-flex max-w-full flex-wrap gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-800/70">
-          {tabs.map((t) => (
-            <button key={t.value} onClick={() => changeFilter(t.value)}
-              className={cn("rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-                filter === t.value ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-50" : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400")}>
-              {t.label}{t.count !== undefined && <span className="ml-1.5 text-xs opacity-60 tabular-nums">{t.count}</span>}
-            </button>
-          ))}
+        <div className="sticky top-14 z-20 -mx-4 bg-zinc-50/90 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 dark:bg-zinc-950/90">
+          <div className="max-w-full overflow-x-auto">
+            <Segmented<Filter> value={filter} onChange={changeFilter} options={tabs} />
+          </div>
         </div>
 
         {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}

@@ -3,95 +3,131 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { OrgLayout } from "@/components/org-layout";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { PageSkeleton, Panel, StatCard, EmptyState } from "@/components/ui/page-kit";
+import { ProjectCard, type OrgProject } from "@/components/org/org-ui";
 import { formatUsd } from "@/lib/utils";
-import { orgStatusLabel, orgStatusClass } from "@/lib/org-status";
-import { Wallet, Database, Plus, ArrowRight, ShieldCheck, X } from "lucide-react";
-import { PageSkeleton } from "@/components/ui/page-kit";
-
-interface P { id: string; title: string; status: string; currentSubmissions: number; maxSubmissions: number; counts: { pending: number; approved: number }; budget: number; spent: number; }
+import { FolderKanban, ClipboardCheck, CheckCircle2, Wallet, Plus, ArrowRight, ShieldCheck, X, Hourglass, Database } from "lucide-react";
 
 export default function OrgDashboard() {
   const [wallet, setWallet] = useState(0);
-  const [projects, setProjects] = useState<P[]>([]);
+  const [projects, setProjects] = useState<OrgProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [orgName, setOrgName] = useState("");
   const [mustSetPassword, setMustSetPassword] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    fetch("/api/org/projects").then((r) => r.ok ? r.json() : null).then((d) => {
+    let alive = true;
+    Promise.all([
+      fetch("/api/org/projects").then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/org/me").then((r) => (r.ok ? r.json() : null)),
+    ]).then(([d, me]) => {
+      if (!alive) return;
       if (d) { setWallet(d.walletBalance ?? 0); setProjects(d.projects ?? []); }
-    }).catch(() => {}).finally(() => setLoading(false));
-    fetch("/api/org/me").then((r) => r.ok ? r.json() : null).then((d) => {
-      if (d?.org) { setOrgName(d.org.name || ""); setMustSetPassword(!!d.org.mustSetPassword); }
-    }).catch(() => {});
+      if (me?.org) { setOrgName(me.org.name || ""); setMustSetPassword(!!me.org.mustSetPassword); }
+    }).catch(() => {}).finally(() => alive && setLoading(false));
+    return () => { alive = false; };
   }, []);
 
-  const active = projects.filter((p) => p.status === "active").length;
-  const pending = projects.reduce((s, p) => s + (p.counts?.pending || 0), 0);
-  const collected = projects.reduce((s, p) => s + (p.counts?.approved || 0), 0);
-
   if (loading) return <OrgLayout><PageSkeleton /></OrgLayout>;
+
+  const live = projects.filter((p) => p.status === "active").length;
+  const awaitingApproval = projects.filter((p) => p.status === "pending_review");
+  const collected = projects.reduce((s, p) => s + (p.counts?.approved || 0), 0);
+  const toReview = projects.filter((p) => p.canReview && (p.toReview ?? 0) > 0);
+  const totalToReview = toReview.reduce((n, p) => n + (p.toReview ?? 0), 0);
+  const spent = projects.filter((p) => p.access !== "review").reduce((s, p) => s + (p.spent || 0), 0);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  // Things that need the client — shown first, only when there's something to do.
+  const tasks = [
+    ...(mustSetPassword && !dismissed ? [{ key: "pw", icon: ShieldCheck, tone: "amber", title: "Secure your account", text: "You're still using the temporary password from your invite.", href: "/org/settings", cta: "Set password" }] : []),
+    ...toReview.map((p) => ({ key: p.id, icon: ClipboardCheck, tone: "emerald", title: `${p.toReview} submission${p.toReview === 1 ? "" : "s"} to review`, text: p.title, href: `/org/projects/${p.id}/review`, cta: "Review" })),
+    ...awaitingApproval.map((p) => ({ key: `a-${p.id}`, icon: Hourglass, tone: "slate", title: "Waiting for HustleClickGH approval", text: p.title, href: `/org/projects/${p.id}`, cta: "View" })),
+  ];
 
   return (
     <OrgLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">{orgName ? `Welcome, ${orgName}` : "Overview"}</h1>
-          <p className="text-zinc-600 dark:text-zinc-400 mt-1">Fund projects, watch collection, and download your datasets.</p>
+        {/* Hero */}
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-900 via-zinc-900 to-emerald-950 p-6 text-white shadow-xl sm:p-8">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-emerald-500/20 blur-3xl" />
+          <div className="relative flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm text-emerald-200/80">{greeting}</p>
+              <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight sm:text-3xl">{orgName || "Welcome"}</h1>
+              <p className="mt-2 max-w-md text-sm text-zinc-300">Commission data collection, check quality as it comes in, and download clean, licensed datasets.</p>
+            </div>
+            <div className="shrink-0 rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur sm:min-w-[280px]">
+              <p className="text-xs text-zinc-300">Wallet balance</p>
+              <p className="mt-0.5 text-3xl font-semibold tabular-nums">{formatUsd(wallet)}</p>
+              <div className="mt-3 flex gap-2">
+                <Link href="/org/wallet" className="inline-flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"><Plus size={13} />Add funds</Link>
+                <Link href="/org/projects?new=1" className="inline-flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-400">New project</Link>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {mustSetPassword && !dismissed && (
-          <Card className="border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/10">
-            <CardContent className="p-4 flex items-start gap-3">
-              <ShieldCheck className="text-amber-600 mt-0.5 shrink-0" size={20} />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-amber-800 dark:text-amber-300">Secure your account</p>
-                <p className="text-sm text-amber-700 dark:text-amber-400">You&rsquo;re still using the temporary password from your invite. Set your own password now.</p>
-                <Link href="/org/settings"><Button size="sm" className="mt-2 bg-amber-600 hover:bg-amber-700">Set password</Button></Link>
-              </div>
-              <button onClick={() => setDismissed(true)} className="text-amber-500 hover:text-amber-700 shrink-0" aria-label="Dismiss"><X size={18} /></button>
-            </CardContent>
-          </Card>
+        {/* Needs attention */}
+        {tasks.length > 0 && (
+          <Panel className="overflow-hidden">
+            <div className="border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
+              <p className="text-sm font-semibold text-foreground">Needs your attention</p>
+            </div>
+            <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {tasks.map((t) => {
+                const Icon = t.icon;
+                return (
+                  <li key={t.key} className="flex items-center gap-3 px-5 py-3">
+                    <span className={
+                      t.tone === "amber" ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-500/10"
+                        : t.tone === "emerald" ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10"
+                          : "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-zinc-500 dark:bg-zinc-800"
+                    }><Icon size={17} /></span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">{t.title}</p>
+                      <p className="truncate text-xs text-zinc-500">{t.text}</p>
+                    </div>
+                    <Link href={t.href} className="shrink-0 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t.cta}</Link>
+                    {t.key === "pw" && (
+                      <button onClick={() => setDismissed(true)} className="shrink-0 rounded-lg p-1 text-zinc-400 hover:text-zinc-600" aria-label="Dismiss"><X size={15} /></button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </Panel>
         )}
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <Card><CardContent className="p-4"><p className="text-xs text-zinc-500">Wallet balance</p><p className="text-xl sm:text-2xl font-bold text-emerald-600 mt-1">{formatUsd(wallet)}</p></CardContent></Card>
-          <Card><CardContent className="p-4"><p className="text-xs text-zinc-500">Active projects</p><p className="text-xl sm:text-2xl font-bold text-foreground mt-1">{active}</p></CardContent></Card>
-          <Card><CardContent className="p-4"><p className="text-xs text-zinc-500">Awaiting review</p><p className="text-xl sm:text-2xl font-bold text-amber-600 mt-1">{pending}</p></CardContent></Card>
-          <Card><CardContent className="p-4"><p className="text-xs text-zinc-500">Data collected</p><p className="text-xl sm:text-2xl font-bold text-foreground mt-1">{collected}</p></CardContent></Card>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard icon={FolderKanban} tone="green" label="Live projects" value={live} hint={`${projects.length} in total`} />
+          <StatCard icon={ClipboardCheck} tone="amber" label="To review" value={totalToReview} hint={totalToReview ? "waiting for your verdict" : "all caught up"} />
+          <StatCard icon={CheckCircle2} tone="blue" label="Data collected" value={collected.toLocaleString()} hint="approved items" />
+          <StatCard icon={Wallet} tone="purple" label="Spent" value={formatUsd(spent)} hint="across your projects" />
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Link href="/org/projects"><Button className="bg-emerald-600 hover:bg-emerald-700"><Plus size={16} className="mr-1" />New project</Button></Link>
-          <Link href="/org/wallet"><Button variant="outline"><Wallet size={16} className="mr-1" />Add funds</Button></Link>
-        </div>
-
-        <Card>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold text-foreground flex items-center gap-2"><Database size={18} /> Your projects</h2>
-              <Link href="/org/projects" className="text-sm text-emerald-600 hover:underline flex items-center gap-1">All <ArrowRight size={14} /></Link>
+        {/* Projects */}
+        <div>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-base font-semibold text-foreground">Recent projects</h2>
+            {projects.length > 0 && <Link href="/org/projects" className="inline-flex items-center gap-1 text-sm font-medium text-emerald-600 hover:underline">All projects<ArrowRight size={14} /></Link>}
+          </div>
+          {projects.length === 0 ? (
+            <EmptyState
+              icon={Database}
+              title="Start your first data project"
+              description="Tell us what data you need — voice, video or face — and how many items. We review it, then our contributors start collecting."
+              action={<Link href="/org/projects?new=1" className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"><Plus size={15} />New project</Link>}
+            />
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {projects.slice(0, 6).map((p) => <ProjectCard key={p.id} p={p} />)}
             </div>
-            {projects.length === 0 ? (
-              <p className="text-sm text-zinc-500 py-6 text-center">No projects yet. Create one to start collecting data.</p>
-            ) : (
-              <div className="space-y-2">
-                {projects.slice(0, 5).map((p) => (
-                  <Link key={p.id} href={`/org/projects/${p.id}`} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900">
-                    <div className="min-w-0">
-                      <p className="font-medium text-foreground truncate">{p.title}</p>
-                      <p className="text-xs text-zinc-500">{p.counts.approved}/{p.maxSubmissions} collected · {p.counts.pending} pending</p>
-                    </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${orgStatusClass(p.status)}`}>{orgStatusLabel(p.status)}</span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          )}
+        </div>
       </div>
     </OrgLayout>
   );

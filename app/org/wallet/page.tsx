@@ -3,14 +3,13 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { OrgLayout } from "@/components/org-layout";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { formatUsd, formatDate } from "@/lib/utils";
-import { Loader2, Wallet, Plus, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
-import { PageSkeleton } from "@/components/ui/page-kit";
+import { PageHeader, PageSkeleton, Panel, Notice, Segmented, EmptyState } from "@/components/ui/page-kit";
+import { cn, formatUsd, formatDate } from "@/lib/utils";
+import { Loader2, Wallet, Plus, ArrowDownLeft, ArrowUpRight, Lock, Receipt, CreditCard } from "lucide-react";
 
 interface Tx { id: string; type: string; amount: number; status: string; provider?: string | null; createdAt: string; meta?: { projectId?: string } | null; }
+type TxFilter = "all" | "fund" | "allocation";
+const QUICK = [50, 100, 250, 500];
 
 function WalletContent() {
   const router = useRouter();
@@ -22,9 +21,10 @@ function WalletContent() {
   const [loading, setLoading] = useState(true);
   const [amount, setAmount] = useState("");
   const [funding, setFunding] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const [filter, setFilter] = useState<TxFilter>("all");
 
-  const load = useCallback(() => fetch("/api/org/wallet").then((r) => r.ok ? r.json() : null).then((d) => {
+  const load = useCallback(() => fetch("/api/org/wallet").then((r) => (r.ok ? r.json() : null)).then((d) => {
     if (d) { setBalance(d.walletBalance ?? 0); setConfigured(d.paystackConfigured); setTxs(d.transactions ?? []); }
   }).catch(() => {}).finally(() => setLoading(false)), []);
 
@@ -37,11 +37,11 @@ function WalletContent() {
       try {
         const res = await fetch("/api/org/wallet/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reference: ref }) });
         const d = await res.json();
-        if (res.ok && d.credited) setNotice("✓ Payment received — wallet topped up.");
-        else if (res.ok && d.status === "already_credited") setNotice("✓ This payment was already applied.");
-        else if (res.ok && d.status === "not_successful") setNotice("✗ Payment was not completed.");
-        else setNotice(d.message || "Could not verify payment.");
-      } catch { setNotice("Could not verify payment."); }
+        if (res.ok && d.credited) setNotice({ ok: true, text: "Payment received — your wallet has been topped up." });
+        else if (res.ok && d.status === "already_credited") setNotice({ ok: true, text: "This payment was already applied." });
+        else if (res.ok && d.status === "not_successful") setNotice({ ok: false, text: "The payment wasn't completed." });
+        else setNotice({ ok: false, text: d.message || "Couldn't verify the payment." });
+      } catch { setNotice({ ok: false, text: "Couldn't verify the payment." }); }
       router.replace("/org/wallet");
       load();
     })();
@@ -55,67 +55,110 @@ function WalletContent() {
       const res = await fetch("/api/org/wallet/fund", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount: amt }) });
       const d = await res.json();
       if (res.ok && d.authorizationUrl) { window.location.href = d.authorizationUrl; return; }
-      setNotice(d.message || "Could not start payment.");
-    } catch { setNotice("Could not start payment."); } finally { setFunding(false); }
+      setNotice({ ok: false, text: d.message || "Couldn't start the payment." });
+    } catch { setNotice({ ok: false, text: "Couldn't start the payment." }); } finally { setFunding(false); }
   };
 
-  if (loading) return <OrgLayout><PageSkeleton /></OrgLayout>;
+  if (loading) return <OrgLayout><PageSkeleton stats={3} /></OrgLayout>;
+
+  const ok = (t: Tx) => t.status === "success";
+  const fundedTotal = txs.filter((t) => t.type === "fund" && ok(t)).reduce((s, t) => s + t.amount, 0);
+  const allocated = txs.filter((t) => t.type === "allocation" && ok(t)).reduce((s, t) => s + t.amount, 0);
+  const shown = txs.filter((t) => filter === "all" || t.type === filter);
 
   return (
     <OrgLayout>
-      <div className="max-w-2xl mx-auto space-y-5">
-        <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Wallet &amp; Billing</h1>
+      <div className="space-y-6">
+        <PageHeader icon={Wallet} title="Wallet & billing" description="Top up once, then projects are funded from your wallet when they go live." />
 
-        {notice && <div className={`p-3 rounded-lg text-sm ${notice.startsWith("✓") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>{notice}</div>}
+        {notice && <Notice tone={notice.ok ? "success" : "error"}>{notice.text}</Notice>}
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 flex items-center justify-center"><Wallet size={24} /></div>
-              <div><p className="text-sm text-zinc-500">Available balance</p><p className="text-3xl font-bold text-emerald-600">{formatUsd(balance)}</p></div>
-            </div>
-            <div className="mt-5 border-t border-zinc-100 dark:border-zinc-800 pt-4">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+          {/* Balance + top up */}
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-900 via-zinc-900 to-emerald-950 p-6 text-white shadow-xl sm:p-7">
+            <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-emerald-500/20 blur-3xl" />
+            <div className="relative">
+              <p className="flex items-center gap-2 text-sm text-zinc-300"><Wallet size={15} />Available balance</p>
+              <p className="mt-1 text-4xl font-semibold tracking-tight tabular-nums">{formatUsd(balance)}</p>
               {configured ? (
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <Input type="number" min={1} step="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount in $" className="flex-1" />
-                  <Button onClick={fund} disabled={funding || !(Number(amount) >= 1)} className="bg-emerald-600 hover:bg-emerald-700">
-                    {funding ? <><Loader2 size={16} className="mr-1 animate-spin" />Starting…</> : <><Plus size={16} className="mr-1" />Add funds</>}
-                  </Button>
+                <div className="mt-6 space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {QUICK.map((q) => (
+                      <button key={q} type="button" onClick={() => setAmount(String(q))}
+                        className={cn("rounded-full px-3.5 py-1.5 text-sm font-medium ring-1 transition-colors", Number(amount) === q ? "bg-white text-zinc-900 ring-white" : "bg-white/5 text-zinc-200 ring-white/15 hover:bg-white/10")}>
+                        ${q}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <div className="relative flex-1">
+                      <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-zinc-400">$</span>
+                      <input type="number" min={1} step="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Other amount"
+                        className="h-11 w-full rounded-xl border border-white/15 bg-white/5 pl-7 pr-3 text-sm text-white placeholder:text-zinc-500 focus:border-emerald-400 focus:outline-none focus:ring-4 focus:ring-emerald-500/20" />
+                    </div>
+                    <button onClick={fund} disabled={funding || !(Number(amount) >= 1)}
+                      className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-emerald-500 px-5 text-sm font-semibold text-white hover:bg-emerald-400 disabled:opacity-50">
+                      {funding ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}Add {Number(amount) >= 1 ? formatUsd(Number(amount)) : "funds"}
+                    </button>
+                  </div>
+                  <p className="flex items-center gap-1.5 text-xs text-zinc-400"><Lock size={12} />Secure checkout by Paystack — card or mobile money.</p>
                 </div>
               ) : (
-                <p className="text-sm text-zinc-500">Online funding isn&rsquo;t enabled yet. Contact HustleClickGH to top up your wallet.</p>
+                <p className="mt-6 rounded-xl bg-white/5 p-3 text-sm text-zinc-300 ring-1 ring-white/10">Online top-ups aren&apos;t switched on yet. Contact HustleClickGH and we&apos;ll add funds for you.</p>
               )}
-              <p className="text-xs text-zinc-400 mt-2">Funds are held in your wallet and allocated to projects when you create them. Contributor rewards are paid from a project&rsquo;s funded budget.</p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
 
-        <Card>
-          <CardContent className="p-5">
-            <h2 className="font-semibold text-foreground mb-3">Transactions</h2>
-            {txs.length === 0 ? (
-              <p className="text-sm text-zinc-500 py-4 text-center">No transactions yet.</p>
-            ) : (
-              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {txs.map((t) => {
-                  const isIn = t.type === "fund";
-                  return (
-                    <div key={t.id} className="flex items-center justify-between gap-3 py-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        {isIn ? <ArrowDownCircle size={18} className="text-emerald-500 shrink-0" /> : <ArrowUpCircle size={18} className="text-blue-500 shrink-0" />}
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground capitalize">{t.type === "fund" ? "Wallet top-up" : t.type === "allocation" ? "Project funding" : t.type}</p>
-                          <p className="text-xs text-zinc-500">{formatDate(t.createdAt)}{t.status !== "success" ? ` · ${t.status}` : ""}</p>
-                        </div>
-                      </div>
-                      <p className={`text-sm font-semibold shrink-0 ${isIn ? "text-emerald-600" : "text-zinc-600 dark:text-zinc-300"}`}>{isIn ? "+" : "−"}{formatUsd(t.amount)}</p>
+          {/* Totals */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+            <Panel className="flex items-center gap-3 p-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10"><ArrowDownLeft size={18} /></span>
+              <div><p className="text-xs text-zinc-500">Total added</p><p className="text-lg font-semibold tabular-nums">{formatUsd(fundedTotal)}</p></div>
+            </Panel>
+            <Panel className="flex items-center gap-3 p-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-500/10"><ArrowUpRight size={18} /></span>
+              <div><p className="text-xs text-zinc-500">Funded into projects</p><p className="text-lg font-semibold tabular-nums">{formatUsd(allocated)}</p></div>
+            </Panel>
+            <Panel className="p-4 text-xs text-zinc-500 sm:col-span-2 lg:col-span-1">
+              <p className="mb-1 flex items-center gap-1.5 font-semibold text-zinc-700 dark:text-zinc-300"><CreditCard size={13} />How billing works</p>
+              Your wallet funds each project when we approve it. You&apos;re only charged for submissions that pass our checks.
+            </Panel>
+          </div>
+        </div>
+
+        {/* Transactions */}
+        <Panel className="overflow-hidden">
+          <div className="flex flex-col gap-3 border-b border-zinc-100 px-5 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-zinc-800">
+            <p className="font-semibold text-foreground">Transactions</p>
+            <Segmented<TxFilter> value={filter} onChange={setFilter} options={[
+              { value: "all", label: "All", count: txs.length },
+              { value: "fund", label: "Top-ups" },
+              { value: "allocation", label: "Project funding" },
+            ]} />
+          </div>
+          {shown.length === 0 ? (
+            <div className="p-6"><EmptyState icon={Receipt} title="No transactions yet" description="Top-ups and project funding will appear here." /></div>
+          ) : (
+            <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {shown.map((t) => {
+                const isIn = t.type === "fund";
+                return (
+                  <li key={t.id} className="flex items-center gap-3 px-5 py-3">
+                    <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-xl", isIn ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10" : "bg-blue-50 text-blue-600 dark:bg-blue-500/10")}>
+                      {isIn ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">{isIn ? "Wallet top-up" : t.type === "allocation" ? "Project funding" : t.type}</p>
+                      <p className="text-xs text-zinc-500">{formatDate(t.createdAt)}{t.provider ? ` · ${t.provider}` : ""}</p>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                    {!ok(t) && <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium capitalize text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{t.status}</span>}
+                    <p className={cn("shrink-0 text-sm font-semibold tabular-nums", isIn ? "text-emerald-600" : "text-zinc-700 dark:text-zinc-200")}>{isIn ? "+" : "−"}{formatUsd(t.amount)}</p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
       </div>
     </OrgLayout>
   );
@@ -123,7 +166,7 @@ function WalletContent() {
 
 export default function OrgWalletPage() {
   return (
-    <Suspense fallback={<OrgLayout><PageSkeleton /></OrgLayout>}>
+    <Suspense fallback={<OrgLayout><PageSkeleton stats={3} /></OrgLayout>}>
       <WalletContent />
     </Suspense>
   );
