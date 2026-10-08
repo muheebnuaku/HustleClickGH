@@ -71,17 +71,22 @@ export async function POST(
     // what the leader owes instead of crediting the contributor's balance.
     // `rewarded` stays false because nothing was credited to their balance.
     if (project.payoutMode === "via_leader") {
-      const member = await prisma.user.findUnique({ where: { id: submission.userId }, select: { teamLeaderId: true } });
-      const leader = member?.teamLeaderId
-        ? await prisma.user.findUnique({ where: { id: member.teamLeaderId }, select: { id: true, fullName: true, leaderRole: true, leaderFeePercent: true } })
-        : null;
+      const member = await prisma.user.findUnique({ where: { id: submission.userId }, select: { id: true, fullName: true, teamLeaderId: true, leaderRole: true, leaderFeePercent: true } });
+      // A leader's own submission goes on their own bulk payment (no leader fee on
+      // their own work); everyone else's goes to the leader they belong to.
+      const ownItem = !!member?.leaderRole;
+      const leader = ownItem
+        ? member
+        : member?.teamLeaderId
+          ? await prisma.user.findUnique({ where: { id: member.teamLeaderId }, select: { id: true, fullName: true, teamLeaderId: true, leaderRole: true, leaderFeePercent: true } })
+          : null;
       if (!leader?.leaderRole) {
         return NextResponse.json(
           { message: "This project is paid through team leaders, but this contributor isn't in a team. Add them to a supervisor's team under Field Teams, then approve." },
           { status: 400 },
         );
       }
-      const { feePercent, feeAmount } = leaderFee(project.reward, leader.leaderFeePercent);
+      const { feePercent, feeAmount } = leaderFee(project.reward, ownItem ? 0 : leader.leaderFeePercent);
       const advanceId = await prisma.$transaction(async (tx) => {
         await tx.dataSubmission.update({
           where: { id: subId },

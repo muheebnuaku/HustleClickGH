@@ -121,7 +121,10 @@ export async function coverWithAdvance(tx: Tx, payableId: string, leaderIds: str
       data: { creditRemaining: { decrement: cost } },
     });
     if (used.count) {
-      await tx.leaderPayable.update({ where: { id: payableId }, data: { status: "sent", payoutId: a.id } });
+      // Covered by an advance. A leader's own item is simply theirs (paid); others go to "sent".
+      const row = await tx.leaderPayable.findUnique({ where: { id: payableId }, select: { contributorId: true, leaderId: true } });
+      const own = row && row.contributorId === row.leaderId;
+      await tx.leaderPayable.update({ where: { id: payableId }, data: own ? { status: "paid", paidAt: new Date(), payoutId: a.id } : { status: "sent", payoutId: a.id } });
       return a.id;
     }
   }

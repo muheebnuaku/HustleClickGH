@@ -67,8 +67,9 @@ export async function POST(
     }
 
     // Location targeting — matched on the contributor's profile location.
-    const me = await prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true, teamLeaderId: true } });
-    if (project.payoutMode === "via_leader" && !me?.teamLeaderId && session.user.role !== "admin") {
+    const me = await prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true, teamLeaderId: true, leaderRole: true } });
+    // Team leaders are paid through their own bulk payment, so they don't need a leader above them.
+    if (project.payoutMode === "via_leader" && !me?.teamLeaderId && !me?.leaderRole && session.user.role !== "admin") {
       return NextResponse.json(
         { message: "This project is paid through your supervisor. Join your supervisor's team first (Profile → Your team), then submit." },
         { status: 403 },

@@ -117,7 +117,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const scope = await leaderScope(id);
   // One bulk payment = one currency. Pay each currency separately if a team has several.
-  const owedAll = await prisma.leaderPayable.findMany({ where: { leaderId: { in: scope }, status: "owed" }, select: { id: true, amount: true, feeAmount: true, currency: true } });
+  const owedAll = await prisma.leaderPayable.findMany({ where: { leaderId: { in: scope }, status: "owed" }, select: { id: true, amount: true, feeAmount: true, currency: true, contributorId: true, leaderId: true } });
   const owedCurrencies = Array.from(new Set(owedAll.map((p) => p.currency)));
   const currency = body.currency ? normalizeCurrency(body.currency) : owedCurrencies.length === 1 ? owedCurrencies[0] : "";
   if (!currency) return NextResponse.json({ message: `This team is owed in ${owedCurrencies.join(" and ")} — record each currency as its own payment.` }, { status: 400 });
@@ -150,6 +150,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       data: { status: "sent", payoutId: created.id },
     });
     if (moved.count !== owed.length) throw new Error("CONFLICT");
+    // A leader's own items are theirs once the bulk payment arrives — nothing to pass on.
+    const own = owed.filter((p) => p.contributorId === p.leaderId).map((p) => p.id);
+    if (own.length) await tx.leaderPayable.updateMany({ where: { id: { in: own } }, data: { status: "paid", paidAt: new Date() } });
     return created;
   }).catch((e) => (e instanceof Error && e.message === "CONFLICT" ? null : Promise.reject(e)));
 

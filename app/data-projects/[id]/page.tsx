@@ -128,7 +128,8 @@ export default function DataProjectDetailPage() {
   const [canSubmitMore, setCanSubmitMore] = useState(true);
   const [bypassSlots, setBypassSlots] = useState(false);
   const [inTeam, setInTeam] = useState(false);
-  const [eligibility, setEligibility] = useState<{ eligible: boolean; reason: string | null; needsLocation: boolean }>({ eligible: true, reason: null, needsLocation: false });
+  const [eligibility, setEligibility] = useState<{ eligible: boolean; reason: string | null; needsLocation: boolean; kind: "location" | "team" | null }>({ eligible: true, reason: null, needsLocation: false, kind: null });
+  const [isLeader, setIsLeader] = useState(false);
   // In-app capture + per-submission details
   const [captureTrace, setCaptureTrace] = useState<CaptureTrace | null>(null);
   const [captureKey, setCaptureKey] = useState(0); // remount the recorder after a submit
@@ -164,7 +165,8 @@ export default function DataProjectDetailPage() {
       setCanSubmitMore(data.canSubmitMore ?? true);
       setBypassSlots(!!data.bypassSlots);
       setInTeam(!!data.inTeam);
-      setEligibility({ eligible: data.eligible ?? true, reason: data.ineligibleReason ?? null, needsLocation: !!data.needsLocation });
+      setIsLeader(!!data.isLeader);
+      setEligibility({ eligible: data.eligible ?? true, reason: data.ineligibleReason ?? null, needsLocation: !!data.needsLocation, kind: data.ineligibleKind ?? null });
     } catch {
       setError("Failed to load project");
     } finally {
@@ -686,7 +688,7 @@ export default function DataProjectDetailPage() {
         {canSubmitMore && !eligibility.eligible && (
           <Card className="p-6 text-center">
             <MapPin size={32} className="mx-auto mb-2 text-emerald-600 opacity-70" />
-            <p className="font-medium text-foreground">Not available in your area</p>
+            <p className="font-medium text-foreground">{eligibility.kind === "team" ? "Only for selected field teams" : "Not available in your area"}</p>
             <p className="text-sm text-zinc-500 mt-1">{eligibility.reason}</p>
             {eligibility.needsLocation && (
               <Link href="/profile" className="inline-block mt-3 text-sm font-medium text-blue-600 hover:underline">Add my location →</Link>
@@ -699,7 +701,11 @@ export default function DataProjectDetailPage() {
         {canSubmitMore && eligibility.eligible && project.payoutMode === "via_leader" && (
           inTeam ? (
             <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800 dark:border-violet-900 dark:bg-violet-500/10 dark:text-violet-300">
-              <strong>Paid through your team leader.</strong> When your recording is approved, your supervisor pays you — you&apos;ll see it under Withdraw → &ldquo;Paid through your team leader&rdquo;.
+              {isLeader ? (
+                <><strong>Your team&apos;s project.</strong> Your own approved recordings are added to your next bulk payment from HustleClickGH, together with your team&apos;s.</>
+              ) : (
+                <><strong>Paid through your team leader.</strong> When your recording is approved, your supervisor pays you — you&apos;ll see it under Withdraw → &ldquo;Paid through your team leader&rdquo;.</>
+              )}
             </div>
           ) : (
             <Card className="p-6 text-center">

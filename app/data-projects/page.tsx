@@ -159,7 +159,7 @@ export default function DataProjectsPage() {
         {otherProjects.length > 0 && (
           <div>
             <button onClick={() => setShowOther((v) => !v)} className="text-sm font-medium text-zinc-500 hover:text-foreground">
-              {showOther ? "Hide" : "Show"} {otherProjects.length} project{otherProjects.length === 1 ? "" : "s"} not available in your area
+              {showOther ? "Hide" : "Show"} {otherProjects.length} project{otherProjects.length === 1 ? "" : "s"} not available to you
             </button>
             {showOther && (
               <div className="mt-3 space-y-2">

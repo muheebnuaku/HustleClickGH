@@ -156,7 +156,15 @@ export async function POST(request: Request) {
         prisma.user.update({ where: { id: user.id }, data: { leaderRole: null, leaderAlsoSupervisor: false, leaderFeePercent: null, teamCode: null, teamLeaderId: user.leaderRole === "representative" ? null : user.teamLeaderId } }),
       ]);
       log({ action, target: user.id, targetName: user.fullName, membersMovedTo: moveTo });
-      return NextResponse.json({ message: `${user.fullName} no longer holds a leader position.` });
+      // Projects assigned only to field teams stay closed to everyone else — tell the admin to reassign.
+      const stillAssigned = await prisma.dataProject.findMany({
+        where: { status: { in: ["active", "paused", "pending_review"] }, assignedLeaderIds: { contains: `"${user.id}"` } },
+        select: { title: true },
+      });
+      const warn = stillAssigned.length
+        ? ` Note: ${stillAssigned.map((p) => `"${p.title}"`).join(", ")} ${stillAssigned.length === 1 ? "is" : "are"} still assigned to their team — edit ${stillAssigned.length === 1 ? "it" : "them"} under Data Projects → Team & client to pick another team.`
+        : "";
+      return NextResponse.json({ message: `${user.fullName} no longer holds a leader position.${warn}` });
     }
 
     // Put a contributor in a leader's team (or move them).

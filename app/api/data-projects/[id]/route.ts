@@ -30,12 +30,12 @@ export async function GET(
         where: { projectId: id, userId },
         orderBy: { submittedAt: "desc" },
       }),
-      prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true, teamLeaderId: true } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true, teamLeaderId: true, leaderRole: true } }),
     ]);
-    let elig: { eligible: true } | { eligible: false; reason: string; needsLocation: boolean } =
+    let elig: { eligible: true } | { eligible: false; reason: string; needsLocation: boolean; kind?: "team" } =
       session.user.role === "admin" ? { eligible: true as const } : checkLocationEligibility(project, me);
     if (elig.eligible && session.user.role !== "admin" && !canTakeAssigned(parseStringList(project.assignedLeaderIds), await teamChain(userId))) {
-      elig = { eligible: false, reason: "This project is run by specific field teams. Ask your supervisor if you can join their team.", needsLocation: false };
+      elig = { eligible: false, reason: "This project is only for selected field teams. Ask your supervisor or country representative if you can join their team.", needsLocation: false, kind: "team" };
     }
     const userSubmission = userSubmissions[0] ?? null; // newest, for back-compat
     // Rejected submissions don't count against the per-user limit (users may retry).
@@ -89,10 +89,13 @@ export async function GET(
       userSubmissionsUsed,
       maxSubmissionsPerUser: maxPerUser, // null = unlimited (managers)
       canSubmitMore,
-      inTeam: !!me?.teamLeaderId,
+      // Leaders run their own team, so they can take their team's projects too.
+      inTeam: !!me?.teamLeaderId || !!me?.leaderRole,
+      isLeader: !!me?.leaderRole,
       eligible: elig.eligible,
       ineligibleReason: elig.eligible ? null : elig.reason,
       needsLocation: elig.eligible ? false : elig.needsLocation,
+        ineligibleKind: elig.eligible ? null : elig.kind === "team" ? "team" : "location",
       bypassSlots: isManager, // managers submit beyond the project's total slots/gender quota
     });
   } catch (error) {

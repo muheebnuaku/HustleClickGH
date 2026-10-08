@@ -38,10 +38,10 @@ export async function GET() {
 
     const projectsWithStatus = projects.map((p) => {
       // Admins see everything (for testing); everyone else is matched on profile location.
-      let elig: { eligible: true } | { eligible: false; reason: string; needsLocation: boolean } =
+      let elig: { eligible: true } | { eligible: false; reason: string; needsLocation: boolean; kind?: "team" } =
         isAdmin ? { eligible: true as const } : checkLocationEligibility(p, me);
       if (elig.eligible && !isAdmin && !canTakeAssigned(parseStringList(p.assignedLeaderIds), chain)) {
-        elig = { eligible: false, reason: "This project is run by specific field teams. Ask your supervisor if you can join their team.", needsLocation: false };
+        elig = { eligible: false, reason: "This project is only for selected field teams. Ask your supervisor or country representative if you can join their team.", needsLocation: false, kind: "team" };
       }
       return {
         ...p,
@@ -55,6 +55,7 @@ export async function GET() {
         eligible: elig.eligible,
         ineligibleReason: elig.eligible ? null : elig.reason,
         needsLocation: elig.eligible ? false : elig.needsLocation,
+        ineligibleKind: elig.eligible ? null : elig.kind === "team" ? "team" : "location",
         samplePrompts: p.samplePrompts ? JSON.parse(p.samplePrompts) : [],
         languages: p.languages ? JSON.parse(p.languages) : [],
         acceptedFormats: JSON.parse(p.acceptedFormats),
