@@ -754,6 +754,8 @@ export default function DataProjectDetailPage() {
               <div className="mt-4 bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-blue-700 space-y-1">
                 <p><strong>How to record:</strong></p>
                 <p>• You record right here on this page{project.allowUpload ? " — or switch to “Upload a file” below if you already recorded it." : " — no need to upload a file."}</p>
+                {project.captureConfig?.device === "laptop" && <p>• <strong>Use a laptop or desktop computer</strong> with a webcam — it records in landscape.</p>}
+                {project.captureConfig?.device === "any" && <p>• Phone or laptop both work — the frame fits your device.</p>}
                 <p>• Keep your whole head inside the frame: the border turns <strong className="text-green-700">green</strong> when you&apos;re in, <strong className="text-red-600">red</strong> near the edge.</p>
                 {project.captureMode === "nose_dots" ? (
                   <>

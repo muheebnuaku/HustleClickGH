@@ -18,8 +18,7 @@ import { leaderLabel } from "@/lib/leader-label";
 import { CURRENCIES, currencySymbol, formatMoney } from "@/lib/currency";
 import {
   DEFAULT_CAPTURE_CONFIG, IN_APP_CAPTURE_FORMATS,
-  type CaptureConfig, type CaptureMode, type MetadataField,
-} from "@/lib/project-config";
+  type CaptureConfig, type CaptureMode, type MetadataField, CAPTURE_DEVICES } from "@/lib/project-config";
 import { DotPatternEditor } from "@/components/admin/dot-pattern-editor";
 import { MetadataFieldsEditor, toEditable, fromEditable, metadataProblem, type EditableField } from "@/components/admin/metadata-fields-editor";
 
@@ -454,6 +453,24 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
                 ? "Tap the frame to add a dot, drag to move, select one to remove. People connect them in number order."
                 : "Choose the camera contributors record with."}
             />
+            <div className="mb-5">
+              <span className="mb-1.5 block text-sm font-medium text-zinc-800 dark:text-zinc-200">Device people record on</span>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {CAPTURE_DEVICES.map((d) => {
+                  const on = captureConfig.device === d.value;
+                  return (
+                    <button key={d.value} type="button" onClick={() => setCaptureConfig({ ...captureConfig, device: d.value })}
+                      className={cn("rounded-xl border-2 p-3 text-left transition-colors", on ? "border-blue-500 bg-blue-50/60 dark:bg-blue-500/10" : "border-zinc-200 hover:border-zinc-300 dark:border-zinc-700")}>
+                      <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <span className={cn("inline-block rounded-sm border-2", on ? "border-blue-500" : "border-zinc-400", d.value === "phone" ? "h-4 w-3" : d.value === "laptop" ? "h-3 w-5" : "h-3.5 w-3.5")} />
+                        {d.label}
+                      </span>
+                      <span className="mt-1 block text-xs text-zinc-500">{d.help}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <DotPatternEditor value={captureConfig} onChange={setCaptureConfig} showDots={form.captureMode === "nose_dots"} />
             <div className="mt-4">
               <Reveal
@@ -802,7 +819,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
             <div className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200 px-5 dark:divide-zinc-800 dark:border-zinc-800">
               <Row step="type" label="Type" value={typeMeta?.label ?? "—"} />
               {isCameraType && <Row step="capture" label="Recording" value={
-                <>{form.captureMode === "upload" ? captureMeta?.label : [captureMeta?.label, form.allowUpload ? "or upload a file" : null].filter(Boolean).join(" ")}{form.captureMode === "nose_dots" && ` · ${captureConfig.dots.length} dots`}{form.captureMode !== "upload" && captureConfig.framingGuide && " · framing guide"}</>
+                <>{form.captureMode === "upload" ? captureMeta?.label : [captureMeta?.label, form.allowUpload ? "or upload a file" : null].filter(Boolean).join(" ")}{form.captureMode === "nose_dots" && ` · ${captureConfig.dots.length} dots`}{form.captureMode !== "upload" && ` · ${CAPTURE_DEVICES.find((d) => d.value === captureConfig.device)?.label ?? "Phone"}`}{form.captureMode !== "upload" && captureConfig.framingGuide && " · framing guide"}</>
               } />}
               <Row step="basics" label="Title" value={<span className="font-medium">{form.title || "—"}</span>} />
               {(form.clientName || form.referenceCode) && <Row step="basics" label="Client / reference" value={[form.clientName, form.referenceCode].filter(Boolean).join(" · ")} />}

@@ -6,10 +6,10 @@
 // See lib/guided-capture-engine.ts for the tracking/recording logic.
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, RotateCcw, Square, CheckCircle2, AlertCircle, ScanFace } from "lucide-react";
+import { Camera, Loader2, RotateCcw, Square, CheckCircle2, AlertCircle, ScanFace, Laptop } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GuidedCaptureEngine, type CaptureState, type CaptureResult } from "@/lib/guided-capture-engine";
-import { CAPTURE_ASPECT, type CaptureConfig, type CaptureMode } from "@/lib/project-config";
+import { captureAspect, type CaptureConfig, type CaptureMode } from "@/lib/project-config";
 
 interface Props {
   mode: Exclude<CaptureMode, "upload">;
@@ -34,6 +34,11 @@ export function GuidedCapture({ mode, config, minDurationSecs, maxDurationSecs, 
   const [problem, setProblem] = useState<string | null>(null);
   const isDots = mode === "nose_dots";
   const total = config.dots.length;
+  // Phone vs laptop/desktop decides the frame shape (and whether a laptop-only project can be recorded here).
+  const [onPhone] = useState(() => typeof window !== "undefined" && (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 820)));
+  const aspect = captureAspect(config.device, onPhone);
+  const landscape = aspect > 1;
+  const [copied, setCopied] = useState(false);
 
   // Release the camera when leaving the page.
   useEffect(() => () => engineRef.current?.dispose(), []);
@@ -67,6 +72,7 @@ export function GuidedCapture({ mode, config, minDurationSecs, maxDurationSecs, 
       canvas: canvasRef.current,
       mode,
       config,
+      aspect,
       maxDurationSecs,
       onState: setSt,
       onFinished: handleFinished,
@@ -101,11 +107,26 @@ export function GuidedCapture({ mode, config, minDurationSecs, maxDurationSecs, 
     else hint = framingBad ? st.framingHint : "Recording… stay inside the green frame.";
   } else if (st.phase === "finishing") hint = "Saving your video…";
 
+  // Laptop-only project opened on a phone: ask them to switch devices.
+  if (config.device === "laptop" && onPhone) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-center dark:border-amber-900 dark:bg-amber-500/10">
+        <Laptop size={30} className="mx-auto mb-2 text-amber-600" />
+        <p className="font-semibold text-foreground">Please record this on a laptop or computer</p>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">This project records in landscape with a webcam. Open this page on a laptop or desktop, log in, and record there.</p>
+        <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(window.location.href); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ } }}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-700">
+          {copied ? "Link copied" : "Copy this page's link"}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
       <div
-        className="relative mx-auto w-full max-w-sm overflow-hidden rounded-2xl bg-zinc-900"
-        style={{ aspectRatio: String(CAPTURE_ASPECT) }}
+        className={`relative mx-auto w-full overflow-hidden rounded-2xl bg-zinc-900 ${landscape ? "max-w-3xl" : "max-w-sm"}`}
+        style={{ aspectRatio: String(aspect) }}
       >
         {/* Live preview (mirrored like a mirror for the selfie camera). Hidden once done. */}
         <video

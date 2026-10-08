@@ -45,6 +45,8 @@ interface EngineOpts {
   canvas: HTMLCanvasElement;
   mode: Exclude<CaptureMode, "upload">;
   config: CaptureConfig;
+  /** Width ÷ height of the frame (3/4 portrait on phones, 16/9 landscape on laptops). */
+  aspect: number;
   maxDurationSecs: number;
   onState: (s: CaptureState) => void;
   onFinished: (r: CaptureResult) => void;
@@ -63,9 +65,13 @@ const SMOOTHING = 0.45; // EMA on the nose point — steadier cursor on budget c
 // 720×960 so budget devices don't drop frames while drawing.
 const OUTPUT_FPS = 30;
 const FILE_BUDGET_BYTES = 45 * 1024 * 1024; // keep under the 50 MB storage file cap (audio + headroom)
-function outputMaxWidth(): number {
+function capable(): boolean {
   const n = navigator as Navigator & { deviceMemory?: number };
-  return (n.hardwareConcurrency ?? 4) >= 6 && (n.deviceMemory ?? 4) >= 4 ? 1080 : 720;
+  return (n.hardwareConcurrency ?? 4) >= 6 && (n.deviceMemory ?? 4) >= 4;
+}
+/** Widest output frame: portrait 1080 (720 on budget devices), landscape 1920 (1280). */
+function outputMaxWidth(aspect: number): number {
+  return aspect > 1 ? (capable() ? 1920 : 1280) : capable() ? 1080 : 720;
 }
 /** Highest bitrate that still fits the longest allowed recording in the file budget. */
 function videoBitrate(maxDurationSecs: number, width: number): number {
@@ -81,7 +87,7 @@ const TOO_CLOSE = 0.62; // face wider than this share of the frame
 const TOO_FAR = 0.16; // face narrower than this
 
 type FaceDetectorLike = {
-  detectForVideo: (v: HTMLVideoElement, ts: number) => { detections: { boundingBox?: { originX: number; originY: number; width: number; height: number }; keypoints: { x: number; y: number }[] }[] };
+  detectForVideo: (v: HTMLVideoElement | HTMLCanvasElement, ts: number) => { detections: { boundingBox?: { originX: number; originY: number; width: number; height: number }; keypoints: { x: number; y: number }[] }[] };
   close: () => void;
 };
 
@@ -162,6 +168,7 @@ export class GuidedCaptureEngine {
   // Framing guide
   private head: { x0: number; y0: number; x1: number; y1: number } | null = null;
   private faceW = 0; // face width as a share of the visible frame
+  private detCanvas: HTMLCanvasElement | null = null; // centre-square crop for wide frames
   private inFrameMs = 0;
   private lastTick = 0;
 
@@ -196,7 +203,9 @@ export class GuidedCaptureEngine {
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new DOMException("unsupported", "NotFoundError");
       this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: this.o.config.facing, width: { ideal: 1080 }, height: { ideal: 1440 }, frameRate: { ideal: OUTPUT_FPS, max: OUTPUT_FPS } },
+        video: this.o.aspect > 1
+          ? { facingMode: this.o.config.facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: OUTPUT_FPS, max: OUTPUT_FPS } }
+          : { facingMode: this.o.config.facing, width: { ideal: 1080 }, height: { ideal: 1440 }, frameRate: { ideal: OUTPUT_FPS, max: OUTPUT_FPS } },
         audio: this.o.config.recordAudio,
       });
     } catch (err) {
@@ -274,13 +283,14 @@ export class GuidedCaptureEngine {
     const vh = v.videoHeight;
     const proto = HTMLCanvasElement.prototype as HTMLCanvasElement & { captureStream?: unknown };
     if (!vw || !vh || typeof proto.captureStream !== "function") return null;
-    // Centre crop to CAPTURE_ASPECT (3:4), same as the object-cover preview.
+    // Centre crop to the frame's aspect (3:4 portrait or 16:9 landscape), same as the object-cover preview.
+    const ar = this.o.aspect;
     let sw = vw, sh = vh;
-    if (vw / vh > 3 / 4) sw = vh * (3 / 4); else sh = vw * (4 / 3);
+    if (vw / vh > ar) sw = vh * ar; else sh = vw / ar;
     const sx = (vw - sw) / 2;
     const sy = (vh - sh) / 2;
-    const outW = Math.round(Math.min(outputMaxWidth(), sw) / 2) * 2; // even dims for encoders
-    const outH = Math.round((outW * 4) / 3 / 2) * 2;
+    const outW = Math.round(Math.min(outputMaxWidth(ar), sw) / 2) * 2; // even dims for encoders
+    const outH = Math.round(outW / ar / 2) * 2;
     const c = document.createElement("canvas");
     c.width = outW;
     c.height = outH;
@@ -398,6 +408,7 @@ export class GuidedCaptureEngine {
       // Output is a fixed 30 fps from the canvas; cameraFps is what the camera actually gave.
       fps: this.recordingFromCanvas ? OUTPUT_FPS : Math.round(this.cameraFps()),
       cameraFps: Math.round(this.cameraFps()),
+      orientation: (this.o.aspect > 1 ? "landscape" : "portrait") as "landscape" | "portrait",
       ...(this.state.framing !== "off" && durationMs > 0 ? { framing: { inFramePct: Math.round(Math.min(100, (this.inFrameMs / durationMs) * 100)) } } : {}),
     };
     this.releaseCamera();
@@ -440,7 +451,29 @@ export class GuidedCaptureEngine {
       this.lastDetectTs = ts;
       let found: { x: number; y: number } | null = null;
       try {
-        const res = this.detector.detectForVideo(this.o.video, ts);
+        // Wide (laptop) frames: the face model is tuned for selfies and squeezes the whole
+        // frame to a small square, so a webcam face gets too small to find. Feed it the
+        // centre square instead (where the person sits) and map results back.
+        const v = this.o.video;
+        const vw0 = v.videoWidth, vh0 = v.videoHeight;
+        const square = vw0 > vh0 * 1.2;
+        let source: HTMLVideoElement | HTMLCanvasElement = v;
+        const side = square ? vh0 : 0, sx = square ? (vw0 - vh0) / 2 : 0;
+        if (square) {
+          const DET = 480;
+          this.detCanvas ??= Object.assign(document.createElement("canvas"), { width: DET, height: DET });
+          this.detCanvas.getContext("2d")?.drawImage(v, sx, 0, side, side, 0, 0, DET, DET);
+          source = this.detCanvas;
+        }
+        const raw = this.detector.detectForVideo(source, ts);
+        // Express everything in the full video's coordinates again.
+        const k = square ? side / 480 : 1;
+        const res = !square ? raw : {
+          detections: raw.detections.map((d) => ({
+            boundingBox: d.boundingBox && { originX: sx + d.boundingBox.originX * k, originY: d.boundingBox.originY * k, width: d.boundingBox.width * k, height: d.boundingBox.height * k },
+            keypoints: d.keypoints.map((p) => ({ x: (sx + p.x * side) / vw0, y: p.y })),
+          })),
+        };
         // Largest face = the contributor (ignore people in the background).
         const face = [...res.detections].sort(
           (a, b) => (b.boundingBox?.width ?? 0) * (b.boundingBox?.height ?? 0) - (a.boundingBox?.width ?? 0) * (a.boundingBox?.height ?? 0),
@@ -520,13 +553,15 @@ export class GuidedCaptureEngine {
     const m = this.needsTracking ? 0 : FRAME_MARGIN;
     let framing: Framing = "ok";
     let hint = "You're in the frame";
+    // Face size relative to the frame's short side (width in portrait, height in landscape).
+    const faceShort = this.faceW * Math.max(1, this.o.aspect);
     if (!h) { framing = "edge"; hint = "Move into the frame so we can see your face"; }
-    else if (this.faceW > TOO_CLOSE || (h.y1 - h.y0) > 1 - 2 * m + 0.15) { framing = "edge"; hint = "Move back a little"; }
+    else if (faceShort > TOO_CLOSE || (h.y1 - h.y0) > 1 - 2 * m + 0.15) { framing = "edge"; hint = "Move back a little"; }
     else if (h.x0 < m) { framing = "edge"; hint = "Move a little to the right"; }
     else if (h.x1 > 1 - m) { framing = "edge"; hint = "Move a little to the left"; }
     else if (h.y0 < m) { framing = "edge"; hint = "Move down a little — your head is cut off"; }
     else if (h.y1 > 1 - m) { framing = "edge"; hint = "Move up a little"; }
-    else if (!this.needsTracking && this.faceW < TOO_FAR) { framing = "far"; hint = "Come a bit closer"; }
+    else if (!this.needsTracking && faceShort < TOO_FAR) { framing = "far"; hint = "Come a bit closer"; }
     this.set({ framing, framingHint: hint });
   }
 

@@ -5,8 +5,9 @@
 import { CAPTURE_ASPECT, type CaptureTrace } from "@/lib/project-config";
 
 export function CaptureTraceView({ trace }: { trace: CaptureTrace }) {
-  const W = 120;
-  const H = W / CAPTURE_ASPECT;
+  const landscape = trace.videoWidth > 0 && trace.videoHeight > 0 && trace.videoWidth > trace.videoHeight;
+  const W = landscape ? 180 : 120;
+  const H = trace.videoWidth > 0 && trace.videoHeight > 0 ? (W * trace.videoHeight) / trace.videoWidth : W / CAPTURE_ASPECT;
   const pts = trace.path.map(([, x, y]) => `${(x * W).toFixed(1)},${(y * H).toFixed(1)}`).join(" ");
   const hitAt = new Map(trace.hits.map((h) => [h.index, h.tMs]));
   return (

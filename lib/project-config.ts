@@ -32,6 +32,23 @@ export interface CaptureConfig {
   showNoseCursor: boolean;
   /** Live frame border: green when the person is well inside, red near/over the edge. */
   framingGuide: boolean;
+  /** What contributors record on: phone (portrait 3:4), laptop (landscape 16:9), or any (fits the device). */
+  device: CaptureDevice;
+}
+
+export type CaptureDevice = "phone" | "laptop" | "any";
+export const CAPTURE_DEVICES: { value: CaptureDevice; label: string; help: string }[] = [
+  { value: "phone", label: "Phone", help: "Portrait (3:4) — people hold their phone upright." },
+  { value: "laptop", label: "Laptop / computer", help: "Landscape (16:9) with the webcam. Phones are asked to switch to a laptop." },
+  { value: "any", label: "Either", help: "Portrait on phones, landscape on laptops and desktops." },
+];
+export const LANDSCAPE_ASPECT = 16 / 9;
+
+/** Width ÷ height of the capture frame for this project on this device. */
+export function captureAspect(device: CaptureDevice | undefined, onPhone: boolean): number {
+  if (device === "laptop") return LANDSCAPE_ASPECT;
+  if (device === "any") return onPhone ? CAPTURE_ASPECT : LANDSCAPE_ASPECT;
+  return CAPTURE_ASPECT;
 }
 
 /** Width / height of the capture frame. Admin editor and contributor view must match. */
@@ -53,6 +70,7 @@ export const DEFAULT_CAPTURE_CONFIG: CaptureConfig = {
   recordAudio: false,
   showNoseCursor: true,
   framingGuide: true,
+  device: "phone",
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -80,6 +98,7 @@ export function parseCaptureConfig(raw: unknown): CaptureConfig {
     recordAudio: typeof obj.recordAudio === "boolean" ? obj.recordAudio : DEFAULT_CAPTURE_CONFIG.recordAudio,
     showNoseCursor: typeof obj.showNoseCursor === "boolean" ? obj.showNoseCursor : DEFAULT_CAPTURE_CONFIG.showNoseCursor,
     framingGuide: typeof obj.framingGuide === "boolean" ? obj.framingGuide : DEFAULT_CAPTURE_CONFIG.framingGuide,
+    device: obj.device === "laptop" || obj.device === "any" ? obj.device : "phone",
   };
 }
 
@@ -113,6 +132,7 @@ export interface CaptureTrace {
   /** Frame rate of the saved video, and what the camera itself delivered. */
   fps?: number;
   cameraFps?: number;
+  orientation?: "portrait" | "landscape";
 }
 
 const MAX_TRACE_PATH = 3000;
@@ -157,6 +177,7 @@ export function sanitizeCaptureTrace(raw: unknown): CaptureTrace | null {
     crop: sanitizeCrop(t.crop),
     fps: Number.isFinite(t.fps) ? Math.round(clamp(t.fps as number, 0, 240)) : undefined,
     cameraFps: Number.isFinite(t.cameraFps) ? Math.round(clamp(t.cameraFps as number, 0, 240)) : undefined,
+    orientation: t.orientation === "landscape" ? "landscape" : t.orientation === "portrait" ? "portrait" : undefined,
     framing: t.framing && typeof t.framing === "object" && Number.isFinite((t.framing as { inFramePct?: unknown }).inFramePct)
       ? { inFramePct: Math.round(clamp((t.framing as { inFramePct: number }).inFramePct, 0, 100)) }
       : undefined,
