@@ -34,8 +34,6 @@ export async function middleware(request: NextRequest) {
     path.startsWith("/join/") ||
     path.startsWith("/api/s/") ||
     path === "/api/partners" ||
-    // Paystack calls this server-to-server with no session; it's signature-verified.
-    path === "/api/paystack/webhook" ||
     // Biometric sign-in happens before authentication, so these must be public
     path === "/api/webauthn/auth/options" ||
     path === "/api/webauthn/auth/verify";

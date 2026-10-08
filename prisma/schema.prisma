@@ -697,3 +697,10 @@ model LanaMessage {
 
   @@index([createdAt])
 }
+
+// Admin-managed settings (e.g. crypto wallets clients pay into). Values are JSON strings.
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

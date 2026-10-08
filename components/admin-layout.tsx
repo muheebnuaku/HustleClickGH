@@ -5,8 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LogOut, LayoutDashboard, Users, Wallet, MessageSquare, QrCode, Menu, X, Database, Activity, Video, Phone,
-  Building2, Bell, ArrowLeftRight, Handshake, ChevronRight, Network, type LucideIcon,
-} from "lucide-react";
+  Building2, Bell, ArrowLeftRight, Handshake, ChevronRight, Network, type LucideIcon, Bitcoin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { LanaPanel } from "@/components/lana-panel";
@@ -32,7 +31,10 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   },
   {
     title: "Money",
-    items: [{ href: "/admin/payments", label: "Payments", icon: Wallet }],
+    items: [
+      { href: "/admin/payments", label: "Payments", icon: Wallet },
+      { href: "/admin/client-topups", label: "Client top-ups", icon: Bitcoin },
+    ],
   },
   {
     title: "Calls",

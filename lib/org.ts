@@ -6,39 +6,38 @@ export async function getOrgForUser(userId: string) {
 }
 
 /**
- * Credit an org wallet for a confirmed Paystack payment — idempotent.
- * Reads the pending OrgTransaction created at fund-init (source of truth for
- * orgId + amount). The pending→success flip is atomic, so the wallet is credited
- * exactly once even if the webhook and the return-verify both fire.
- * Caller must have already confirmed success with Paystack.
+ * Admin decision on a client's crypto top-up claim (idempotent — only a pending
+ * claim can be decided). Confirm credits the wallet with `amount` (the admin may
+ * correct it to what actually arrived); reject records the reason.
  */
-export async function creditFundByRef(reference: string, paid?: { amount?: number; currency?: string }): Promise<{ credited: boolean; mismatch?: boolean }> {
-  const tx = await prisma.orgTransaction.findUnique({ where: { providerRef: reference } });
-  if (!tx || tx.status === "success") return { credited: false };
+export async function decideTopup(txId: string, decision: "confirm" | "reject", opts: { amount?: number; reason?: string; adminId?: string } = {}): Promise<{ ok: boolean; message: string }> {
+  const tx = await prisma.orgTransaction.findUnique({ where: { id: txId } });
+  if (!tx || tx.type !== "fund") return { ok: false, message: "Top-up not found." };
+  if (tx.status !== "pending") return { ok: false, message: "This top-up was already handled." };
+  let meta: Record<string, unknown> = {};
+  try { meta = tx.meta ? JSON.parse(tx.meta) : {}; } catch { /* keep empty */ }
 
-  // The payment must cover what we asked Paystack to charge (currency + amount).
-  if (paid) {
-    let expected: { chargedAmount?: number; chargedCurrency?: string } = {};
-    try { expected = tx.meta ? JSON.parse(tx.meta) : {}; } catch { /* older rows */ }
-    const wantCur = expected.chargedCurrency ?? "USD";
-    const wantAmt = expected.chargedAmount ?? tx.amount;
-    if ((paid.currency && paid.currency.toUpperCase() !== wantCur) || (paid.amount ?? 0) + 0.01 < wantAmt) {
-      await prisma.orgTransaction.updateMany({ where: { providerRef: reference, status: "pending" }, data: { status: "failed" } });
-      return { credited: false, mismatch: true };
-    }
+  if (decision === "reject") {
+    const reason = (opts.reason || "").trim().slice(0, 300);
+    if (!reason) return { ok: false, message: "Give a reason so the client knows what to do." };
+    const r = await prisma.orgTransaction.updateMany({
+      where: { id: txId, status: "pending" },
+      data: { status: "failed", meta: JSON.stringify({ ...meta, rejectReason: reason, decidedBy: opts.adminId, decidedAt: new Date().toISOString() }) },
+    });
+    return r.count ? { ok: true, message: "Top-up rejected." } : { ok: false, message: "This top-up was already handled." };
   }
 
-  const flip = await prisma.orgTransaction.updateMany({
-    where: { providerRef: reference, status: "pending" },
-    data: { status: "success" },
-  });
-  if (flip.count !== 1) return { credited: false }; // raced — already credited
-
-  await prisma.organization.update({
-    where: { id: tx.orgId },
-    data: { walletBalance: { increment: tx.amount } },
-  });
-  return { credited: true };
+  const amount = Math.round((opts.amount ?? tx.amount) * 100) / 100;
+  if (!(amount > 0)) return { ok: false, message: "Enter the amount that arrived." };
+  const [flip] = await prisma.$transaction([
+    prisma.orgTransaction.updateMany({
+      where: { id: txId, status: "pending" },
+      data: { status: "success", amount, meta: JSON.stringify({ ...meta, claimedAmount: tx.amount, decidedBy: opts.adminId, decidedAt: new Date().toISOString() }) },
+    }),
+  ]);
+  if (flip.count !== 1) return { ok: false, message: "This top-up was already handled." };
+  await prisma.organization.update({ where: { id: tx.orgId }, data: { walletBalance: { increment: amount } } });
+  return { ok: true, message: `Confirmed — $${amount.toFixed(2)} added to the wallet.` };
 }
 
 /**

@@ -1,5 +1,5 @@
 // Server-side AI quality review of a data submission using the OpenAI vision
-// API. Gated on OPENAI_API_KEY (like Paystack/Supabase) — absent it, the
+// API. Gated on OPENAI_API_KEY (like Supabase) — absent it, the
 // feature simply isn't offered. This SUGGESTS a score/verdict for the human
 // reviewer; it never auto-approves.
 
