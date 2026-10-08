@@ -20,7 +20,8 @@ interface Props {
 const clamp01 = (n: number) => Math.min(0.97, Math.max(0.03, n));
 
 export function DotPatternEditor({ value, onChange, showDots }: Props) {
-  // Laptop projects record landscape; phone / "either" projects are edited in the portrait frame.
+  // Laptop projects record landscape; dots are edited in the head-sized 3:4 zone in the
+  // middle (see dotZone), which is the whole frame on phones.
   const aspect = value.device === "laptop" ? LANDSCAPE_ASPECT : CAPTURE_ASPECT;
   const wide = aspect > 1;
   const boxRef = useRef<HTMLDivElement>(null);
@@ -82,7 +83,7 @@ export function DotPatternEditor({ value, onChange, showDots }: Props) {
     const out: CaptureDot[] = [];
     for (let tries = 0; out.length < n && tries < 500; tries++) {
       const d = { x: round3(0.12 + Math.random() * 0.76), y: round3(0.12 + Math.random() * 0.76) };
-      if (out.every((o) => Math.hypot(o.x - d.x, (o.y - d.y) * (1 / aspect)) > value.hitRadius * 3)) out.push(d);
+      if (out.every((o) => Math.hypot(o.x - d.x, (o.y - d.y) * (1 / CAPTURE_ASPECT)) > value.hitRadius * 3)) out.push(d);
     }
     setDots(out);
     setSelected(null);
@@ -94,30 +95,28 @@ export function DotPatternEditor({ value, onChange, showDots }: Props) {
   return (
     <div className="space-y-4">
       {showDots && (
-        <div className="flex flex-col md:flex-row gap-4">
+        <div className={`flex flex-col gap-4 ${wide ? "" : "md:flex-row"}`}>
           {/* Frame */}
-          <div className={`w-full mx-auto md:mx-0 shrink-0 ${wide ? "max-w-[420px]" : "max-w-[280px]"}`}>
+          <div className={`w-full mx-auto md:mx-0 shrink-0 ${wide ? "max-w-[520px]" : "max-w-[280px]"}`}>
+            <div
+              className="relative w-full overflow-hidden rounded-2xl bg-zinc-950 flex justify-center"
+              style={{ aspectRatio: String(aspect) }}
+            >
+            {wide && <span className="absolute left-2 top-2 text-[10px] text-zinc-500 pointer-events-none">Laptop frame</span>}
             <div
               ref={boxRef}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={endDrag}
               onPointerCancel={endDrag}
-              className="relative w-full select-none touch-none cursor-crosshair overflow-hidden rounded-2xl bg-gradient-to-b from-zinc-700 to-zinc-900"
-              style={{ aspectRatio: String(aspect) }}
+              className={`relative h-full select-none touch-none cursor-crosshair overflow-hidden bg-gradient-to-b from-zinc-700 to-zinc-900 ${wide ? "ring-1 ring-white/20" : "w-full rounded-2xl"}`}
+              style={{ aspectRatio: String(CAPTURE_ASPECT) }}
             >
               {/* Face guide so dots can be placed relative to where a head sits */}
-              {wide ? (
-                <svg viewBox="0 0 400 225" className="absolute inset-0 h-full w-full pointer-events-none" aria-hidden>
-                  <ellipse cx="200" cy="100" rx="46" ry="60" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="3" strokeDasharray="8 8" />
-                  <path d="M120 225 C130 185 165 172 200 172 C235 172 270 185 280 225" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="3" />
-                </svg>
-              ) : (
-                <svg viewBox="0 0 300 400" className="absolute inset-0 h-full w-full pointer-events-none" aria-hidden>
-                  <ellipse cx="150" cy="185" rx="78" ry="102" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="3" strokeDasharray="8 8" />
-                  <path d="M40 400 C60 320 110 300 150 300 C190 300 240 320 260 400" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="3" />
-                </svg>
-              )}
+              <svg viewBox="0 0 300 400" className="absolute inset-0 h-full w-full pointer-events-none" aria-hidden>
+                <ellipse cx="150" cy="185" rx="78" ry="102" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="3" strokeDasharray="8 8" />
+                <path d="M40 400 C60 320 110 300 150 300 C190 300 240 320 260 400" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="3" />
+              </svg>
               <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="absolute inset-0 h-full w-full pointer-events-none" aria-hidden>
                 <polyline
                   points={dots.map((d) => `${d.x},${d.y}`).join(" ")}
@@ -154,7 +153,9 @@ export function DotPatternEditor({ value, onChange, showDots }: Props) {
                 </button>
               )}
             </div>
+            </div>
             <p className="text-[11px] text-zinc-400 mt-1.5 text-center">Tap empty space to add · drag to move · select a dot to remove it</p>
+            {wide && <p className="text-[11px] text-zinc-400 mt-0.5 text-center">On laptops the dots stay around the head in the middle, so nobody has to lean out of frame.</p>}
           </div>
 
           {/* Dot list + tools */}

@@ -15,7 +15,7 @@
 // re-render; the UI subscribes to coarse state changes via onState.
 
 import type { CaptureConfig, CaptureMode, CaptureTrace } from "@/lib/project-config";
-import { round3 } from "@/lib/project-config";
+import { dotZone, round3 } from "@/lib/project-config";
 
 export type CapturePhase = "idle" | "starting" | "ready" | "countdown" | "recording" | "finishing" | "done" | "error";
 /** Framing guide: ok = well inside (green), far = in frame but small, edge = near/over the edge or missing (red), off = no guide. */
@@ -520,7 +520,8 @@ export class GuidedCaptureEngine {
       const dots = this.o.config.dots;
       if (this.needsTracking && this.state.currentIndex < dots.length) {
         const dot = dots[this.state.currentIndex];
-        const onDot = this.nose && Math.hypot((this.nose.x - dot.x) * W, (this.nose.y - dot.y) * H) <= this.o.config.hitRadius * W;
+        const z = dotZone(W, H);
+        const onDot = this.nose && Math.hypot(this.nose.x * W - (z.x0 + dot.x * z.w), (this.nose.y - dot.y) * H) <= this.o.config.hitRadius * z.w;
         if (onDot) {
           this.holdStart ??= now;
           if (now - this.holdStart >= this.o.config.holdMs) {
@@ -592,9 +593,11 @@ export class GuidedCaptureEngine {
     if (!this.needsTracking) return;
 
     const dots = this.o.config.dots;
-    const r = Math.max(14, this.o.config.hitRadius * W);
+    const z = dotZone(W, H);
+    const r = Math.max(14, this.o.config.hitRadius * z.w);
     const idx = this.state.currentIndex;
-    const P = (d: { x: number; y: number }) => ({ x: d.x * W, y: d.y * H });
+    const P = (d: { x: number; y: number }) => ({ x: z.x0 + d.x * z.w, y: d.y * H });
+    const nosePx = (d: { x: number; y: number }) => ({ x: d.x * W, y: d.y * H });
 
     // Connected path so far (green) + a faint guide to the next dot.
     ctx.lineCap = "round";
@@ -646,7 +649,7 @@ export class GuidedCaptureEngine {
     });
 
     if (this.o.config.showNoseCursor && this.nose) {
-      const p = P(this.nose);
+      const p = nosePx(this.nose);
       ctx.beginPath();
       ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
       ctx.fillStyle = "#3b82f6";

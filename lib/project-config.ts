@@ -54,6 +54,17 @@ export function captureAspect(device: CaptureDevice | undefined, onPhone: boolea
 /** Width / height of the capture frame. Admin editor and contributor view must match. */
 export const CAPTURE_ASPECT = 3 / 4;
 
+/**
+ * Dots always live in a head-sized 3:4 zone in the middle of the frame (the whole
+ * frame on phones). On a wide laptop frame the pattern keeps the same size and
+ * spacing relative to the face instead of stretching across the full width.
+ * Returns the zone's left edge and width in the same units as W.
+ */
+export function dotZone(W: number, H: number): { x0: number; w: number } {
+  const w = Math.min(W, H * CAPTURE_ASPECT);
+  return { x0: (W - w) / 2, w };
+}
+
 export const MAX_DOTS = 20;
 
 export const DEFAULT_CAPTURE_CONFIG: CaptureConfig = {

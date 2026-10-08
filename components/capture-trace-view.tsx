@@ -2,13 +2,14 @@
 // contributor actually traced, in the same 3:4 frame they saw. Used on the admin
 // review page and the client (org) review page.
 
-import { CAPTURE_ASPECT, type CaptureTrace } from "@/lib/project-config";
+import { CAPTURE_ASPECT, dotZone, type CaptureTrace } from "@/lib/project-config";
 
 export function CaptureTraceView({ trace }: { trace: CaptureTrace }) {
   const landscape = trace.videoWidth > 0 && trace.videoHeight > 0 && trace.videoWidth > trace.videoHeight;
   const W = landscape ? 180 : 120;
   const H = trace.videoWidth > 0 && trace.videoHeight > 0 ? (W * trace.videoHeight) / trace.videoWidth : W / CAPTURE_ASPECT;
   const pts = trace.path.map(([, x, y]) => `${(x * W).toFixed(1)},${(y * H).toFixed(1)}`).join(" ");
+  const z = dotZone(W, H);
   const hitAt = new Map(trace.hits.map((h) => [h.index, h.tMs]));
   return (
     <div className="flex gap-3 items-start">
@@ -16,8 +17,8 @@ export function CaptureTraceView({ trace }: { trace: CaptureTrace }) {
         {pts && <polyline points={pts} fill="none" stroke="#60a5fa" strokeWidth={1.2} strokeOpacity={0.8} />}
         {trace.dots.map((d, i) => (
           <g key={i}>
-            <circle cx={d.x * W} cy={d.y * H} r={7} fill={hitAt.has(i) ? "#22c55e" : "rgba(255,255,255,0.25)"} stroke="#fff" strokeWidth={1} />
-            <text x={d.x * W} y={d.y * H + 3} textAnchor="middle" fontSize={8} fontWeight={700} fill="#fff">{i + 1}</text>
+            <circle cx={z.x0 + d.x * z.w} cy={d.y * H} r={7} fill={hitAt.has(i) ? "#22c55e" : "rgba(255,255,255,0.25)"} stroke="#fff" strokeWidth={1} />
+            <text x={z.x0 + d.x * z.w} y={d.y * H + 3} textAnchor="middle" fontSize={8} fontWeight={700} fill="#fff">{i + 1}</text>
           </g>
         ))}
       </svg>

@@ -765,7 +765,7 @@ export default function DataProjectDetailPage() {
                 ) : (
                   <p>• Length: {project.minDurationSecs}–{project.maxDurationSecs} seconds.</p>
                 )}
-                <p>• Good light on your face, phone held steady at eye level.</p>
+                <p>• Good light on your face, {project.captureConfig?.device === "laptop" ? "webcam" : "camera"} steady at eye level.</p>
                 {project.requireGeo && <p>• Your device location is recorded when you submit.</p>}
               </div>
               ) : (
