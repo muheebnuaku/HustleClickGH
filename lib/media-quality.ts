@@ -10,6 +10,7 @@ export interface MediaMeta {
   width?: number;
   height?: number;
   durationSecs?: number;
+  fps?: number; // measured frames per second, video
   brightness?: number; // 0..100 (% of full-scale luma), video/image
   sharpness?: number; // Laplacian variance (higher = sharper), video/image
   loudnessDb?: number; // RMS dBFS (negative), audio/video
@@ -73,6 +74,41 @@ function analyzeFrame(source: CanvasImageSource, w: number, h: number): { bright
   }
 }
 
+/** Frames per second over ~1s of playback via requestVideoFrameCallback (0 if unsupported). */
+async function measureFps(video: HTMLVideoElement): Promise<number> {
+  const v = video as HTMLVideoElement & { requestVideoFrameCallback?: (cb: (now: number, m: { mediaTime: number; presentedFrames: number }) => void) => number };
+  if (!v.requestVideoFrameCallback) return 0;
+  video.muted = true;
+  video.currentTime = 0;
+  const samples: { t: number; n: number }[] = [];
+  await new Promise<void>((resolve) => {
+    const done = setTimeout(resolve, 1600);
+    const onFrame = (_: number, m: { mediaTime: number; presentedFrames: number }) => {
+      samples.push({ t: m.mediaTime, n: m.presentedFrames });
+      if (samples.length >= 40 || m.mediaTime > 1.4) { clearTimeout(done); resolve(); return; }
+      v.requestVideoFrameCallback!(onFrame);
+    };
+    v.requestVideoFrameCallback!(onFrame);
+    video.play().catch(() => { clearTimeout(done); resolve(); });
+  });
+  video.pause();
+  if (samples.length < 6) return 0;
+  // mediaTime steps between consecutive frames = the file's frame interval.
+  const gaps: number[] = [];
+  for (let i = 1; i < samples.length; i++) {
+    const dn = samples[i].n - samples[i - 1].n;
+    const dt = samples[i].t - samples[i - 1].t;
+    if (dn === 1 && dt > 0) gaps.push(dt);
+  }
+  if (gaps.length < 4) return 0;
+  // Average frame interval, ignoring the odd long gap from a dropped frame.
+  gaps.sort((a, b) => a - b);
+  const base = gaps[Math.floor(gaps.length / 4)];
+  const normal = gaps.filter((g) => g < base * 1.5);
+  const mean = normal.reduce((s, g) => s + g, 0) / normal.length;
+  return Math.round(1 / mean);
+}
+
 function checkDuration(dur: number | undefined, opts: AnalyzeOpts): string | undefined {
   if (dur === undefined || !isFinite(dur) || dur <= 0) return undefined;
   if (opts.minDurationSecs && dur < opts.minDurationSecs - 0.5)
@@ -112,6 +148,12 @@ async function analyzeVideo(file: File, opts: AnalyzeOpts): Promise<AnalyzeResul
       if (frame) { meta.brightness = frame.brightness; meta.sharpness = frame.sharpness; }
     } catch { /* frame sampling is best-effort */ }
 
+    // Frame rate: play a moment (muted) and count decoded frames.
+    try {
+      const fps = await measureFps(video);
+      if (fps) meta.fps = fps;
+    } catch { /* best-effort */ }
+
     // Hard gates (objective).
     const durErr = checkDuration(meta.durationSecs, opts);
     if (durErr) return { meta, hardError: durErr };
@@ -122,6 +164,7 @@ async function analyzeVideo(file: File, opts: AnalyzeOpts): Promise<AnalyzeResul
 
     // Advisory warnings.
     if (longSide && longSide < 720) meta.warnings.push("Below 720p — higher resolution preferred");
+    if (meta.fps && meta.fps < 29) meta.warnings.push(`Low frame rate (${meta.fps} fps) — 30 fps preferred`);
     if (meta.brightness !== undefined && meta.brightness < 22) meta.warnings.push("Video looks very dark");
     if (meta.sharpness !== undefined && meta.sharpness < 40) meta.warnings.push("Video may be blurry / out of focus");
     return { meta };
@@ -222,6 +265,7 @@ export function specLine(m?: Partial<MediaMeta> | null): string {
   const parts: string[] = [];
   if (m.width && m.height) parts.push(`${m.width}×${m.height}`);
   if (m.durationSecs) parts.push(`${m.durationSecs}s`);
+  if (m.fps) parts.push(`${m.fps} fps`);
   if (m.loudnessDb !== undefined && m.loudnessDb > -99) parts.push(`${m.loudnessDb}dB`);
   return parts.join(" · ");
 }

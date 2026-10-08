@@ -447,7 +447,7 @@ export default function DataProjectDetailPage() {
       file,
       status: "queued",
       progress: 0,
-      meta: { kind: "video", width: r.trace.videoWidth, height: r.trace.videoHeight, durationSecs, warnings: [] },
+      meta: { kind: "video", width: r.trace.videoWidth, height: r.trace.videoHeight, durationSecs, ...(r.trace.fps ? { fps: r.trace.fps } : {}), warnings: [] },
     };
     uploadedRef.current.clear();
     setItems([item]);

@@ -26,7 +26,7 @@ export function CaptureTraceView({ trace }: { trace: CaptureTrace }) {
             ? `${trace.hits.length}/${trace.dots.length} dots connected${trace.completed ? "" : " (incomplete)"}`
             : "In-app recording"}
         </p>
-        <p>Length {(trace.durationMs / 1000).toFixed(1)}s · {trace.videoWidth}×{trace.videoHeight}{trace.mirrored ? " · selfie (mirrored view)" : ""}</p>
+        <p>Length {(trace.durationMs / 1000).toFixed(1)}s · {trace.videoWidth}×{trace.videoHeight}{trace.fps ? ` · ${trace.fps} fps` : ""}{trace.mirrored ? " · selfie (mirrored view)" : ""}</p>
         {trace.framing && (
           <p className={trace.framing.inFramePct >= 90 ? "text-green-600" : trace.framing.inFramePct >= 70 ? "text-amber-600" : "text-red-600"}>
             In frame {trace.framing.inFramePct}% of the time

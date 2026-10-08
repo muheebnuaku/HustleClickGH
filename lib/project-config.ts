@@ -110,6 +110,9 @@ export interface CaptureTrace {
   crop?: { x: number; y: number; w: number; h: number };
   /** Framing guide result: share of the recording the person was fully in frame (0..100). */
   framing?: { inFramePct: number };
+  /** Frame rate of the saved video, and what the camera itself delivered. */
+  fps?: number;
+  cameraFps?: number;
 }
 
 const MAX_TRACE_PATH = 3000;
@@ -152,6 +155,8 @@ export function sanitizeCaptureTrace(raw: unknown): CaptureTrace | null {
     mimeType: typeof t.mimeType === "string" ? t.mimeType.slice(0, 80) : "",
     userAgent: typeof t.userAgent === "string" ? t.userAgent.slice(0, 300) : undefined,
     crop: sanitizeCrop(t.crop),
+    fps: Number.isFinite(t.fps) ? Math.round(clamp(t.fps as number, 0, 240)) : undefined,
+    cameraFps: Number.isFinite(t.cameraFps) ? Math.round(clamp(t.cameraFps as number, 0, 240)) : undefined,
     framing: t.framing && typeof t.framing === "object" && Number.isFinite((t.framing as { inFramePct?: unknown }).inFramePct)
       ? { inFramePct: Math.round(clamp((t.framing as { inFramePct: number }).inFramePct, 0, 100)) }
       : undefined,

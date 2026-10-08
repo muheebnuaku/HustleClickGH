@@ -8,7 +8,8 @@
 // takes ~30s) and never leaves the admin's browser.
 
 const MP4_TYPES = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1,mp4a", "video/mp4;codecs=avc1", "video/mp4"];
-const MAX_LONG_SIDE = 1280;
+const MAX_LONG_SIDE = 1920; // up to 1080×1920
+const FPS = 30;
 
 export function mp4Type(): string | null {
   if (typeof window === "undefined" || typeof MediaRecorder === "undefined") return null;
@@ -43,7 +44,16 @@ export async function toPortraitMp4(url: string, onProgress?: (pct: number) => v
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d")!;
-  const stream = (canvas as HTMLCanvasElement & { captureStream: (fps?: number) => MediaStream }).captureStream(30);
+  // Frames are pushed on a fixed 30 fps clock, so the MP4 is a steady 30 fps.
+  const cs = canvas as HTMLCanvasElement & { captureStream: (fps?: number) => MediaStream };
+  let stream = cs.captureStream(0);
+  let vtrack = stream.getVideoTracks()[0] as MediaStreamTrack & { requestFrame?: () => void };
+  if (!vtrack.requestFrame) {
+    // No manual frame control: let the browser sample the canvas at 30 fps instead.
+    stream.getTracks().forEach((t) => t.stop());
+    stream = cs.captureStream(FPS);
+    vtrack = stream.getVideoTracks()[0];
+  }
 
   // Sound: route the video's audio into the recording only (nothing plays out loud).
   let audioCtx: AudioContext | null = null;
@@ -54,26 +64,34 @@ export async function toPortraitMp4(url: string, onProgress?: (pct: number) => v
     dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
   } catch { /* silent video or no audio support — record picture only */ }
 
-  const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 4_000_000 });
+  const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: Math.max(w, h) >= 1600 ? 8_000_000 : 5_000_000 });
   const chunks: Blob[] = [];
   recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   const done = new Promise<Blob>((ok) => { recorder.onstop = () => ok(new Blob(chunks, { type: "video/mp4" })); });
 
   const draw = () => ctx.drawImage(video, 0, 0, w, h);
-  const vfc = (video as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number }).requestVideoFrameCallback?.bind(video);
+  const step = 1000 / FPS;
+  let next = 0;
   let raf = 0;
-  const loop = () => {
-    draw();
-    if (video.duration) onProgress?.(Math.min(99, Math.round((video.currentTime / video.duration) * 100)));
-    if (!video.ended) { if (vfc) vfc(loop); else raf = requestAnimationFrame(loop); }
+  const loop = (now: number) => {
+    if (!next) next = now;
+    if (now >= next - 2) {
+      draw();
+      vtrack.requestFrame?.();
+      next += step;
+      if (now - next > 250) next = now + step;
+      if (video.duration) onProgress?.(Math.min(99, Math.round((video.currentTime / video.duration) * 100)));
+    }
+    if (!video.ended) raf = requestAnimationFrame(loop);
   };
 
   draw();
   recorder.start(1000);
   await video.play();
-  loop();
+  raf = requestAnimationFrame(loop);
   await new Promise<void>((ok) => { video.onended = () => ok(); });
   draw();
+  vtrack.requestFrame?.();
   cancelAnimationFrame(raf);
   recorder.stop();
   const blob = await done;

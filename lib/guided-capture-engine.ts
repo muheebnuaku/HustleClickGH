@@ -59,8 +59,20 @@ const COUNTDOWN_MS = 3000;
 const FINISH_TAIL_MS = 600; // keep recording a moment after the last dot
 const PATH_SAMPLE_MS = 100;
 const SMOOTHING = 0.45; // EMA on the nose point — steadier cursor on budget cameras
-const VIDEO_BITRATE = 1_200_000; // ~9 MB/minute: stays far under the 50 MB storage file cap
-const OUTPUT_MAX_WIDTH = 720; // recorded frame is portrait 3:4, at most 720×960
+// Output: a steady 30 fps, portrait 3:4. Capable phones record 1080×1440, others
+// 720×960 so budget devices don't drop frames while drawing.
+const OUTPUT_FPS = 30;
+const FILE_BUDGET_BYTES = 45 * 1024 * 1024; // keep under the 50 MB storage file cap (audio + headroom)
+function outputMaxWidth(): number {
+  const n = navigator as Navigator & { deviceMemory?: number };
+  return (n.hardwareConcurrency ?? 4) >= 6 && (n.deviceMemory ?? 4) >= 4 ? 1080 : 720;
+}
+/** Highest bitrate that still fits the longest allowed recording in the file budget. */
+function videoBitrate(maxDurationSecs: number, width: number): number {
+  const cap = width >= 1080 ? 8_000_000 : 5_000_000;
+  const fits = (FILE_BUDGET_BYTES * 8) / Math.max(5, maxDurationSecs) - 160_000; // minus audio
+  return Math.round(Math.min(cap, Math.max(1_000_000, fits)));
+}
 // Framing guide: the detected face box is grown to cover hair, ears and neck, and
 // that "head" must sit inside the frame with this margin to count as in frame.
 const FRAME_MARGIN = 0.04;
@@ -184,7 +196,7 @@ export class GuidedCaptureEngine {
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new DOMException("unsupported", "NotFoundError");
       this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: this.o.config.facing, width: { ideal: 720 }, height: { ideal: 960 }, frameRate: { ideal: 30, max: 30 } },
+        video: { facingMode: this.o.config.facing, width: { ideal: 1080 }, height: { ideal: 1440 }, frameRate: { ideal: OUTPUT_FPS, max: OUTPUT_FPS } },
         audio: this.o.config.recordAudio,
       });
     } catch (err) {
@@ -267,7 +279,7 @@ export class GuidedCaptureEngine {
     if (vw / vh > 3 / 4) sw = vh * (3 / 4); else sh = vw * (4 / 3);
     const sx = (vw - sw) / 2;
     const sy = (vh - sh) / 2;
-    const outW = Math.round(Math.min(OUTPUT_MAX_WIDTH, sw) / 2) * 2; // even dims for encoders
+    const outW = Math.round(Math.min(outputMaxWidth(), sw) / 2) * 2; // even dims for encoders
     const outH = Math.round((outW * 4) / 3 / 2) * 2;
     const c = document.createElement("canvas");
     c.width = outW;
@@ -276,19 +288,45 @@ export class GuidedCaptureEngine {
     if (!ctx) return null;
     const draw = () => { try { ctx.drawImage(v, sx, sy, sw, sh, 0, 0, outW, outH); } catch { /* frame not ready */ } };
     draw();
-    // Prefer per-camera-frame callbacks; fall back to animation frames.
-    const vfc = (v as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number }).requestVideoFrameCallback?.bind(v);
-    if (vfc) {
-      const onFrame = () => { draw(); this.recVfc = vfc(onFrame); };
-      this.recVfc = vfc(onFrame);
-    } else {
-      const onRaf = () => { draw(); this.recLoop = requestAnimationFrame(onRaf); };
-      this.recLoop = requestAnimationFrame(onRaf);
+    // Frames are pushed on a fixed 30 fps clock (not per camera frame), so the file
+    // is a steady 30 fps even when the camera dips to 15–24 fps in low light.
+    const out = (c as HTMLCanvasElement & { captureStream: (fps?: number) => MediaStream }).captureStream(0);
+    const track = out.getVideoTracks()[0] as MediaStreamTrack & { requestFrame?: () => void };
+    if (!track?.requestFrame) {
+      // No manual frame control (rare): let the browser sample the canvas at 30 fps.
+      out.getTracks().forEach((t) => t.stop());
+      return this.fallbackCanvasStream(c, draw);
     }
+    const step = 1000 / OUTPUT_FPS;
+    let next = performance.now();
+    const onRaf = (now: number) => {
+      if (now >= next - 2) {
+        draw();
+        track.requestFrame!();
+        next += step;
+        if (now - next > 250) next = now + step; // tab was hidden — don't burst-catch-up
+      }
+      this.recLoop = requestAnimationFrame(onRaf);
+    };
+    this.recLoop = requestAnimationFrame(onRaf);
     this.recCanvas = c;
-    const out = (c as HTMLCanvasElement & { captureStream: (fps?: number) => MediaStream }).captureStream(30);
     if (this.o.config.recordAudio && this.stream) this.stream.getAudioTracks().forEach((t) => out.addTrack(t));
     return out;
+  }
+
+  /** Older browsers: canvas sampled by the browser at 30 fps, redrawn every animation frame. */
+  private fallbackCanvasStream(c: HTMLCanvasElement, draw: () => void): MediaStream {
+    const onRaf = () => { draw(); this.recLoop = requestAnimationFrame(onRaf); };
+    this.recLoop = requestAnimationFrame(onRaf);
+    this.recCanvas = c;
+    const out = (c as HTMLCanvasElement & { captureStream: (fps?: number) => MediaStream }).captureStream(OUTPUT_FPS);
+    if (this.o.config.recordAudio && this.stream) this.stream.getAudioTracks().forEach((t) => out.addTrack(t));
+    return out;
+  }
+
+  private cameraFps(): number {
+    const t = this.stream?.getVideoTracks()[0];
+    return (t?.getSettings().frameRate as number | undefined) ?? 0;
   }
 
   private stopRecLoop() {
@@ -306,7 +344,7 @@ export class GuidedCaptureEngine {
     // Fallback (very old browsers without canvas capture): the raw camera track.
     const recStream = fromCanvas ?? (this.o.config.recordAudio ? this.stream : new MediaStream(this.stream.getVideoTracks()));
     try {
-      this.recorder = new MediaRecorder(recStream, { mimeType: this.mimeType, videoBitsPerSecond: VIDEO_BITRATE });
+      this.recorder = new MediaRecorder(recStream, { mimeType: this.mimeType, videoBitsPerSecond: videoBitrate(this.o.maxDurationSecs, this.recCanvas?.width ?? 720) });
     } catch {
       this.recorder = new MediaRecorder(recStream);
       this.mimeType = this.recorder.mimeType || this.mimeType;
@@ -357,6 +395,9 @@ export class GuidedCaptureEngine {
       userAgent: navigator.userAgent,
       // Canvas recording IS the visible frame, so dot coordinates map 1:1 onto the video.
       crop: this.recordingFromCanvas ? { x: 0, y: 0, w: 1, h: 1 } : this.crop,
+      // Output is a fixed 30 fps from the canvas; cameraFps is what the camera actually gave.
+      fps: this.recordingFromCanvas ? OUTPUT_FPS : Math.round(this.cameraFps()),
+      cameraFps: Math.round(this.cameraFps()),
       ...(this.state.framing !== "off" && durationMs > 0 ? { framing: { inFramePct: Math.round(Math.min(100, (this.inFrameMs / durationMs) * 100)) } } : {}),
     };
     this.releaseCamera();

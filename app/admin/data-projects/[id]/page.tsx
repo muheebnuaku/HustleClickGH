@@ -327,7 +327,7 @@ export default function AdminProjectSubmissionsPage() {
   };
 
   // A submission may hold several files (new) or one (legacy) — normalize.
-  type SubFileMeta = { width?: number; height?: number; durationSecs?: number; brightness?: number; sharpness?: number; loudnessDb?: number; warnings?: string[] };
+  type SubFileMeta = { width?: number; height?: number; durationSecs?: number; fps?: number; brightness?: number; sharpness?: number; loudnessDb?: number; warnings?: string[] };
   type SubFileRow = { url: string; name: string; type: string; sizeMB: number; meta?: SubFileMeta | null };
   const subFiles = (sub: Submission): SubFileRow[] => {
     if (sub.files) {
@@ -345,6 +345,7 @@ export default function AdminProjectSubmissionsPage() {
     const p: string[] = [];
     if (m.width && m.height) p.push(`${m.width}×${m.height}`);
     if (m.durationSecs) p.push(`${m.durationSecs}s`);
+    if (m.fps) p.push(`${m.fps} fps`);
     if (m.brightness !== undefined) p.push(`bright ${m.brightness}%`);
     if (m.sharpness !== undefined) p.push(`sharp ${m.sharpness}`);
     if (m.loudnessDb !== undefined && m.loudnessDb > -99) p.push(`${m.loudnessDb}dB`);
