@@ -23,7 +23,7 @@ interface Props {
   onRetake: () => void;
 }
 
-const INITIAL: CaptureState = { phase: "idle", currentIndex: 0, faceVisible: false, countdown: 0, elapsedSecs: 0, error: null };
+const INITIAL: CaptureState = { phase: "idle", currentIndex: 0, faceVisible: false, countdown: 0, elapsedSecs: 0, error: null, framing: "off", framingHint: "" };
 
 export function GuidedCapture({ mode, config, minDurationSecs, maxDurationSecs, disabled, onCaptured, onRetake }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -88,11 +88,17 @@ export function GuidedCapture({ mode, config, minDurationSecs, maxDurationSecs, 
   const done = st.phase === "done";
 
   let hint = "";
-  if (st.phase === "ready") hint = isDots ? (st.faceVisible ? "Face found. Tap Start when you're ready." : "Fit your whole face inside the frame.") : "Tap Start to begin recording.";
-  else if (st.phase === "countdown") hint = "Get ready…";
+  // Framing guide: the border is green when you're well inside the frame, red near the edge.
+  const framingOn = st.framing !== "off";
+  const framingBad = st.framing === "edge" || st.framing === "far";
+  if (st.phase === "ready") {
+    hint = isDots
+      ? (st.faceVisible ? "Face found. Tap Start when you're ready." : "Fit your whole face inside the frame.")
+      : framingOn ? (framingBad ? st.framingHint : "You're in the frame — tap Start when ready.") : "Tap Start to begin recording.";
+  } else if (st.phase === "countdown") hint = framingBad ? st.framingHint : "Get ready…";
   else if (st.phase === "recording") {
     if (isDots) hint = !st.faceVisible ? "We can't see your face — move back into the frame." : st.currentIndex < total ? `Move your nose to dot ${st.currentIndex + 1}` : "All dots connected!";
-    else hint = "Recording…";
+    else hint = framingBad ? st.framingHint : "Recording… stay inside the green frame.";
   } else if (st.phase === "finishing") hint = "Saving your video…";
 
   return (
@@ -169,7 +175,7 @@ export function GuidedCapture({ mode, config, minDurationSecs, maxDurationSecs, 
 
         {/* Bottom hint */}
         {live && hint && (
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-3 pt-6 text-center text-sm font-medium text-white">
+          <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t px-3 pb-3 pt-6 text-center text-sm font-medium text-white ${!isDots && framingBad ? (st.framing === "far" ? "from-amber-600/85" : "from-red-600/85") : "from-black/70"} to-transparent`}>
             {hint}
           </div>
         )}

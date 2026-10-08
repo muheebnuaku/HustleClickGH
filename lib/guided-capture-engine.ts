@@ -18,6 +18,8 @@ import type { CaptureConfig, CaptureMode, CaptureTrace } from "@/lib/project-con
 import { round3 } from "@/lib/project-config";
 
 export type CapturePhase = "idle" | "starting" | "ready" | "countdown" | "recording" | "finishing" | "done" | "error";
+/** Framing guide: ok = well inside (green), far = in frame but small, edge = near/over the edge or missing (red), off = no guide. */
+export type Framing = "ok" | "far" | "edge" | "off";
 
 export interface CaptureState {
   phase: CapturePhase;
@@ -26,6 +28,8 @@ export interface CaptureState {
   countdown: number; // 3..1 during countdown
   elapsedSecs: number;
   error: string | null;
+  framing: Framing;
+  framingHint: string;
 }
 
 export interface CaptureResult {
@@ -57,11 +61,23 @@ const PATH_SAMPLE_MS = 100;
 const SMOOTHING = 0.45; // EMA on the nose point — steadier cursor on budget cameras
 const VIDEO_BITRATE = 1_200_000; // ~9 MB/minute: stays far under the 50 MB storage file cap
 const OUTPUT_MAX_WIDTH = 720; // recorded frame is portrait 3:4, at most 720×960
+// Framing guide: the detected face box is grown to cover hair, ears and neck, and
+// that "head" must sit inside the frame with this margin to count as in frame.
+const FRAME_MARGIN = 0.04;
+const HEAD_GROW = { side: 0.3, top: 0.6, bottom: 0.35 }; // × face box size
+const TOO_CLOSE = 0.62; // face wider than this share of the frame
+const TOO_FAR = 0.16; // face narrower than this
 
 type FaceDetectorLike = {
-  detectForVideo: (v: HTMLVideoElement, ts: number) => { detections: { boundingBox?: { width: number; height: number }; keypoints: { x: number; y: number }[] }[] };
+  detectForVideo: (v: HTMLVideoElement, ts: number) => { detections: { boundingBox?: { originX: number; originY: number; width: number; height: number }; keypoints: { x: number; y: number }[] }[] };
   close: () => void;
 };
+
+// Rounded rectangle path; square corners where canvas roundRect isn't supported.
+function rrect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const c = ctx as CanvasRenderingContext2D & { roundRect?: (x: number, y: number, w: number, h: number, r: number) => void };
+  if (c.roundRect) c.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h);
+}
 
 // One detector per page load — retakes reuse it instead of re-downloading.
 let detectorPromise: Promise<FaceDetectorLike> | null = null;
@@ -107,7 +123,7 @@ function cameraErrorMessage(err: unknown): string {
 
 export class GuidedCaptureEngine {
   private o: EngineOpts;
-  private state: CaptureState = { phase: "idle", currentIndex: 0, faceVisible: false, countdown: 0, elapsedSecs: 0, error: null };
+  private state: CaptureState = { phase: "idle", currentIndex: 0, faceVisible: false, countdown: 0, elapsedSecs: 0, error: null, framing: "off", framingHint: "" };
   private stream: MediaStream | null = null;
   private detector: FaceDetectorLike | null = null;
   private recorder: MediaRecorder | null = null;
@@ -131,6 +147,11 @@ export class GuidedCaptureEngine {
   private recLoop = 0;
   private recVfc = 0;
   private recordingFromCanvas = false;
+  // Framing guide
+  private head: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  private faceW = 0; // face width as a share of the visible frame
+  private inFrameMs = 0;
+  private lastTick = 0;
 
   constructor(opts: EngineOpts) {
     this.o = opts;
@@ -138,6 +159,11 @@ export class GuidedCaptureEngine {
 
   private get needsTracking() {
     return this.o.mode === "nose_dots";
+  }
+
+  /** The face tracker also powers the framing guide in plain recording. */
+  private get wantsFraming() {
+    return this.o.config.framingGuide !== false;
   }
 
   private get mirrored() {
@@ -172,15 +198,19 @@ export class GuidedCaptureEngine {
     v.playsInline = true;
     try { await v.play(); } catch { /* autoplay quirks — frames still arrive */ }
 
-    if (this.needsTracking) {
+    if (this.needsTracking || this.wantsFraming) {
       try {
         this.detector = await loadDetector();
       } catch {
-        this.releaseCamera();
-        this.set({ phase: "error", error: "Couldn't load face tracking. Check your internet connection and try again." });
-        return;
+        if (this.needsTracking) {
+          this.releaseCamera();
+          this.set({ phase: "error", error: "Couldn't load face tracking. Check your internet connection and try again." });
+          return;
+        }
+        this.detector = null; // plain recording still works, just without the guide
       }
     }
+    if (!this.detector || !this.wantsFraming) this.set({ framing: "off", framingHint: "" });
     if (this.disposed) return this.releaseCamera();
     this.mimeType = pickMimeType(this.o.config.recordAudio);
     if (!this.mimeType) {
@@ -289,6 +319,8 @@ export class GuidedCaptureEngine {
     this.hits = [];
     this.path = [];
     this.lastSample = -Infinity;
+    this.inFrameMs = 0;
+    this.lastTick = 0;
     this.holdStart = null;
     this.completed = false;
     this.finishAt = 0;
@@ -325,6 +357,7 @@ export class GuidedCaptureEngine {
       userAgent: navigator.userAgent,
       // Canvas recording IS the visible frame, so dot coordinates map 1:1 onto the video.
       crop: this.recordingFromCanvas ? { x: 0, y: 0, w: 1, h: 1 } : this.crop,
+      ...(this.state.framing !== "off" && durationMs > 0 ? { framing: { inFramePct: Math.round(Math.min(100, (this.inFrameMs / durationMs) * 100)) } } : {}),
     };
     this.releaseCamera();
     this.set({ phase: "done" });
@@ -373,6 +406,17 @@ export class GuidedCaptureEngine {
         )[0];
         const kp = face?.keypoints?.[NOSE_TIP];
         if (kp) found = this.toFrame(kp.x, kp.y, W, H);
+        const bb = face?.boundingBox;
+        const vw = this.o.video.videoWidth, vh = this.o.video.videoHeight;
+        if (bb && vw && vh) {
+          const g = HEAD_GROW;
+          const a = this.toFrame((bb.originX - bb.width * g.side) / vw, (bb.originY - bb.height * g.top) / vh, W, H);
+          const b = this.toFrame((bb.originX + bb.width * (1 + g.side)) / vw, (bb.originY + bb.height * (1 + g.bottom)) / vh, W, H);
+          this.head = { x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x), y0: Math.min(a.y, b.y), y1: Math.max(a.y, b.y) };
+          this.faceW = (bb.width / vw) / (this.crop.w || 1);
+        } else {
+          this.head = null;
+        }
       } catch { /* a dropped frame is fine */ }
       if (found) {
         this.nose = this.nose
@@ -382,6 +426,7 @@ export class GuidedCaptureEngine {
         this.nose = null;
       }
       if (!!found !== this.state.faceVisible) this.set({ faceVisible: !!found });
+      if (this.wantsFraming) this.updateFraming();
     }
 
     // 2. Advance the task.
@@ -392,6 +437,7 @@ export class GuidedCaptureEngine {
       else this.set({ countdown: Math.ceil(left / 1000) });
     } else if (phase === "recording") {
       const t = now - this.t0;
+      if (this.lastTick && (this.state.framing === "ok" || this.state.framing === "far")) this.inFrameMs += now - this.lastTick;
       this.set({ elapsedSecs: Math.floor(t / 1000) });
       if (this.nose && t - this.lastSample >= PATH_SAMPLE_MS) {
         this.path.push([Math.round(t), round3(this.nose.x), round3(this.nose.y)]);
@@ -421,15 +467,52 @@ export class GuidedCaptureEngine {
       }
     }
 
+    this.lastTick = now;
     this.draw(W, H, dpr, now);
     this.raf = requestAnimationFrame(this.tick);
   };
+
+  /** Where is the person relative to the frame edges? Sets the colour + hint. */
+  private updateFraming() {
+    const h = this.head;
+    // The dot task moves the head around on purpose — only warn there when actually cut off.
+    const m = this.needsTracking ? 0 : FRAME_MARGIN;
+    let framing: Framing = "ok";
+    let hint = "You're in the frame";
+    if (!h) { framing = "edge"; hint = "Move into the frame so we can see your face"; }
+    else if (this.faceW > TOO_CLOSE || (h.y1 - h.y0) > 1 - 2 * m + 0.15) { framing = "edge"; hint = "Move back a little"; }
+    else if (h.x0 < m) { framing = "edge"; hint = "Move a little to the right"; }
+    else if (h.x1 > 1 - m) { framing = "edge"; hint = "Move a little to the left"; }
+    else if (h.y0 < m) { framing = "edge"; hint = "Move down a little — your head is cut off"; }
+    else if (h.y1 > 1 - m) { framing = "edge"; hint = "Move up a little"; }
+    else if (!this.needsTracking && this.faceW < TOO_FAR) { framing = "far"; hint = "Come a bit closer"; }
+    this.set({ framing, framingHint: hint });
+  }
+
+  /** Coloured frame border, on screen only (never in the video). The hint text is shown by the UI. */
+  private drawFraming(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    const f = this.state.framing;
+    const phase = this.state.phase;
+    if (f === "off" || !(phase === "ready" || phase === "countdown" || phase === "recording")) return;
+    const color = f === "ok" ? "#22c55e" : f === "far" ? "#f59e0b" : "#ef4444";
+    const inset = 5, r = 18;
+    ctx.save();
+    ctx.lineWidth = f === "ok" ? 5 : 7;
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = f === "ok" ? 6 : 14;
+    ctx.beginPath();
+    rrect(ctx, inset, inset, W - inset * 2, H - inset * 2, r);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   private draw(W: number, H: number, dpr: number, now: number) {
     const ctx = this.o.canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
+    this.drawFraming(ctx, W, H);
     if (!this.needsTracking) return;
 
     const dots = this.o.config.dots;

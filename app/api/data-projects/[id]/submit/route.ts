@@ -95,7 +95,8 @@ export async function POST(
 
     // Guided capture must actually have been completed in the app.
     const trace = project.captureMode === "upload" ? null : sanitizeCaptureTrace(captureData);
-    if (project.captureMode !== "upload" && !trace) {
+    // Projects with "upload allowed" take a file without an in-app recording trace.
+    if (project.captureMode !== "upload" && !trace && !project.allowUpload) {
       return NextResponse.json({ message: "Please record using the in-app camera for this project." }, { status: 400 });
     }
     if (project.captureMode === "nose_dots" && trace) {

@@ -373,6 +373,7 @@ model DataProject {
   payoutMode         String           @default("individual") // individual | via_leader (paid in bulk to the contributor's team leader)
   assignedLeaderIds  String?          // JSON string[] of field-team leaders running this project; null = open to everyone
   currency           String           @default("GHS") // reward currency; non-GHS projects must be paid via team leaders
+  allowUpload        Boolean          @default(false) // in-app capture projects: contributors may also upload a file
   showReward         Boolean          @default(true) // via_leader only: false hides the reward from contributors (their leader pays them)
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt

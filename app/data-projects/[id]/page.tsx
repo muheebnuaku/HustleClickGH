@@ -9,7 +9,7 @@ import { formatDate } from "@/lib/utils";
 import { formatMoney } from "@/lib/currency";
 import {
   Loader2, Mic, Video, ScanFace, ArrowLeft, Upload, Download,
-  CheckCircle2, Clock, XCircle, AlertCircle, FileAudio, FileVideo, File, MapPin, ImagePlus
+  CheckCircle2, Clock, XCircle, AlertCircle, Camera, FileAudio, FileVideo, File, MapPin, ImagePlus
 } from "lucide-react";
 import Link from "next/link";
 import { uploadFile, sha256Hex, toDownloadUrl } from "@/lib/upload-file";
@@ -56,6 +56,7 @@ interface DataProject {
   sampleVideoUrl: string | null;
   sampleVideoUrls: string[];
   captureMode: CaptureMode;
+  allowUpload?: boolean;
   captureConfig: CaptureConfig | null;
   metadataFields: MetadataField[];
   locationLabel: string | null;
@@ -131,6 +132,8 @@ export default function DataProjectDetailPage() {
   // In-app capture + per-submission details
   const [captureTrace, setCaptureTrace] = useState<CaptureTrace | null>(null);
   const [captureKey, setCaptureKey] = useState(0); // remount the recorder after a submit
+  // In-app projects that also accept uploads: the contributor picks how.
+  const [method, setMethod] = useState<"record" | "upload">("record");
   const captureUploadRef = useRef<Promise<boolean> | null>(null);
   const [metaAnswers, setMetaAnswers] = useState<Record<string, string>>({});
   const [metaUploading, setMetaUploading] = useState<Record<string, boolean>>({});
@@ -290,13 +293,24 @@ export default function DataProjectDetailPage() {
     if (hasQuota && genderField?.key === key && (g === "male" || g === "female")) setGenderState(g);
   };
 
+  const recordingInApp = !!project && project.captureMode !== "upload" && !(project.allowUpload && method === "upload");
+  const switchMethod = (m: "record" | "upload") => {
+    if (m === method || processing) return;
+    setMethod(m);
+    setItems([]);
+    uploadedRef.current.clear();
+    setCaptureTrace(null);
+    setCaptureKey((k) => k + 1);
+    setError("");
+  };
+
   const preflight = (): string | null => {
-    if (!items.length) return project?.captureMode && project.captureMode !== "upload" ? "Record your video first." : "Add your file first.";
+    if (!items.length) return recordingInApp ? "Record your video first." : "Add your file first.";
     if (!consent) return "You must give consent before submitting.";
     if (project && (project.malesNeeded !== null || project.femalesNeeded !== null) && !gender)
       return "Please select your gender before submitting.";
     if (project && project.languages.length > 0 && !language) return "Please select the language you used.";
-    if (project && project.captureMode === "nose_dots" && !captureTrace?.completed) return "Connect all the dots with the camera before submitting.";
+    if (project && recordingInApp && project.captureMode === "nose_dots" && !captureTrace?.completed) return "Connect all the dots with the camera before submitting.";
     if (project?.metadataFields.length) {
       const check = validateMetadataAnswers(project.metadataFields, metaAnswers);
       if (!check.ok) return check.error;
@@ -319,7 +333,7 @@ export default function DataProjectDetailPage() {
           gender: gender || null,
           consentGiven: consent,
           metadata: metaAnswers,
-          captureData: captureTrace,
+          captureData: recordingInApp ? captureTrace : null,
           geo,
         }),
       });
@@ -540,7 +554,7 @@ export default function DataProjectDetailPage() {
                 )}
                 {project.captureMode !== "upload" && (
                   <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
-                    {project.captureMode === "nose_dots" ? "Guided camera task" : "Record in app"}
+                    {project.captureMode === "nose_dots" ? "Guided camera task" : "Record in app"}{project.allowUpload ? " or upload" : ""}
                   </span>
                 )}
               </div>
@@ -730,10 +744,11 @@ export default function DataProjectDetailPage() {
                 </div>
               )}
 
-              {project.captureMode !== "upload" ? (
+              {recordingInApp ? (
               <div className="mt-4 bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-blue-700 space-y-1">
                 <p><strong>How to record:</strong></p>
-                <p>• You record right here on this page — no need to upload a file.</p>
+                <p>• You record right here on this page{project.allowUpload ? " — or switch to “Upload a file” below if you already recorded it." : " — no need to upload a file."}</p>
+                <p>• Keep your whole head inside the frame: the border turns <strong className="text-green-700">green</strong> when you&apos;re in, <strong className="text-red-600">red</strong> near the edge.</p>
                 {project.captureMode === "nose_dots" ? (
                   <>
                     <p>• Numbered dots appear on the camera. Move your <strong>nose</strong> to dot 1, then 2, and so on. Each dot turns green when connected.</p>
@@ -773,7 +788,17 @@ export default function DataProjectDetailPage() {
             {project.status === "active" && (project.slotsRemaining > 0 || bypassSlots) ? (
               <>
               <Card className="p-5">
-                <h2 className="font-semibold mb-4">{project.captureMode === "upload" ? "Upload Your Recording" : "Record Your Video"}</h2>
+                <h2 className="font-semibold mb-4">{recordingInApp ? "Record Your Video" : "Upload Your Recording"}</h2>
+                {project.captureMode !== "upload" && project.allowUpload && (
+                  <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-800">
+                    {([["record", "Record in the app", Camera], ["upload", "Upload a file", Upload]] as const).map(([v, label, Icon]) => (
+                      <button key={v} type="button" onClick={() => switchMethod(v)} disabled={processing}
+                        className={`flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${method === v ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-50" : "text-zinc-500 hover:text-zinc-800"}`}>
+                        <Icon size={15} />{label}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {message && (
                   <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm mb-4">
@@ -789,10 +814,10 @@ export default function DataProjectDetailPage() {
                 <form onSubmit={handleSubmitAll} className="space-y-4">
                   {/* File picker — accepts multiple files */}
                   <div>
-                    {project.captureMode !== "upload" && project.captureConfig ? (
+                    {recordingInApp && project.captureConfig ? (
                       <GuidedCapture
                         key={captureKey}
-                        mode={project.captureMode}
+                        mode={project.captureMode === "nose_dots" ? "nose_dots" : "camera"}
                         config={project.captureConfig}
                         minDurationSecs={project.minDurationSecs}
                         maxDurationSecs={project.maxDurationSecs}

@@ -27,6 +27,11 @@ export function CaptureTraceView({ trace }: { trace: CaptureTrace }) {
             : "In-app recording"}
         </p>
         <p>Length {(trace.durationMs / 1000).toFixed(1)}s · {trace.videoWidth}×{trace.videoHeight}{trace.mirrored ? " · selfie (mirrored view)" : ""}</p>
+        {trace.framing && (
+          <p className={trace.framing.inFramePct >= 90 ? "text-green-600" : trace.framing.inFramePct >= 70 ? "text-amber-600" : "text-red-600"}>
+            In frame {trace.framing.inFramePct}% of the time
+          </p>
+        )}
         {trace.hits.length > 0 && (
           <p className="break-words">Dot times: {trace.hits.map((h) => `${h.index + 1}@${(h.tMs / 1000).toFixed(1)}s`).join(" · ")}</p>
         )}

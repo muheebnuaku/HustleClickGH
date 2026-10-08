@@ -59,6 +59,7 @@ export interface WizardProject {
   reviewOrgId?: string | null;
   payoutMode?: string | null;
   showReward?: boolean;
+  allowUpload?: boolean;
   assignedLeaderIds?: string[];
   currency?: string;
 }
@@ -126,6 +127,7 @@ function initialForm(p?: WizardProject | null) {
     currency: p?.currency ?? "GHS",
     referenceCode: p?.referenceCode ?? "",
     captureMode: (p?.captureMode ?? "upload") as CaptureMode,
+    allowUpload: !!p?.allowUpload,
     targetCountries: p?.targetCountries ?? ([] as string[]),
     targetRegions: p?.targetRegions ?? ([] as string[]),
     targetCities: p?.targetCities ?? ([] as string[]),
@@ -284,7 +286,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
   const problemOn = (s: StepId): string | null => {
     switch (s) {
       case "type": return form.projectType ? null : "Choose a project type.";
-      case "capture": return capturePicked ? null : "Choose how people will record.";
+      case "capture": return capturePicked ? null : "Choose at least one way to record.";
       case "people":
         if (useTeams && !form.assignedLeaderIds.length) return "Pick at least one field team, or turn assignment off.";
         return null;
@@ -326,13 +328,17 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
     setStepId(nextStep);
     setMaxVisited((m) => Math.max(m, 1));
   };
-  const pickCapture = (m: CaptureMode) => {
-    set({ captureMode: m });
-    setCapturePicked(true);
+  // Recording methods: "Upload a file" can be combined with one in-app method.
+  const uploadOn = capturePicked && (form.captureMode === "upload" || form.allowUpload);
+  const inApp = capturePicked && form.captureMode !== "upload" ? form.captureMode : null;
+  const setMethods = (upload: boolean, app: CaptureMode | null) => {
+    setCapturePicked(upload || !!app);
+    set({ captureMode: app ?? "upload", allowUpload: !!app && upload });
     setError("");
-    const nextStep: StepId = m === "upload" ? "basics" : "setup";
-    setStepId(nextStep);
-    setMaxVisited((v) => Math.max(v, 2));
+  };
+  const pickCapture = (m: CaptureMode) => {
+    if (m === "upload") setMethods(!uploadOn, inApp);
+    else setMethods(uploadOn, inApp === m ? null : m);
   };
 
   const submit = async () => {
@@ -351,6 +357,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
       expiresAt: useDeadline ? form.expiresAt : "",
       captureMode: form.captureMode,
       captureConfig: form.captureMode === "upload" ? null : captureConfig,
+      allowUpload: form.captureMode !== "upload" && form.allowUpload,
       metadataFields: useDetails ? fromEditable(metaFields) : [],
       targetCountries: useLocation ? form.targetCountries : [],
       targetRegions: useLocation ? form.targetRegions : [],
@@ -414,10 +421,10 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
       case "capture":
         return (
           <>
-            <StepTitle title="How will people record?" help="In-app recording gives you full control over how the video is captured." />
+            <StepTitle title="How will people record?" help="Pick one or more. Uploading can be combined with one in-app method — contributors then choose." />
             <div className="grid gap-3">
               {CAPTURE.map((c) => (
-                <ChoiceCard key={c.value} icon={c.icon} label={c.label} help={c.help} tint={typeMeta?.tint} selected={capturePicked && form.captureMode === c.value} onClick={() => pickCapture(c.value)} />
+                <ChoiceCard key={c.value} icon={c.icon} label={c.label} help={c.help} tint={typeMeta?.tint} selected={c.value === "upload" ? uploadOn : inApp === c.value} onClick={() => pickCapture(c.value)} />
               ))}
             </div>
           </>
@@ -432,6 +439,14 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
                 : "Choose the camera contributors record with."}
             />
             <DotPatternEditor value={captureConfig} onChange={setCaptureConfig} showDots={form.captureMode === "nose_dots"} />
+            <div className="mt-4">
+              <Reveal
+                title="Framing guide"
+                help="A border on the camera turns green when the person's whole head is inside the frame and red near the edge, with hints like “Move back a little”. Reviewers see how long they stayed in frame."
+                on={captureConfig.framingGuide}
+                onChange={(v) => setCaptureConfig({ ...captureConfig, framingGuide: v })}
+              />
+            </div>
           </>
         );
       case "basics":
@@ -755,7 +770,7 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
             <div className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200 px-5 dark:divide-zinc-800 dark:border-zinc-800">
               <Row step="type" label="Type" value={typeMeta?.label ?? "—"} />
               {isCameraType && <Row step="capture" label="Recording" value={
-                <>{captureMeta?.label}{form.captureMode === "nose_dots" && ` · ${captureConfig.dots.length} dots`}</>
+                <>{form.captureMode === "upload" ? captureMeta?.label : [captureMeta?.label, form.allowUpload ? "or upload a file" : null].filter(Boolean).join(" ")}{form.captureMode === "nose_dots" && ` · ${captureConfig.dots.length} dots`}{form.captureMode !== "upload" && captureConfig.framingGuide && " · framing guide"}</>
               } />}
               <Row step="basics" label="Title" value={<span className="font-medium">{form.title || "—"}</span>} />
               {(form.clientName || form.referenceCode) && <Row step="basics" label="Client / reference" value={[form.clientName, form.referenceCode].filter(Boolean).join(" · ")} />}
@@ -784,7 +799,8 @@ export function ProjectWizard({ project, onClose, onSaved }: { project?: WizardP
     }
   })();
 
-  const isChoiceStep = stepId === "type" || stepId === "capture";
+  // Picking a type moves straight on; recording methods are multi-select, so that step has Continue.
+  const isChoiceStep = stepId === "type";
 
   return (
     <div className="fixed inset-0 z-[60] flex items-stretch justify-center bg-zinc-950/50 backdrop-blur-sm sm:items-center sm:p-6">

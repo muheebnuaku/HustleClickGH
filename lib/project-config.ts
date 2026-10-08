@@ -30,6 +30,8 @@ export interface CaptureConfig {
   recordAudio: boolean;
   /** Show a small marker where the app thinks the nose is — makes the task much easier. */
   showNoseCursor: boolean;
+  /** Live frame border: green when the person is well inside, red near/over the edge. */
+  framingGuide: boolean;
 }
 
 /** Width / height of the capture frame. Admin editor and contributor view must match. */
@@ -50,6 +52,7 @@ export const DEFAULT_CAPTURE_CONFIG: CaptureConfig = {
   facing: "user",
   recordAudio: false,
   showNoseCursor: true,
+  framingGuide: true,
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -76,6 +79,7 @@ export function parseCaptureConfig(raw: unknown): CaptureConfig {
     facing: obj.facing === "environment" ? "environment" : "user",
     recordAudio: typeof obj.recordAudio === "boolean" ? obj.recordAudio : DEFAULT_CAPTURE_CONFIG.recordAudio,
     showNoseCursor: typeof obj.showNoseCursor === "boolean" ? obj.showNoseCursor : DEFAULT_CAPTURE_CONFIG.showNoseCursor,
+    framingGuide: typeof obj.framingGuide === "boolean" ? obj.framingGuide : DEFAULT_CAPTURE_CONFIG.framingGuide,
   };
 }
 
@@ -104,6 +108,8 @@ export interface CaptureTrace {
   userAgent?: string;
   /** The part of the raw video (0..1) the contributor saw as the 3:4 frame. */
   crop?: { x: number; y: number; w: number; h: number };
+  /** Framing guide result: share of the recording the person was fully in frame (0..100). */
+  framing?: { inFramePct: number };
 }
 
 const MAX_TRACE_PATH = 3000;
@@ -146,6 +152,9 @@ export function sanitizeCaptureTrace(raw: unknown): CaptureTrace | null {
     mimeType: typeof t.mimeType === "string" ? t.mimeType.slice(0, 80) : "",
     userAgent: typeof t.userAgent === "string" ? t.userAgent.slice(0, 300) : undefined,
     crop: sanitizeCrop(t.crop),
+    framing: t.framing && typeof t.framing === "object" && Number.isFinite((t.framing as { inFramePct?: unknown }).inFramePct)
+      ? { inFramePct: Math.round(clamp((t.framing as { inFramePct: number }).inFramePct, 0, 100)) }
+      : undefined,
   };
 }
 
@@ -284,6 +293,8 @@ export function buildProjectSetupData(body: Record<string, unknown>) {
     payoutMode: body.payoutMode === "via_leader" ? "via_leader" : "individual",
     assignedLeaderIds: stringListToDb(body.assignedLeaderIds),
     currency: normalizeCurrency(body.currency),
+    // In-app capture can also accept an uploaded file (contributor picks either).
+    allowUpload: captureMode !== "upload" && body.allowUpload === true,
     // Only via-leader projects may hide the pay; direct pay lands in their balance anyway.
     showReward: body.payoutMode === "via_leader" ? body.showReward !== false : true,
   };
