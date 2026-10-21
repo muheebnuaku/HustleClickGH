@@ -10,6 +10,8 @@ interface ConsentAgreementProps {
   onAgreedChange: (v: boolean) => void;
   signedName: string;
   onSignedNameChange: (v: string) => void;
+  ageConfirmed: boolean;
+  onAgeConfirmedChange: (v: boolean) => void;
   disabled?: boolean;
   compact?: boolean;
 }
@@ -24,6 +26,8 @@ export function ConsentAgreement({
   onAgreedChange,
   signedName,
   onSignedNameChange,
+  ageConfirmed,
+  onAgeConfirmedChange,
   disabled,
   compact,
 }: ConsentAgreementProps) {
@@ -66,6 +70,19 @@ export function ConsentAgreement({
           className="h-10 rounded-lg bg-white dark:bg-zinc-950"
         />
       </div>
+
+      <label className="flex items-start gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={ageConfirmed}
+          onChange={(e) => onAgeConfirmedChange(e.target.checked)}
+          disabled={disabled}
+          className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-green-600 focus:ring-green-500"
+        />
+        <span className="text-xs text-zinc-600 dark:text-zinc-400">
+          I confirm I am 18 years of age or older.
+        </span>
+      </label>
 
       <label className="flex items-start gap-2 cursor-pointer">
         <input

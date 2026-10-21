@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { phone, country, region, city, idType, idNumber, consentAgreed, consentName } = body;
+    const { phone, country, region, city, idType, idNumber, consentAgreed, consentName, ageConfirmed } = body;
 
     if (!phone || String(phone).trim().length < 10) {
       return NextResponse.json({ message: "A valid phone number is required" }, { status: 400 });
@@ -47,6 +47,10 @@ export async function POST(request: Request) {
     // ID is optional for now — but if given it must look valid
     if (idNumber && String(idNumber).trim().length < 4) {
       return NextResponse.json({ message: "Please enter a valid ID number, or leave it blank" }, { status: 400 });
+    }
+    // Contributors must be adults (privacy policy §8). Recorded as its own consent row.
+    if (ageConfirmed !== true) {
+      return NextResponse.json({ message: "You must confirm you are 18 or older to take part." }, { status: 400 });
     }
     if (consentAgreed !== true || !consentName || String(consentName).trim().length < 2) {
       return NextResponse.json(
@@ -82,6 +86,17 @@ export async function POST(request: Request) {
         userId: session.user.id,
         documentType: "data_processing_agreement",
         documentVersion: CONSENT_VERSION,
+        signedName: String(consentName).trim(),
+        agreed: true,
+        ipAddress: getIp(request),
+        userAgent: request.headers.get("user-agent"),
+      },
+    });
+    await prisma.consentRecord.create({
+      data: {
+        userId: session.user.id,
+        documentType: "age_confirmation_18_plus",
+        documentVersion: "1.0",
         signedName: String(consentName).trim(),
         agreed: true,
         ipAddress: getIp(request),

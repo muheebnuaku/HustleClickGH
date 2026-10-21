@@ -60,6 +60,7 @@ export default function AuthPage() {
   const [showCongrats, setShowCongrats] = useState(false);
   const [consentAgreed, setConsentAgreed] = useState(false);
   const [consentName, setConsentName] = useState("");
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [bioLoading, setBioLoading] = useState(false);
 
   const loginForm = useForm<LoginFormData>({
@@ -181,6 +182,10 @@ export default function AuthPage() {
       setError("Please sign and agree to the Data Processing Agreement to create your account.");
       return;
     }
+    if (!ageConfirmed) {
+      setError("Please confirm you are 18 or older.");
+      return;
+    }
 
     setIsLoading(true);
 
@@ -194,7 +199,7 @@ export default function AuthPage() {
       const response = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, referralId, consentAgreed, consentName: consentName.trim() }),
+        body: JSON.stringify({ ...data, referralId, consentAgreed, consentName: consentName.trim(), ageConfirmed }),
       });
 
       const result = await response.json();
@@ -681,6 +686,8 @@ export default function AuthPage() {
                       onAgreedChange={setConsentAgreed}
                       signedName={consentName}
                       onSignedNameChange={setConsentName}
+                      ageConfirmed={ageConfirmed}
+                      onAgeConfirmedChange={setAgeConfirmed}
                       disabled={isLoading}
                       compact
                     />

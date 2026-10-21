@@ -55,6 +55,7 @@ export async function POST(request: Request) {
       idNumber,
       consentAgreed,
       consentName,
+      ageConfirmed,
     } = body;
 
     // Validate required fields
@@ -79,6 +80,11 @@ export async function POST(request: Request) {
         { message: "Please enter a valid ID number, or leave it blank" },
         { status: 400 }
       );
+    }
+
+    // Contributors must be adults (privacy policy §8). Recorded as its own consent row.
+    if (ageConfirmed !== true) {
+      return NextResponse.json({ message: "You must confirm you are 18 or older to take part." }, { status: 400 });
     }
 
     // Consent to the Data Processing Agreement is required and must be explicit
@@ -274,6 +280,17 @@ export async function POST(request: Request) {
         userId: user.id,
         documentType: "data_processing_agreement",
         documentVersion: CONSENT_VERSION,
+        signedName: String(consentName).trim(),
+        agreed: true,
+        ipAddress: getIp(request),
+        userAgent: request.headers.get("user-agent"),
+      },
+    });
+    await prisma.consentRecord.create({
+      data: {
+        userId: user.id,
+        documentType: "age_confirmation_18_plus",
+        documentVersion: "1.0",
         signedName: String(consentName).trim(),
         agreed: true,
         ipAddress: getIp(request),
