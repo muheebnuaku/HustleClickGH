@@ -4,6 +4,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { downloadAndReuploadRecording } from "@/lib/recording-share";
 import { logActivity } from "@/lib/activity-log";
+import { signResponse } from "@/lib/storage-urls";
 
 // GET /api/call-recordings — list current user's recordings (newest first)
 export async function GET(req: NextRequest) {
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
     prisma.callRecording.count({ where: { userId: session.user.id } }),
   ]);
 
-  return NextResponse.json({ recordings, total, page, pages: Math.ceil(total / limit) });
+  return NextResponse.json(await signResponse({ recordings, total, page, pages: Math.ceil(total / limit) }));
 }
 
 // POST /api/call-recordings — save a recording entry after upload

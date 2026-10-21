@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { buildProjectSetupData, validateProjectSetup } from "@/lib/project-config";
+import { canonicalUrl } from "@/lib/storage-urls";
 
 // PUT: Full project edit
 export async function PUT(
@@ -60,7 +61,7 @@ export async function PUT(
         recordingType: recordingType || null,
         // Example videos: the wizard sends the full list it wants kept.
         ...(Array.isArray(body.sampleVideoUrls) ? (() => {
-          const urls = (body.sampleVideoUrls as unknown[]).filter((u): u is string => typeof u === "string" && /^https?:\/\//.test(u)).slice(0, 10);
+          const urls = (body.sampleVideoUrls as unknown[]).filter((u): u is string => typeof u === "string" && /^https?:\/\//.test(u)).slice(0, 10).map(canonicalUrl);
           return { sampleVideoUrls: urls.length ? JSON.stringify(urls) : null, sampleVideoUrl: urls[0] ?? null };
         })() : {}),
       },

@@ -5,6 +5,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { checkLocationEligibility, parseCaptureConfig, parseMetadataFields, targetingSummary, parseStringList, contributorMoneyView, perPersonLimit } from "@/lib/project-config";
 import { teamChain, canTakeAssigned } from "@/lib/field-teams";
+import { signResponse } from "@/lib/storage-urls";
 
 // GET: Single project detail + user's submission if any
 export async function GET(
@@ -61,7 +62,7 @@ export async function GET(
       ]);
     }
 
-    return NextResponse.json({
+    return NextResponse.json(await signResponse({
       project: {
         ...project,
         samplePrompts: project.samplePrompts ? JSON.parse(project.samplePrompts) : [],
@@ -97,7 +98,7 @@ export async function GET(
       needsLocation: elig.eligible ? false : elig.needsLocation,
         ineligibleKind: elig.eligible ? null : elig.kind === "team" ? "team" : "location",
       bypassSlots: isManager, // managers submit beyond the project's total slots/gender quota
-    });
+    }));
   } catch (error) {
     console.error("Data project detail error:", error);
     return NextResponse.json({ message: "An error occurred" }, { status: 500 });

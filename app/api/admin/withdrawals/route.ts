@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { signResponse } from "@/lib/storage-urls";
 
 // Admin: Get all withdrawals
 export async function GET() {
@@ -26,7 +27,7 @@ export async function GET() {
       orderBy: { requestedAt: "desc" },
     });
 
-    return NextResponse.json({ withdrawals });
+    return NextResponse.json(await signResponse({ withdrawals }));
   } catch (error) {
     console.error("Withdrawals fetch error:", error);
     return NextResponse.json(

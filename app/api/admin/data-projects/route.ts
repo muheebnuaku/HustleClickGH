@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { buildProjectSetupData, validateProjectSetup, parseCaptureConfig, parseMetadataFields, parseStringList, reviewOrgList } from "@/lib/project-config";
+import { canonicalUrl, signResponse } from "@/lib/storage-urls";
 
 // GET: All projects with submission counts
 export async function GET() {
@@ -66,7 +67,7 @@ export async function GET() {
       reviewOrgName: reviewOrgList(p).length ? reviewOrgList(p).map((id) => orgById.get(id) ?? "Organization").join(", ") : null,
     }));
 
-    return NextResponse.json({ projects: withOrg });
+    return NextResponse.json(await signResponse({ projects: withOrg }));
   } catch (error) {
     console.error("Admin data projects fetch error:", error);
     return NextResponse.json({ message: "An error occurred" }, { status: 500 });
@@ -126,8 +127,8 @@ export async function POST(request: Request) {
         samplePrompts: samplePrompts?.length ? JSON.stringify(samplePrompts) : null,
         // Multiple sample videos (JSON array); keep the legacy single-URL column
         // populated with the first entry so older readers still work.
-        sampleVideoUrls: Array.isArray(sampleVideoUrls) && sampleVideoUrls.length ? JSON.stringify(sampleVideoUrls) : null,
-        sampleVideoUrl: (Array.isArray(sampleVideoUrls) && sampleVideoUrls[0]) || sampleVideoUrl || null,
+        sampleVideoUrls: Array.isArray(sampleVideoUrls) && sampleVideoUrls.length ? JSON.stringify(sampleVideoUrls.map((u: string) => canonicalUrl(String(u)))) : null,
+        sampleVideoUrl: (Array.isArray(sampleVideoUrls) && sampleVideoUrls[0] && canonicalUrl(String(sampleVideoUrls[0]))) || (sampleVideoUrl ? canonicalUrl(String(sampleVideoUrl)) : null),
         reward: parseFloat(reward),
         maxSubmissions: parseInt(maxSubmissions),
         maxSubmissionsPerUser: maxSubmissionsPerUser ? parseInt(maxSubmissionsPerUser) : 1,

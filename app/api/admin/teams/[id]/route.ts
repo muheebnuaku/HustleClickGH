@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { logActivity, getIp } from "@/lib/activity-log";
 import { leaderScope, round2, summarizeByCurrency } from "@/lib/field-teams";
 import { formatMoney, normalizeCurrency, currencyForCountry } from "@/lib/currency";
+import { signResponse } from "@/lib/storage-urls";
 
 // GET /api/admin/teams/[id] — a leader's members and the payments a bulk payout
 // to them would cover (their own team + supervisors under them, for a rep).
@@ -34,7 +35,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       .map((u) => [u.id, u]),
   );
 
-  return NextResponse.json({
+  return NextResponse.json(await signResponse({
     leader,
     members,
     currency: leader.leaderCurrency ?? currencyForCountry(leader.leaderCountry),
@@ -50,7 +51,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       contributorRef: names.get(p.contributorId)?.userId ?? "",
       leaderName: names.get(p.leaderId)?.fullName ?? "—",
     })),
-  });
+  }));
 }
 
 // POST /api/admin/teams/[id] — send a bulk payout covering everything currently

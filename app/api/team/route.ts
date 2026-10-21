@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { logActivity, getIp } from "@/lib/activity-log";
 import { leaderScope, summarizeByCurrency } from "@/lib/field-teams";
 import { currencyForCountry } from "@/lib/currency";
+import { signResponse } from "@/lib/storage-urls";
 
 const PERSON = { id: true, userId: true, fullName: true, phone: true, leaderRole: true, leaderAlsoSupervisor: true, leaderCountry: true } as const;
 
@@ -71,7 +72,7 @@ export async function GET() {
     };
   }
 
-  return NextResponse.json({ me, myLeader, myPayables: myPayablesView, leader });
+  return NextResponse.json(await signResponse({ me, myLeader, myPayables: myPayablesView, leader }));
 }
 
 // POST /api/team — { action: join | acknowledge | mark_paid | confirm | dispute, ... }

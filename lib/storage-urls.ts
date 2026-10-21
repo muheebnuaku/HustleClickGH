@@ -86,3 +86,50 @@ export function withSignedFiles<T extends { fileUrl: string; files: string | nul
   }
   return { ...sub, fileUrl: map.get(sub.fileUrl) ?? sub.fileUrl, files };
 }
+
+/**
+ * Sign every stored-file URL found anywhere inside a JSON-able response value:
+ * plain string fields (fileUrl, receiptUrl, sampleVideoUrls[], …) and the
+ * JSON-encoded `files` / `sampleVideoUrls` strings. Dates and other values pass through.
+ */
+// Fields whose value is a JSON-encoded string that can itself hold file URLs.
+const JSON_STRING_KEYS = new Set(["files", "sampleVideoUrls"]);
+
+export async function signResponse<T>(value: T, ttlSeconds = VIEW_TTL_SECONDS): Promise<T> {
+  const found: string[] = [];
+  const collect = (v: unknown, key?: string): void => {
+    if (typeof v === "string") {
+      if (key && JSON_STRING_KEYS.has(key) && v.startsWith("[")) {
+        try { collect(JSON.parse(v)); } catch {}
+      } else if (objectPathFromUrl(v)) found.push(v);
+    } else if (Array.isArray(v)) v.forEach((x) => collect(x));
+    else if (v && typeof v === "object" && !(v instanceof Date)) for (const [k, x] of Object.entries(v)) collect(x, k);
+  };
+  collect(value);
+  if (!found.length) return value;
+  const map = await signUrls(found, ttlSeconds);
+  const swap = (v: unknown, key?: string): unknown => {
+    if (typeof v === "string") {
+      if (key && JSON_STRING_KEYS.has(key) && v.startsWith("[")) {
+        try { return JSON.stringify(swap(JSON.parse(v))); } catch { return v; }
+      }
+      return map.get(v) ?? v;
+    }
+    if (Array.isArray(v)) return v.map((x) => swap(x));
+    if (v && typeof v === "object" && !(v instanceof Date)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, swap(x, k)]));
+    return v;
+  };
+  return swap(value) as T;
+}
+
+/**
+ * Canonical (unsigned, public-style) form of a stored-file URL, for saving back
+ * to the database. A page that loaded signed links and saves them unchanged must
+ * not store a link that expires.
+ */
+export function canonicalUrl(url: string): string {
+  const p = objectPathFromUrl(url);
+  if (!p) return url;
+  const base = url.slice(0, url.indexOf("/storage/v1/object/"));
+  return `${base}/storage/v1/object/public/${STORAGE_BUCKET}/${p.split("/").map(encodeURIComponent).join("/")}`;
+}

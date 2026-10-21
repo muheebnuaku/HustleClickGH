@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { signResponse } from "@/lib/storage-urls";
 
 // GET /api/admin/call-recordings — all recordings (admin + manager with read-only access)
 export async function GET(req: NextRequest) {
@@ -43,5 +44,5 @@ export async function GET(req: NextRequest) {
     prisma.callRecording.count({ where }),
   ]);
 
-  return NextResponse.json({ recordings, total, page, pages: Math.ceil(total / limit) });
+  return NextResponse.json(await signResponse({ recordings, total, page, pages: Math.ceil(total / limit) }));
 }
