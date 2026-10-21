@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { parseMetadataFields, sanitizeCaptureTrace, reviewOrgList } from "@/lib/project-config";
+import { EXPORT_TTL_SECONDS, signUrls, submissionFileUrls, withSignedFiles } from "@/lib/storage-urls";
 
 // GET /api/admin/data-projects/[id]/export?format=csv|json&status=approved|pending|all
 // Delivery manifest for a client: one row per submission with its files, the
@@ -26,11 +27,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const project = await prisma.dataProject.findUnique({ where: { id } });
   if (!project) return NextResponse.json({ message: "Project not found" }, { status: 404 });
 
-  const subs = await prisma.dataSubmission.findMany({
+  const rawSubs = await prisma.dataSubmission.findMany({
     where: { projectId: id, ...statusWhere },
     orderBy: { submittedAt: "asc" },
     include: { user: { select: { userId: true, country: true, region: true, city: true } } },
   });
+  // Manifest links are signed (valid 7 days) so they keep working once storage is private.
+  const signed = await signUrls(rawSubs.flatMap((s) => submissionFileUrls(s)), EXPORT_TTL_SECONDS);
+  const subs = rawSubs.map((s) => withSignedFiles(s, signed));
   const fields = parseMetadataFields(project.metadataFields);
 
   const rows = subs.map((s) => {

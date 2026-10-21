@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { currentOrg } from "@/lib/org-auth";
 import { getLicense } from "@/lib/licenses";
+import { EXPORT_TTL_SECONDS, signUrls, submissionFileUrls, withSignedFiles } from "@/lib/storage-urls";
 
 // GET /api/org/projects/[id]/export?format=json|csv
 // Dataset manifest of APPROVED submissions with consent provenance. Org must own the project.
@@ -18,10 +19,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ message: "Project not found" }, { status: 404 });
   }
 
-  const subs = await prisma.dataSubmission.findMany({
+  const rawSubs = await prisma.dataSubmission.findMany({
     where: { projectId: id, status: "approved" },
     orderBy: { reviewedAt: "asc" },
   });
+  // Manifest links are signed (valid 7 days) so they keep working once storage is private.
+  const signed = await signUrls(rawSubs.flatMap((s) => submissionFileUrls(s)), EXPORT_TTL_SECONDS);
+  const subs = rawSubs.map((s) => withSignedFiles(s, signed));
   const userIds = Array.from(new Set(subs.map((s) => s.userId)));
   const users = await prisma.user.findMany({
     where: { id: { in: userIds } },

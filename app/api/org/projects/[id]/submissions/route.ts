@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { currentOrg } from "@/lib/org-auth";
 import { orgProjectAccess } from "@/lib/org-access";
 import { parseMetadataFields, sanitizeCaptureTrace } from "@/lib/project-config";
+import { signUrls, submissionFileUrls } from "@/lib/storage-urls";
 
 const PAGE = 20;
 
@@ -48,6 +49,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const byIds = Array.from(new Set(rows.map((s) => s.clientReviewedByOrgId).filter((x): x is string => !!x)));
   const byName = new Map((byIds.length ? await prisma.organization.findMany({ where: { id: { in: byIds } }, select: { id: true, name: true } }) : []).map((o) => [o.id, o.name]));
 
+  const signed = await signUrls(rows.flatMap((s) => submissionFileUrls(s)));
+
   return NextResponse.json({
     fields: parseMetadataFields(project.metadataFields),
     total,
@@ -63,7 +66,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         submittedAt: s.submittedAt,
         gender: s.gender,
         language: s.language,
-        files: files.map((f) => ({ url: f.url, name: f.name, type: f.type, sizeMB: f.sizeMB })),
+        files: files.map((f) => ({ url: signed.get(f.url) ?? f.url, name: f.name, type: f.type, sizeMB: f.sizeMB })),
         metadata: parse<Record<string, string>>(s.metadata) ?? {},
         location: parse<Record<string, unknown>>(s.location),
         capture: trace,

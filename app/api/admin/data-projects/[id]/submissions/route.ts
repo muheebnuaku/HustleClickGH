@@ -5,27 +5,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { getContributorQuality } from "@/lib/reputation";
 import { getSupabaseAdmin, STORAGE_BUCKET } from "@/lib/supabase-admin";
-
-// Turn a Supabase public URL into the object path inside the storage bucket.
-function objectPathFromUrl(fileUrl: string): string | null {
-  const marker = `/storage/v1/object/public/${STORAGE_BUCKET}/`;
-  const i = fileUrl.indexOf(marker);
-  if (i === -1) return null;
-  return decodeURIComponent(fileUrl.slice(i + marker.length).split("?")[0]);
-}
-
-// Collect every stored file URL for a submission (primary + files JSON).
-function submissionUrls(sub: { fileUrl: string; files: string | null }): string[] {
-  const urls = new Set<string>();
-  if (sub.fileUrl) urls.add(sub.fileUrl);
-  if (sub.files) {
-    try {
-      const arr = JSON.parse(sub.files);
-      if (Array.isArray(arr)) for (const f of arr) if (f?.url) urls.add(f.url);
-    } catch {}
-  }
-  return [...urls];
-}
+import { objectPathFromUrl, signUrls, submissionFileUrls, withSignedFiles } from "@/lib/storage-urls";
 
 // GET: All submissions for a project
 export async function GET(
@@ -61,8 +41,9 @@ export async function GET(
     );
     const verdictOrgIds = Array.from(new Set(submissions.map((s) => s.clientReviewedByOrgId).filter((x): x is string => !!x)));
     const verdictOrg = new Map((verdictOrgIds.length ? await prisma.organization.findMany({ where: { id: { in: verdictOrgIds } }, select: { id: true, name: true } }) : []).map((o) => [o.id, o.name]));
+    const signed = await signUrls(submissions.flatMap((s) => submissionFileUrls(s)));
     const enriched = submissions.map((s) => ({
-      ...s,
+      ...withSignedFiles(s, signed),
       clientReviewedBy: s.clientReviewedByOrgId ? verdictOrg.get(s.clientReviewedByOrgId) ?? null : null,
       contributorQuality: quality.get(s.userId) ?? null,
       team: s.user.teamLeaderId ? { id: s.user.teamLeaderId, name: leaders.get(s.user.teamLeaderId)?.fullName ?? "Team", role: leaders.get(s.user.teamLeaderId)?.leaderRole ?? null } : null,
@@ -133,7 +114,7 @@ export async function DELETE(
     const supabase = getSupabaseAdmin();
     if (supabase) {
       const paths = subs
-        .flatMap((s) => submissionUrls(s))
+        .flatMap((s) => submissionFileUrls(s))
         .map(objectPathFromUrl)
         .filter((p): p is string => Boolean(p));
       if (paths.length) {
