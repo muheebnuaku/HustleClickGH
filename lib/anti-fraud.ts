@@ -1,7 +1,8 @@
 import crypto from "crypto";
 
 /**
- * Submission anti-fraud helpers: content hashing (duplicate detection) and
+ * Submission anti-fraud helpers (note: hashFileFromUrl currently has no callers — the browser
+ * sends the SHA-256; if it is ever used again, read via storage-urls/service client, not a public URL): content hashing (duplicate detection) and
  * velocity limits (farming). Kept advisory + cheap — hashing is capped by size
  * so large consented call recordings don't get fetched/hashed on every submit.
  */

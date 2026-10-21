@@ -90,16 +90,16 @@ export function withSignedFiles<T extends { fileUrl: string; files: string | nul
 /**
  * Sign every stored-file URL found anywhere inside a JSON-able response value:
  * plain string fields (fileUrl, receiptUrl, sampleVideoUrls[], …) and the
- * JSON-encoded `files` / `sampleVideoUrls` strings. Dates and other values pass through.
+ * JSON-encoded `files` / `sampleVideoUrls` / `metadata` strings (metadata can hold photo fields). Dates and other values pass through.
  */
 // Fields whose value is a JSON-encoded string that can itself hold file URLs.
-const JSON_STRING_KEYS = new Set(["files", "sampleVideoUrls"]);
+const JSON_STRING_KEYS = new Set(["files", "sampleVideoUrls", "metadata"]);
 
 export async function signResponse<T>(value: T, ttlSeconds = VIEW_TTL_SECONDS): Promise<T> {
   const found: string[] = [];
   const collect = (v: unknown, key?: string): void => {
     if (typeof v === "string") {
-      if (key && JSON_STRING_KEYS.has(key) && v.startsWith("[")) {
+      if (key && JSON_STRING_KEYS.has(key) && (v.startsWith("[") || v.startsWith("{"))) {
         try { collect(JSON.parse(v)); } catch {}
       } else if (objectPathFromUrl(v)) found.push(v);
     } else if (Array.isArray(v)) v.forEach((x) => collect(x));
@@ -110,7 +110,7 @@ export async function signResponse<T>(value: T, ttlSeconds = VIEW_TTL_SECONDS): 
   const map = await signUrls(found, ttlSeconds);
   const swap = (v: unknown, key?: string): unknown => {
     if (typeof v === "string") {
-      if (key && JSON_STRING_KEYS.has(key) && v.startsWith("[")) {
+      if (key && JSON_STRING_KEYS.has(key) && (v.startsWith("[") || v.startsWith("{"))) {
         try { return JSON.stringify(swap(JSON.parse(v))); } catch { return v; }
       }
       return map.get(v) ?? v;

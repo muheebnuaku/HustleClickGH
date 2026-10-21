@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { currentOrg } from "@/lib/org-auth";
 import { orgProjectAccess } from "@/lib/org-access";
 import { parseMetadataFields, sanitizeCaptureTrace } from "@/lib/project-config";
-import { signUrls, submissionFileUrls } from "@/lib/storage-urls";
+import { signResponse, signUrls, submissionFileUrls } from "@/lib/storage-urls";
 
 const PAGE = 20;
 
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const signed = await signUrls(rows.flatMap((s) => submissionFileUrls(s)));
 
-  return NextResponse.json({
+  return NextResponse.json(await signResponse({
     fields: parseMetadataFields(project.metadataFields),
     total,
     pageSize: PAGE,
@@ -77,5 +77,5 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         reviewedByMe: s.clientReviewedByOrgId === org.id,
       };
     }),
-  });
+  }));
 }

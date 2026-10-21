@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { parseMetadataFields, sanitizeCaptureTrace, reviewOrgList } from "@/lib/project-config";
-import { EXPORT_TTL_SECONDS, signUrls, submissionFileUrls, withSignedFiles } from "@/lib/storage-urls";
+import { EXPORT_TTL_SECONDS, signResponse, signUrls, submissionFileUrls, withSignedFiles } from "@/lib/storage-urls";
 
 // GET /api/admin/data-projects/[id]/export?format=csv|json&status=approved|pending|all
 // Delivery manifest for a client: one row per submission with its files, the
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const subs = rawSubs.map((s) => withSignedFiles(s, signed));
   const fields = parseMetadataFields(project.metadataFields);
 
-  const rows = subs.map((s) => {
+  const unsignedRows = subs.map((s) => {
     let files: { url: string; name: string; type: string; sizeMB: number }[] = [
       { url: s.fileUrl, name: s.fileName, type: s.fileType, sizeMB: s.fileSizeMB },
     ];
@@ -92,6 +92,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     row.consentGivenAt = s.consentGivenAt?.toISOString() ?? "";
     return { row, files, trace };
   });
+  // Metadata photo fields are file links too: sign them like the files.
+  const rows = await signResponse(unsignedRows, EXPORT_TTL_SECONDS);
 
   const slug = project.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase().replace(/^-|-$/g, "");
   const filename = `${project.referenceCode ? `${project.referenceCode}-` : ""}${slug}-${statusParam}`;

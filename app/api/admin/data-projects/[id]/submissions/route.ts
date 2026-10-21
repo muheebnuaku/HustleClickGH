@@ -5,7 +5,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { getContributorQuality } from "@/lib/reputation";
 import { getSupabaseAdmin, STORAGE_BUCKET } from "@/lib/supabase-admin";
-import { objectPathFromUrl, signUrls, submissionFileUrls, withSignedFiles } from "@/lib/storage-urls";
+import { objectPathFromUrl, signResponse, signUrls, submissionFileUrls, withSignedFiles } from "@/lib/storage-urls";
 
 // GET: All submissions for a project
 export async function GET(
@@ -49,7 +49,7 @@ export async function GET(
       team: s.user.teamLeaderId ? { id: s.user.teamLeaderId, name: leaders.get(s.user.teamLeaderId)?.fullName ?? "Team", role: leaders.get(s.user.teamLeaderId)?.leaderRole ?? null } : null,
     }));
 
-    return NextResponse.json({ submissions: enriched });
+    return NextResponse.json(await signResponse({ submissions: enriched })); // metadata photo fields
   } catch (error) {
     console.error("Admin submissions fetch error:", error);
     return NextResponse.json({ message: "An error occurred" }, { status: 500 });

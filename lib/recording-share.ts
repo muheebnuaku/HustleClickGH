@@ -6,6 +6,7 @@
 
 import { nanoid } from "nanoid";
 import { getSupabaseAdmin, STORAGE_BUCKET } from "@/lib/supabase-admin";
+import { objectPathFromUrl } from "@/lib/storage-urls";
 
 function mimeFromFileName(fileName: string): string {
   const ext = fileName.split(".").pop()?.toLowerCase();
@@ -27,10 +28,20 @@ export async function downloadAndReuploadRecording(
   if (!supabase) throw new Error("Storage not configured — SUPABASE_SERVICE_ROLE_KEY missing");
 
   const mime = mimeFromFileName(suggestedFileName);
-  const buffer = await fetch(sourceUrl).then((res) => {
-    if (!res.ok) throw new Error(`Failed to download: ${res.status}`);
-    return res.arrayBuffer();
-  });
+  // Read our own files through the service client, so this keeps working once
+  // the bucket is private; anything else (legacy hosts) is fetched as before.
+  const sourcePath = objectPathFromUrl(sourceUrl);
+  let buffer: ArrayBuffer;
+  if (sourcePath) {
+    const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(sourcePath);
+    if (error || !data) throw new Error(`Failed to download: ${error?.message ?? "no data"}`);
+    buffer = await data.arrayBuffer();
+  } else {
+    buffer = await fetch(sourceUrl).then((res) => {
+      if (!res.ok) throw new Error(`Failed to download: ${res.status}`);
+      return res.arrayBuffer();
+    });
+  }
 
   const ext = suggestedFileName.includes(".")
     ? suggestedFileName.slice(suggestedFileName.lastIndexOf(".") + 1).replace(/[^a-zA-Z0-9]/g, "")
