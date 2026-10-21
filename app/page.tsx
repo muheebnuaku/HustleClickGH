@@ -9,7 +9,6 @@ import {
   Mic,
   TrendingUp,
   Award,
-  Star,
   Database,
   Languages,
   PhoneCall,
@@ -31,8 +30,32 @@ import { SocialCards } from "@/components/social-links";
 import { SITE_CONFIG } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { prisma } from "@/lib/prisma";
 
-export default function Home() {
+// Landing-page figures are read from the database (cached for an hour) so the
+// public numbers can never drift from what is actually true.
+export const revalidate = 3600;
+
+async function getPublicStats(): Promise<{ contributors: number; countries: number } | null> {
+  try {
+    const rows = await prisma.user.findMany({
+      where: { role: "user", profileCompleted: true },
+      select: { country: true },
+    });
+    // Count only full country names; ambiguous 2-letter entries are skipped so the figure never overstates.
+    const countries = new Set(
+      rows.map((r) => (r.country ?? "").trim().toLowerCase()).filter((c) => c.length > 2),
+    );
+    return { contributors: rows.length, countries: countries.size };
+  } catch {
+    return null;
+  }
+}
+
+const floorTo = (n: number, step: number) => (n >= step ? `${Math.floor(n / step) * step}+` : String(n));
+
+export default async function Home() {
+  const stats = await getPublicStats();
   return (
     <>
       <Navbar />
@@ -59,7 +82,7 @@ export default function Home() {
               </h1>
 
               <p className="text-lg sm:text-xl text-slate-300 mb-8 leading-relaxed max-w-xl">
-                Record your voice, complete surveys, and contribute data for AI training — in English, Twi, Ga, Hausa and more. Get paid instantly via Mobile Money.
+                Record your voice, complete surveys, and contribute data for AI training — in English, Twi, Ga, Hausa and more. Get paid through Mobile Money.
               </p>
 
               <div className="flex flex-row gap-4 justify-center lg:justify-start mb-10">
@@ -78,7 +101,7 @@ export default function Home() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Zap size={18} className="text-yellow-400" />
-                  <span>Instant Momo Payout</span>
+                  <span>Mobile Money Payouts</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Globe size={18} className="text-blue-400" />
@@ -107,8 +130,8 @@ export default function Home() {
                       <TrendingUp className="text-green-600" size={20} />
                     </div>
                     <div>
-                      <p className="text-2xl font-bold text-slate-900 dark:text-white">GH₵50K+</p>
-                      <p className="text-xs text-slate-500">Paid to contributors</p>
+                      <p className="text-2xl font-bold text-slate-900 dark:text-white">Every item</p>
+                      <p className="text-xs text-slate-500">Consent recorded</p>
                     </div>
                   </div>
                 </div>
@@ -119,8 +142,8 @@ export default function Home() {
                       <Mic className="text-blue-600" size={20} />
                     </div>
                     <div>
-                      <p className="text-2xl font-bold text-slate-900 dark:text-white">25K+</p>
-                      <p className="text-xs text-slate-500">Recordings collected</p>
+                      <p className="text-2xl font-bold text-slate-900 dark:text-white">{stats ? `${stats.countries} countries` : "Verified"}</p>
+                      <p className="text-xs text-slate-500">{stats ? "Contributors recruited" : "Contributors"}</p>
                     </div>
                   </div>
                 </div>
@@ -226,9 +249,9 @@ export default function Home() {
               { icon: Mic, title: "Configurable Voice Datasets", description: "Specify exact audio specs per project: WAV, 16/48 kHz, mono/stereo, 16/32-bit depth.", color: "blue" },
               { icon: PhoneCall, title: "Conversation Recording", description: "Capture real two-person phone-call conversations with our built-in WebRTC dialer — both sides recorded and mixed.", color: "purple" },
               { icon: Languages, title: "Local Language Support", description: "Collect data in English, Twi, Ga, Hausa, Dagbani and more, targeting specific languages and dialects.", color: "green" },
-              { icon: Shield, title: "Consented & Compliant", description: "All data collected with explicit consent under Ghana's Data Protection Act 2012, with a full audit trail.", color: "orange" },
+              { icon: Shield, title: "Consented & Compliant", description: "Every contribution carries explicit, versioned consent and a full audit trail, in line with Ghana's Data Protection Act, 2012.", color: "orange" },
               { icon: Database, title: "Survey Data Collection", description: "Run structured surveys alongside voice projects — text, multiple-choice and rating responses.", color: "pink" },
-              { icon: Zap, title: "Instant Mobile Money Rewards", description: "Pay contributors automatically in GH₵ via MTN Momo or Vodafone Cash on approval.", color: "cyan" },
+              { icon: Zap, title: "Mobile Money Rewards", description: "Rewards are credited when a submission is approved; contributors withdraw to MTN MoMo or Telecel Cash.", color: "cyan" },
             ].map((feature) => {
               const colorClasses: Record<string, { bg: string; icon: string; border: string }> = {
                 blue: { bg: "bg-blue-100 dark:bg-blue-900/30", icon: "text-blue-600", border: "hover:border-blue-300" },
@@ -315,10 +338,14 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 text-center text-white">
             {[
-              { number: "25K+", label: "Recordings Collected" },
-              { number: "1K+", label: "Active Contributors" },
-              { number: "5+", label: "Languages Covered" },
-              { number: "GH₵50K+", label: "Paid to Contributors" },
+              ...(stats
+                ? [
+                    { number: floorTo(stats.contributors, 50), label: "Verified Contributors" },
+                    { number: String(stats.countries), label: "Countries" },
+                  ]
+                : []),
+              { number: "100%", label: "Consent Recorded" },
+              { number: "Every", label: "Sign-up Fraud-Checked" },
             ].map((stat) => (
               <div key={stat.label}>
                 <div className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-2">{stat.number}</div>
@@ -433,49 +460,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Testimonials — What People Say */}
-      <section className="py-16 sm:py-24 bg-slate-50 dark:bg-slate-900">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-10 sm:mb-16">
-            <div className="inline-flex items-center gap-2 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 px-4 py-2 rounded-full text-sm font-medium mb-4">
-              <Star size={16} />
-              <span>What People Say</span>
-            </div>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 dark:text-white mb-4">
-              Trusted by Researchers &amp; Contributors Alike
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
-            {[
-              { name: "Dr. Kwame Asante", role: "AI Researcher, University of Ghana", content: "We needed Twi speech data at 16 kHz mono for our ASR project. HustleClickGH delivered exactly the format we specified — properly consented and review-approved.", rating: 5 },
-              { name: "Abena Mensah", role: "Voice Contributor, Accra", content: "I've earned over GH₵200 just from recording sentences in Twi on my phone. The tasks are simple and the Momo payment arrives the same day my submission is approved.", rating: 5 },
-              { name: "Kofi Owusu", role: "Market Research Analyst", content: "The combination of survey data and voice recordings from the same pool of Ghanaian participants gave our client insights they couldn't get anywhere else.", rating: 5 },
-            ].map((testimonial) => (
-              <Card key={testimonial.name} className="p-6 hover:shadow-xl transition-all">
-                <CardContent className="p-0">
-                  <div className="flex gap-1 mb-4">
-                    {[...Array(testimonial.rating)].map((_, i) => (
-                      <Star key={i} size={18} className="text-yellow-400 fill-yellow-400" />
-                    ))}
-                  </div>
-                  <p className="text-slate-600 dark:text-slate-400 mb-6 italic">&ldquo;{testimonial.content}&rdquo;</p>
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">
-                      {testimonial.name.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-slate-900 dark:text-white">{testimonial.name}</p>
-                      <p className="text-sm text-slate-500">{testimonial.role}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* Community — official social accounts */}
       <section className="py-16 sm:py-20 bg-white dark:bg-slate-950">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -516,7 +500,7 @@ export default function Home() {
 
           <div className="mt-10 flex items-center justify-center gap-3 text-slate-400 text-xs sm:text-sm text-center">
             <Shield size={18} className="text-green-400 shrink-0" />
-            <span>Free to join · Instant Momo payouts · Ghana Data Protection Act compliant</span>
+            <span>Free to join · Mobile Money payouts · Consent recorded for every contribution</span>
           </div>
         </div>
       </section>

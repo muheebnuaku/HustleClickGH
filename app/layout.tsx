@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 });
 
 const SITE_TITLE = "HustleClickGH — Get paid to power AI in Ghana";
-const SITE_DESCRIPTION = "Earn money by contributing voice recordings, surveys, and language data for AI training. Record in English, Twi, Ga, Hausa and get paid instantly via Mobile Money.";
+const SITE_DESCRIPTION = "Earn money by contributing voice recordings, surveys, and language data for AI training. Record in English, Twi, Ga, Hausa and more, and get paid through Mobile Money.";
 
 // Link previews (WhatsApp, Facebook, X, LinkedIn…). The share image itself is
 // app/opengraph-image.jpg + app/twitter-image.jpg; icons are app/favicon.ico,
