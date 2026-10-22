@@ -705,3 +705,27 @@ model AppSetting {
   value     String
   updatedAt DateTime @updatedAt
 }
+
+// Radar: public posts (job boards, papers, alerts) that may be projects for us.
+// Filled daily by /api/cron/radar (lib/radar.ts); scored by AI; triaged on /admin/radar.
+model RadarItem {
+  id        String    @id @default(cuid())
+  url       String    @unique
+  source    String // "lever:appen" | "greenhouse:toloka" | "ashby:mercor" | "arxiv" | "hn" | "rss:<label>"
+  title     String
+  company   String?
+  location  String?
+  snippet   String? // plain-text excerpt (≤ 800 chars)
+  postedAt  DateTime?
+  score     Int? // 0..100 relevance from the AI scorer; null = not scored yet
+  verdict   String    @default("unscored") // lead | maybe | noise | no_go | unscored
+  leadType  String? // vendor | kyc | speech | programme | partner
+  reason    String? // why it scored this way
+  angle     String? // suggested pitch
+  status    String    @default("new") // new | saved | dismissed
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status, score])
+  @@index([verdict, createdAt])
+}
