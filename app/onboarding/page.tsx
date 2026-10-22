@@ -27,6 +27,7 @@ export default function OnboardingPage() {
   });
   const [consentAgreed, setConsentAgreed] = useState(false);
   const [consentName, setConsentName] = useState("");
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
 
   const update_ = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -58,13 +59,14 @@ export default function OnboardingPage() {
     if (!consentAgreed || consentName.trim().length < 2) {
       return setError("Please sign and agree to the Data Processing Agreement.");
     }
+    if (!ageConfirmed) return setError("Please confirm you are 18 or older.");
 
     setLoading(true);
     try {
       const res = await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, consentAgreed, consentName }),
+        body: JSON.stringify({ ...form, consentAgreed, consentName, ageConfirmed }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Something went wrong.");
@@ -185,6 +187,8 @@ export default function OnboardingPage() {
             onAgreedChange={setConsentAgreed}
             signedName={consentName}
             onSignedNameChange={setConsentName}
+            ageConfirmed={ageConfirmed}
+            onAgeConfirmedChange={setAgeConfirmed}
             disabled={loading}
           />
 
