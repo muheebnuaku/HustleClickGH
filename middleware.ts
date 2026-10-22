@@ -38,8 +38,16 @@ export async function middleware(request: NextRequest) {
     path === "/api/webauthn/auth/options" ||
     path === "/api/webauthn/auth/verify";
 
+  // Vercel Cron calls carry no session, only `Authorization: Bearer $CRON_SECRET`.
+  // Let them through only with that secret (the route re-checks it).
+  const cronSecret = process.env.CRON_SECRET;
+  const isAuthorizedCron =
+    path === "/api/cron/radar" &&
+    !!cronSecret &&
+    request.headers.get("authorization") === `Bearer ${cronSecret}`;
+
   // Allow public paths without authentication
-  if (isPublicPath) {
+  if (isPublicPath || isAuthorizedCron) {
     return NextResponse.next();
   }
 
