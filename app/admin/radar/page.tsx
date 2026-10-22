@@ -132,7 +132,13 @@ export default function AdminRadarPage() {
     setRunNote(null);
     try {
       const res = await fetch("/api/admin/radar", { method: "POST" });
-      const r: RunResult & { message?: string } = await res.json();
+      // A timed-out or crashed function returns Vercel's plain-text error page, not JSON.
+      const r: (RunResult & { message?: string }) | null = await res.json().catch(() => null);
+      if (!r) {
+        throw new Error(
+          `The run did not finish (server returned ${res.status}). Posts fetched before the cut-off are kept; reload the page, and run again to score the rest.`,
+        );
+      }
       if (!res.ok) throw new Error(r.message || "Run failed");
       setRunNote({
         tone: r.errors.length ? "error" : "success",

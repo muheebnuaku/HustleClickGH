@@ -47,9 +47,11 @@ export const DEFAULT_SOURCES: RadarSources = {
 
 const SOURCES_KEY = "radar_sources";
 const LAST_RUN_KEY = "radar_last_run";
-const FETCH_TIMEOUT_MS = 25_000; // Appen's board (full descriptions) needs > 10 s; sources run in parallel
+// The whole run must finish inside the route's 60 s maxDuration on Vercel.
+const RUN_BUDGET_MS = 50_000;
+const FETCH_TIMEOUT_MS = 20_000; // Appen's board (full descriptions) is slow; sources run in parallel
 const MAX_AGE_DAYS = 90;
-const SCORE_BATCH = 20;
+const SCORE_BATCH = 15; // batches are scored in parallel; smaller ones return faster
 const MAX_SCORED_PER_RUN = 60;
 const DIGEST_MIN_SCORE = 70;
 const DISMISSED_KEEP_DAYS = 90;
@@ -292,13 +294,16 @@ interface Scored {
 const VERDICTS = ["lead", "maybe", "noise", "no_go"];
 const LEAD_TYPES = ["vendor", "kyc", "speech", "programme", "partner"];
 
-async function scoreBatch(items: { id: string; title: string; source: string; company: string | null; location: string | null; snippet: string | null }[]): Promise<Scored[]> {
+async function scoreBatch(
+  items: { id: string; title: string; source: string; company: string | null; location: string | null; snippet: string | null }[],
+  timeoutMs: number,
+): Promise<Scored[]> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return [];
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(40_000),
+    signal: AbortSignal.timeout(timeoutMs),
     body: JSON.stringify({
       model: process.env.RADAR_MODEL || "gpt-4o-mini",
       messages: [
@@ -354,6 +359,7 @@ export interface RadarRunResult {
 }
 
 export async function runRadar(opts: { digest?: boolean } = {}): Promise<RadarRunResult> {
+  const startedAt = Date.now();
   const sources = await getRadarSources();
   const jobs: { name: string; run: () => Promise<RawItem[]> }[] = [
     ...sources.greenhouse.map((b) => ({ name: `greenhouse:${b}`, run: () => fetchGreenhouse(b) })),
@@ -404,7 +410,8 @@ export async function runRadar(opts: { digest?: boolean } = {}): Promise<RadarRu
     }
   }
 
-  // Score the oldest unscored items; a large first run drains over several days.
+  // Score the oldest unscored items, all batches in parallel, within what is
+  // left of the time budget; anything unscored is picked up by the next run.
   const scoredIds: string[] = [];
   const pending = await prisma.radarItem.findMany({
     where: { verdict: "unscored", status: "new" },
@@ -412,22 +419,25 @@ export async function runRadar(opts: { digest?: boolean } = {}): Promise<RadarRu
     take: MAX_SCORED_PER_RUN,
     select: { id: true, title: true, source: true, company: true, location: true, snippet: true },
   });
-  if (process.env.OPENAI_API_KEY) {
-    for (let i = 0; i < pending.length; i += SCORE_BATCH) {
-      try {
-        const results = await scoreBatch(pending.slice(i, i + SCORE_BATCH));
-        for (const r of results) {
-          await prisma.radarItem.update({
-            where: { id: r.id },
-            data: { score: r.score, verdict: r.verdict, leadType: r.leadType, reason: r.reason, angle: r.angle },
-          });
-          scoredIds.push(r.id);
-        }
-      } catch (e) {
-        errors.push(`scoring: ${(e as Error).message.slice(0, 160)}`);
-        break;
-      }
-    }
+  const scoringTimeout = RUN_BUDGET_MS - (Date.now() - startedAt) - 5_000; // keep 5 s for writes and the digest
+  if (process.env.OPENAI_API_KEY && pending.length && scoringTimeout < 5_000) {
+    errors.push("scoring postponed: fetching used the time budget; the next run will score these");
+  } else if (process.env.OPENAI_API_KEY) {
+    const batches: (typeof pending)[] = [];
+    for (let i = 0; i < pending.length; i += SCORE_BATCH) batches.push(pending.slice(i, i + SCORE_BATCH));
+    const settledScores = await Promise.allSettled(batches.map((b) => scoreBatch(b, scoringTimeout)));
+    const results = settledScores.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+    const failed = settledScores.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed) errors.push(`scoring: ${(failed.reason as Error)?.message?.slice(0, 160) || "failed"}`);
+    await prisma.$transaction(
+      results.map((r) =>
+        prisma.radarItem.update({
+          where: { id: r.id },
+          data: { score: r.score, verdict: r.verdict, leadType: r.leadType, reason: r.reason, angle: r.angle },
+        }),
+      ),
+    );
+    scoredIds.push(...results.map((r) => r.id));
   } else if (pending.length) {
     errors.push("scoring skipped: OPENAI_API_KEY not set");
   }
