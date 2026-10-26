@@ -12,7 +12,25 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   return NextResponse.json({ deal });
 }
 
-const TEXT_FIELDS = { company: 200, contactName: 120, contactTitle: 120, country: 80, nextStep: 300, notes: 4000, summary: 8000 } as const;
+// Admin: permanently delete a deal and its history (spam, duplicates). A deal that came from the
+// inquiry form takes its inquiry with it; a saved Radar post is kept.
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!(await adminUserId())) return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
+  const { id } = await params;
+  try {
+    const deal = await prisma.deal.findUnique({ where: { id }, select: { partnerInquiryId: true } });
+    if (!deal) return NextResponse.json({ message: "Deal not found" }, { status: 404 });
+    // Close the inquiry too, otherwise the next list load would recreate the deal from it.
+    if (deal.partnerInquiryId) await prisma.partnerInquiry.delete({ where: { id: deal.partnerInquiryId } }).catch(() => {});
+    await prisma.deal.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("Deal delete failed:", error);
+    return NextResponse.json({ message: "Failed to delete deal" }, { status: 500 });
+  }
+}
+
+const TEXT_FIELDS ={ company: 200, contactName: 120, contactTitle: 120, country: 80, nextStep: 300, notes: 4000, summary: 8000 } as const;
 const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 
 // Admin: edit a deal's stage, kind, follow-up date, value, contact details or notes.

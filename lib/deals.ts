@@ -13,12 +13,56 @@ import { SITE_CONFIG } from "@/lib/constants";
 export const STAGES = ["new", "contacted", "replied", "call", "pilot", "paid", "lost"] as const;
 export const ACTIVE_STAGES = ["new", "contacted", "replied", "call", "pilot"];
 export const KINDS = ["buyer", "supply_partner", "vendor_pitch", "spam", "other"] as const;
-export const INTENTS = ["qualify", "call", "follow_up", "intro", "decline", "custom"] as const;
+export const INTENTS = ["reply", "qualify", "call", "follow_up", "intro", "decline", "polish", "custom"] as const;
+export const TONES = ["warm", "formal", "direct"] as const;
+export const LENGTHS = ["short", "medium", "detailed"] as const;
+export const MESSAGE_KINDS = ["email", "logged", "received", "note"] as const;
+export type MessageKind = (typeof MESSAGE_KINDS)[number];
 export type Intent = (typeof INTENTS)[number];
 
 const FACTS_KEY = "deal_facts";
 const MODEL = process.env.DEALS_MODEL || "gpt-4o";
-const FOLLOW_UP_DAYS = 3;
+const SETTINGS_KEY = "deal_settings";
+
+/** How much Lana does on her own, and pipeline defaults — the owner decides (editable on /admin/deals). */
+export interface DealSettings {
+  followUpDays: number; // follow-up date set after we send something
+  autoAnalyse: boolean; // run Lana's analysis when a deal without one is opened
+  tone: (typeof TONES)[number];
+  length: (typeof LENGTHS)[number];
+}
+
+export const DEFAULT_SETTINGS: DealSettings = { followUpDays: 3, autoAnalyse: false, tone: "warm", length: "short" };
+
+function normalizeSettings(v: unknown): DealSettings {
+  const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  const days = Math.round(Number(o.followUpDays));
+  return {
+    followUpDays: Number.isFinite(days) && days >= 1 && days <= 30 ? days : DEFAULT_SETTINGS.followUpDays,
+    autoAnalyse: o.autoAnalyse === true,
+    tone: TONES.includes(o.tone as DealSettings["tone"]) ? (o.tone as DealSettings["tone"]) : DEFAULT_SETTINGS.tone,
+    length: LENGTHS.includes(o.length as DealSettings["length"]) ? (o.length as DealSettings["length"]) : DEFAULT_SETTINGS.length,
+  };
+}
+
+export async function getSettings(): Promise<DealSettings> {
+  const row = await prisma.appSetting.findUnique({ where: { key: SETTINGS_KEY } });
+  try {
+    return normalizeSettings(row ? JSON.parse(row.value) : {});
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
+export async function saveSettings(input: unknown): Promise<DealSettings> {
+  const value = normalizeSettings(input);
+  await prisma.appSetting.upsert({
+    where: { key: SETTINGS_KEY },
+    update: { value: JSON.stringify(value) },
+    create: { key: SETTINGS_KEY, value: JSON.stringify(value) },
+  });
+  return value;
+}
 
 /** A problem with what the admin entered (shown to them as-is), not a server fault. */
 export class DealInputError extends Error {}
@@ -223,10 +267,11 @@ async function chatJson(system: string, user: string, maxTokens: number): Promis
 
 // Their message is untrusted input: it is passed as quoted data and Lana is told never to follow instructions in it.
 function dealContext(deal: DealWithMessages): string {
+  const who = (k: string) => (k === "received" ? "THEY wrote" : k === "logged" ? "we sent (outside the app)" : "we sent");
   const history = deal.messages
     .filter((m) => m.kind !== "note")
-    .slice(-6)
-    .map((m) => `[${m.createdAt.toISOString().slice(0, 10)} we sent${m.kind === "logged" ? " (outside the app)" : ""}] ${m.subject ?? ""}\n${m.body.slice(0, 1200)}`)
+    .slice(-8)
+    .map((m) => `[${m.createdAt.toISOString().slice(0, 10)} ${who(m.kind)}] ${m.subject ?? ""}\n${m.body.slice(0, 1500)}`)
     .join("\n---\n");
   return JSON.stringify(
     {
@@ -240,7 +285,7 @@ function dealContext(deal: DealWithMessages): string {
       evidenceUrl: deal.evidenceUrl,
       theirMessageOrEvidence: (deal.summary || "").slice(0, 4000),
       ourInternalNotes: (deal.notes || "").slice(0, 1000),
-      previousMessagesWeSent: history || "none",
+      conversationSoFar: history || "none (nothing sent or received yet)",
     },
     null,
     2,
@@ -295,12 +340,25 @@ export async function triageDeal(id: string): Promise<Triage> {
 }
 
 const INTENT_BRIEF: Record<Intent, string> = {
+  reply: "Reply to THEIR most recent message in conversationSoFar (or their original message if they have not written since). Answer what they asked, point by point, using only our facts; where the facts do not cover a question, say we will confirm on a call and list it in warnings.",
   qualify: "Thank them and ask the 2–4 most important questions we need answered before we can quote (use the 'missing' items if known). Keep it short.",
   call: "Propose a 20-minute call to understand their specification. Ask for two or three times that suit them.",
   follow_up: "Polite, short follow-up to our previous message. Add one new, useful line (not a repeat). Make it easy to reply.",
   intro: "First cold outreach. Open with why we are writing to THEM specifically (from the evidence), say in one or two sentences what we do that fits, and ask one clear question. Under 120 words. End with: \"If this isn't relevant, just reply 'no thanks' and I won't follow up.\"",
   decline: "Politely decline or close the conversation, thank them, and leave the door open if appropriate. Do not explain internal reasons.",
+  polish: "Rewrite the owner's own draft (ownerDraft below): fix grammar and spelling, make it clear and concise, and keep their meaning, structure and voice. Do not add new claims about us; if their draft states something not in our facts (a price, a number, a promise), keep it but list it in warnings.",
   custom: "Follow the owner's instruction below.",
+};
+
+const TONE_BRIEF: Record<DealSettings["tone"], string> = {
+  warm: "warm and friendly, still professional",
+  formal: "formal and courteous",
+  direct: "direct and businesslike, no pleasantries beyond one line",
+};
+const LENGTH_BRIEF: Record<DealSettings["length"], string> = {
+  short: "short: under 120 words",
+  medium: "medium: 120 to 220 words",
+  detailed: "detailed: up to 350 words",
 };
 
 const DRAFT_PROMPT = (facts: string) => `You are Lana, writing e-mails for HustleClickGH that the owner will review, edit and send from info@hustleclickgh.com.
@@ -326,14 +384,28 @@ export interface Draft {
   warnings: string[];
 }
 
-export async function draftEmail(id: string, intent: Intent, instruction?: string): Promise<Draft> {
+export async function draftEmail(
+  id: string,
+  intent: Intent,
+  instruction?: string,
+  opts: { tone?: string; length?: string; ownerDraft?: string } = {},
+): Promise<Draft> {
   const deal = await loadDeal(id);
-  if (!deal) throw new Error("Deal not found");
+  if (!deal) throw new DealInputError("Deal not found");
+  if (intent === "polish" && !opts.ownerDraft?.trim()) throw new DealInputError("Write something first, then ask Lana to polish it.");
+  if (intent === "reply" && deal.source !== "inquiry" && !deal.messages.some((m) => m.kind === "received")) {
+    throw new DealInputError("There is no message from them yet. Paste their reply with \"Log their reply\" first.");
+  }
+  const settings = await getSettings();
+  const tone = TONES.includes(opts.tone as DealSettings["tone"]) ? (opts.tone as DealSettings["tone"]) : settings.tone;
+  const length = LENGTHS.includes(opts.length as DealSettings["length"]) ? (opts.length as DealSettings["length"]) : settings.length;
   const lastSubject = [...deal.messages].reverse().find((m) => m.subject)?.subject;
   const user =
     `Task: ${INTENT_BRIEF[intent]}\n` +
+    `Tone: ${TONE_BRIEF[tone]}. Length: ${intent === "polish" ? "keep roughly the owner's length" : LENGTH_BRIEF[length]}.\n` +
     (instruction ? `Owner's instruction: ${instruction.slice(0, 1000)}\n` : "") +
-    (lastSubject && intent === "follow_up" ? `Reuse this subject with "Re: " if suitable: ${lastSubject}\n` : "") +
+    (lastSubject && ["follow_up", "reply"].includes(intent) ? `Reuse this subject with "Re: " if suitable: ${lastSubject}\n` : "") +
+    (intent === "polish" ? `\nownerDraft (the owner's own words, to rewrite):\n${JSON.stringify((opts.ownerDraft || "").slice(0, 6000))}\n` : "") +
     `\nDeal:\n${dealContext(deal)}`;
   const raw = await chatJson(DRAFT_PROMPT(await getFacts()), user, 900);
   const body = String(raw.body || "").trim();
@@ -361,7 +433,7 @@ export function plainHtml(body: string): string {
 
 export async function addMessage(opts: {
   dealId: string;
-  kind: "email" | "logged" | "note";
+  kind: MessageKind;
   subject?: string;
   body: string;
   toEmail?: string;
@@ -383,14 +455,25 @@ export async function addMessage(opts: {
     opts.toEmail = to;
   }
 
+  // We sent something → waiting on them; they replied → it's our turn today.
+  const { followUpDays } = await getSettings();
+  const endOfToday = new Date(new Date().setHours(23, 59, 59, 999));
+  const pipeline =
+    opts.kind === "email" || opts.kind === "logged"
+      ? {
+          ...(deal.stage === "new" ? { stage: "contacted" } : {}),
+          nextDate: new Date(Date.now() + followUpDays * 86_400_000),
+          nextStep: "Follow up if no reply",
+        }
+      : opts.kind === "received"
+        ? { ...(["new", "contacted"].includes(deal.stage) ? { stage: "replied" } : {}), nextDate: endOfToday, nextStep: "Reply to them" }
+        : {};
+
   const message = await prisma.deal
     .update({
       where: { id: deal.id },
       data: {
-        ...(opts.kind !== "note" && deal.stage === "new" ? { stage: "contacted" } : {}),
-        ...(opts.kind !== "note"
-          ? { nextDate: new Date(Date.now() + FOLLOW_UP_DAYS * 86_400_000), nextStep: "Follow up if no reply" }
-          : {}),
+        ...pipeline,
         messages: {
           create: {
             kind: opts.kind,
