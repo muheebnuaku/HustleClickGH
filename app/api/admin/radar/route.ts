@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { getLastRadarRun, runRadar } from "@/lib/radar";
+import { dealFromRadarItem } from "@/lib/deals";
 
 const VIEWS = ["leads", "maybe", "new", "saved", "dismissed"] as const;
 type View = (typeof VIEWS)[number];
@@ -80,6 +81,8 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ message: "Invalid request" }, { status: 400 });
     }
     const item = await prisma.radarItem.update({ where: { id: String(id) }, data: { status } });
+    // Saving a post puts it in the Deals pipeline.
+    if (status === "saved") await dealFromRadarItem(item.id);
     return NextResponse.json({ item });
   } catch (error) {
     console.error("Radar update failed:", error);

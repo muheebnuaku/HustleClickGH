@@ -729,3 +729,50 @@ model RadarItem {
   @@index([status, score])
   @@index([verdict, createdAt])
 }
+
+// Deals: one pipeline for inbound partner inquiries, saved Radar posts and
+// outbound leads. Lana drafts replies; an admin edits and sends (lib/deals.ts).
+model Deal {
+  id               String        @id @default(cuid())
+  source           String        // inquiry | radar | manual | import
+  company          String
+  contactName      String?
+  contactEmail     String?
+  contactTitle     String?
+  contactUrl       String?       // LinkedIn / contact page when there is no e-mail
+  country          String?
+  summary          String?       // their message, or why they need us
+  evidenceUrl      String?
+  stage            String        @default("new") // new | contacted | replied | call | pilot | paid | lost
+  kind             String?       // buyer | supply_partner | vendor_pitch | spam | other (Lana's triage, editable)
+  triage           String?       // JSON {kind, fit, summary, redFlags[], missing[], nextStep} from Lana
+  nextStep         String?
+  nextDate         DateTime?
+  valueUsd         Float?
+  notes            String?
+  partnerInquiryId String?       @unique
+  radarItemId      String?       @unique
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  messages         DealMessage[]
+
+  @@index([stage, nextDate])
+  @@index([createdAt])
+}
+
+model DealMessage {
+  id         String   @id @default(cuid())
+  dealId     String
+  kind       String   // email (sent from the app) | logged (sent elsewhere, e.g. LinkedIn) | note
+  toEmail    String?
+  subject    String?
+  body       String
+  aiDrafted  Boolean  @default(false)
+  createdBy  String   // admin user id
+  createdAt  DateTime @default(now())
+
+  deal       Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId, createdAt])
+}

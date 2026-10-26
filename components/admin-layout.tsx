@@ -18,7 +18,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     items: [
       { href: "/admin/users", label: "Users", icon: Users },
       { href: "/admin/organizations", label: "Organizations", icon: Building2 },
-      { href: "/admin/partners", label: "Partner Inquiries", icon: Handshake },
+      { href: "/admin/deals", label: "Deals", icon: Handshake },
       { href: "/admin/radar", label: "Radar", icon: Radar },
       { href: "/admin/teams", label: "Field Teams", icon: Network },
     ],
