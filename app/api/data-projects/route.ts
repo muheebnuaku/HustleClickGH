@@ -1,10 +1,11 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { checkLocationEligibility, targetingSummary, contributorMoneyView, parseStringList } from "@/lib/project-config";
 import { teamChain, canTakeAssigned } from "@/lib/field-teams";
+import { processEmailQueue } from "@/lib/email-queue";
 
 // GET: List all active data projects + user's submission status for each
 export async function GET() {
@@ -63,6 +64,9 @@ export async function GET() {
         slotsRemaining: p.maxSubmissions - p.currentSubmissions,
       };
     });
+
+    // Traffic doubles as a heartbeat for queued bulk e-mail (a small slice; no-op when nothing is due).
+    after(() => processEmailQueue(5).then(() => undefined).catch((e) => console.error("[email-queue] tick failed:", e)));
 
     return NextResponse.json({ projects: projectsWithStatus });
   } catch (error) {

@@ -1,12 +1,11 @@
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { sendEmail, broadcastEmail, isRateLimitError } from "@/lib/email";
-import { logActivity, getIp } from "@/lib/activity-log";
+import { EMAIL_BATCH_INTERVAL_MIN, EMAIL_BATCH_SIZE, nextBatchAt, processEmailQueue, refreshBroadcast } from "@/lib/email-queue";
 
 type Target = "all" | "verified" | "unverified" | "no_location" | "country" | "custom";
 
@@ -14,14 +13,6 @@ interface Recipient {
   email: string;
   fullName: string;
 }
-
-// How many recipients to attempt per POST — kept small so a chunk never nears
-// the 60s serverless limit even on slow SMTP.
-const BATCH = 15;
-
-// How many rate-limit-shaped failures in a row before we treat it as the
-// provider actually blocking us, rather than one recipient's own issue.
-const RATE_LIMIT_STREAK_TO_ABORT = 3;
 
 /** Build the recipient list for a target selection. */
 async function resolveRecipients(
@@ -64,27 +55,6 @@ function dedupe(list: Recipient[]): Recipient[] {
     if (!seen.has(key)) seen.set(key, r);
   }
   return [...seen.values()];
-}
-
-/** Recompute a broadcast's aggregate counts + status from its recipient rows. */
-async function refreshBroadcast(broadcastId: string, aborted: boolean) {
-  const [sentCount, failedCount, pending] = await Promise.all([
-    prisma.emailRecipient.count({ where: { broadcastId, status: "sent" } }),
-    prisma.emailRecipient.count({ where: { broadcastId, status: "failed" } }),
-    prisma.emailRecipient.count({ where: { broadcastId, status: "pending" } }),
-  ]);
-  const status = aborted
-    ? "stopped"
-    : pending > 0
-    ? "sending"
-    : failedCount > 0
-    ? "partial"
-    : "completed";
-  await prisma.emailBroadcast.update({
-    where: { id: broadcastId },
-    data: { sentCount, failedCount, status },
-  });
-  return { sentCount, failedCount, pending, status };
 }
 
 // ── GET: recipient counts (default), broadcast history (?list=1), detail (?id=) ──
@@ -197,7 +167,9 @@ export async function POST(request: Request) {
         })),
       });
 
-      return NextResponse.json({ broadcastId: broadcast.id, total: recipients.length });
+      // Sending happens server-side in batches; the first one starts now.
+      after(() => processEmailQueue().then(() => undefined).catch((e) => console.error("[email-queue] start failed:", e)));
+      return NextResponse.json({ broadcastId: broadcast.id, total: recipients.length, batchSize: EMAIL_BATCH_SIZE, intervalMin: EMAIL_BATCH_INTERVAL_MIN });
     }
 
     // ── RESEND (failed → pending) ────────────────────────────────────────────
@@ -216,10 +188,11 @@ export async function POST(request: Request) {
         where: { id: broadcastId },
         data: { status: reset.count > 0 ? "sending" : broadcast.status },
       });
+      if (reset.count) after(() => processEmailQueue().then(() => undefined).catch((e) => console.error("[email-queue] resend failed:", e)));
       return NextResponse.json({ pending: reset.count });
     }
 
-    // ── PROCESS next batch ───────────────────────────────────────────────────
+    // ── PROCESS: send the next queued slice if the batch window allows ──────────
     if (action === "process") {
       const { broadcastId } = body;
       const broadcast = broadcastId
@@ -227,83 +200,19 @@ export async function POST(request: Request) {
         : null;
       if (!broadcast) return NextResponse.json({ message: "Broadcast not found" }, { status: 404 });
 
-      const batch = await prisma.emailRecipient.findMany({
-        where: { broadcastId, status: "pending" },
-        take: BATCH,
-        orderBy: { createdAt: "asc" },
-      });
-
-      let sent = 0;
-      let failed = 0;
-      let aborted: string | null = null;
-      let rateLimitStreak = 0;
-
-      // Sequential — shared SMTP mailboxes rate-limit parallel connections.
-      for (const r of batch) {
-        const mail = broadcastEmail(broadcast.subject, broadcast.message, r.fullName || undefined);
-        const result = await sendEmail({ to: r.email, subject: mail.subject, html: mail.html });
-        if (result.ok) {
-          sent++;
-          rateLimitStreak = 0;
-          await prisma.emailRecipient.update({
-            where: { id: r.id },
-            data: { status: "sent", error: null, attempts: { increment: 1 } },
-          });
-        } else {
-          failed++;
-          await prisma.emailRecipient.update({
-            where: { id: r.id },
-            data: {
-              status: "failed",
-              error: (result.error || "unknown error").slice(0, 300),
-              attempts: { increment: 1 },
-            },
-          });
-          // One flagged recipient can just be that mailbox (bad address, its
-          // own block) — don't let it stop everyone else. Only a run of these
-          // in a row looks like the provider actually cutting us off, so stop
-          // and leave the rest pending rather than hammering a real block.
-          if (isRateLimitError(result.error)) {
-            rateLimitStreak++;
-            if (rateLimitStreak >= RATE_LIMIT_STREAK_TO_ABORT) {
-              aborted = result.error || "Sending limit reached";
-              break;
-            }
-          } else {
-            rateLimitStreak = 0;
-          }
-        }
-      }
-
-      const agg = await refreshBroadcast(broadcastId, Boolean(aborted));
-      const done = agg.pending === 0 || Boolean(aborted);
-
-      if (done) {
-        logActivity({
-          type: "email_broadcast",
-          userId: session.user.id,
-          userName: session.user.name,
-          severity: agg.failedCount > 0 || aborted ? "error" : "success",
-          metadata: {
-            broadcastId,
-            subject: broadcast.subject,
-            total: broadcast.total,
-            sent: agg.sentCount,
-            failed: agg.failedCount,
-            aborted,
-          },
-          ip: getIp(request),
-        });
-      }
-
+      const run = await processEmailQueue();
+      const agg = await refreshBroadcast(broadcastId);
       return NextResponse.json({
-        sent,
-        failed,
+        sent: run.sent,
+        failed: run.failed,
         remaining: agg.pending,
         sentTotal: agg.sentCount,
         failedTotal: agg.failedCount,
-        done,
-        aborted,
+        done: agg.pending === 0,
+        paused: run.paused,
+        nextBatchAt: agg.pending ? (run.nextBatchAt ?? (await nextBatchAt())) : null,
+        batchSize: EMAIL_BATCH_SIZE,
+        intervalMin: EMAIL_BATCH_INTERVAL_MIN,
       });
     }
 

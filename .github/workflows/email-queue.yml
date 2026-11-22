@@ -1,0 +1,20 @@
+# Heartbeat for the bulk e-mail queue (lib/email-queue.ts). Vercel's free plan
+# only allows daily crons, so GitHub calls the endpoint every 10 minutes; the
+# endpoint itself enforces 45 e-mails per 45-minute window.
+# Needs the repository secret CRON_SECRET (same value as in Vercel).
+name: Email queue
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Send next batch if due
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET secret is not set"; exit 1; fi
+          curl -fsS --max-time 90 -H "Authorization: Bearer $CRON_SECRET" https://www.hustleclickgh.com/api/cron/email-queue

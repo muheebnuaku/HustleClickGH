@@ -44,7 +44,7 @@ export async function middleware(request: NextRequest) {
   // Let them through only with that secret (the route re-checks it).
   const cronSecret = process.env.CRON_SECRET;
   const isAuthorizedCron =
-    path === "/api/cron/radar" &&
+    (path === "/api/cron/radar" || path === "/api/cron/email-queue") &&
     !!cronSecret &&
     request.headers.get("authorization") === `Bearer ${cronSecret}`;
 

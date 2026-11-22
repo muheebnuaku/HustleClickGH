@@ -58,6 +58,8 @@ export function EmailBroadcast() {
   const [sending, setSending] = useState(false);
   const [progress, setProgress] = useState({ sent: 0, failed: 0, total: 0, remaining: 0 });
   const [result, setResult] = useState("");
+  const [watch, setWatch] = useState<{ id: string; total: number } | null>(null);
+  const [nextAt, setNextAt] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const [history, setHistory] = useState<Broadcast[]>([]);
@@ -89,23 +91,40 @@ export function EmailBroadcast() {
     }
   };
 
-  // Drive one campaign to completion, updating the progress bar as batches land.
-  const runProcessLoop = async (broadcastId: string, total: number): Promise<string | null> => {
-    let aborted: string | null = null;
-    while (true) {
-      const res = await fetch("/api/admin/emails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "process", broadcastId }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.message || "Send failed");
-      setProgress({ sent: d.sentTotal ?? 0, failed: d.failedTotal ?? 0, total, remaining: d.remaining ?? 0 });
-      if (d.aborted) { aborted = d.aborted; break; }
-      if (d.done) break;
-    }
-    return aborted;
-  };
+  // The server sends queued e-mail in batches of 45 every 45 minutes. While this
+  // page is open we poll it (which also nudges the queue) to show progress.
+  useEffect(() => {
+    if (!watch) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/admin/emails", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "process", broadcastId: watch.id }),
+        });
+        const d = await res.json();
+        if (!alive || !res.ok) return;
+        setProgress({ sent: d.sentTotal ?? 0, failed: d.failedTotal ?? 0, total: watch.total, remaining: d.remaining ?? 0 });
+        setNextAt(d.nextBatchAt ?? null);
+        if (d.paused) setError(`Your email provider is refusing mail right now:\n${d.paused}\n\nThe rest stays queued and is retried in the next batch.`);
+        if (d.done) {
+          finishMessage(d.failedTotal ?? 0, d.sentTotal ?? 0);
+          setWatch(null);
+          loadHistory();
+        }
+      } catch {
+        /* keep polling */
+      }
+    };
+    tick();
+    const id = setInterval(tick, 20_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watch]);
 
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,9 +149,9 @@ export function EmailBroadcast() {
       const start = await startRes.json();
       if (!startRes.ok) throw new Error(start.message || "Could not start the broadcast.");
 
-      const aborted = await runProcessLoop(start.broadcastId, start.total);
-      finishMessage(aborted);
-      if (!aborted) { setSubject(""); setMessage(""); }
+      setSubject(""); setMessage("");
+      setResult(`Queued ${start.total} email${start.total === 1 ? "" : "s"}. They go out in batches of ${start.batchSize} every ${start.intervalMin} minutes, even if you close this page.`);
+      setWatch({ id: start.broadcastId, total: start.total });
       loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send.");
@@ -141,19 +160,9 @@ export function EmailBroadcast() {
     }
   };
 
-  const finishMessage = (aborted: string | null) => {
-    setProgress((p) => {
-      if (aborted) {
-        setError(
-          `Stopped after ${p.sent} sent — your email provider blocked further sending:\n${aborted}\n\n` +
-          `${p.remaining} left unsent. Wait for the limit to reset (or switch to a bulk provider), then use “Resend to failed / remaining” below.`
-        );
-      } else if (p.failed) {
-        setError(`Sent ${p.sent}, ${p.failed} failed. See the history below to view who failed and resend to them.`);
-      }
-      if (p.sent) setResult(`Sent ${p.sent} email${p.sent === 1 ? "" : "s"}.`);
-      return p;
-    });
+  const finishMessage = (failed: number, sent: number) => {
+    if (failed) setError(`Sent ${sent}, ${failed} failed. See the history below to view who failed and resend to them.`);
+    setResult(`Finished: ${sent} email${sent === 1 ? "" : "s"} sent.`);
   };
 
   const resend = async (b: Broadcast) => {
@@ -170,10 +179,9 @@ export function EmailBroadcast() {
       if (!res.ok) throw new Error(d.message || "Could not start resend.");
       if (!d.pending) { setResult("Nothing to resend."); setResendingId(null); return; }
 
-      setSending(true);
-      setProgress({ sent: 0, failed: 0, total: d.pending, remaining: d.pending });
-      const aborted = await runProcessLoop(b.id, d.pending);
-      finishMessage(aborted);
+      setProgress({ sent: b.sentCount, failed: 0, total: b.total, remaining: d.pending });
+      setResult(`Queued ${d.pending} email${d.pending === 1 ? "" : "s"} to resend.`);
+      setWatch({ id: b.id, total: b.total });
       if (expandedId === b.id) openDetail(b.id, true);
       loadHistory();
     } catch (err) {
@@ -258,20 +266,24 @@ export function EmailBroadcast() {
               <p className="text-xs text-zinc-500">Sent in the HustleClickGH template. Blank lines become paragraphs, and each email is addressed by first name.</p>
             </div>
 
-            {sending && progress.total > 0 && (
+            {watch && progress.total > 0 && (
               <div>
                 <div className="h-2 w-full rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
                   <div className="h-full bg-blue-600 transition-all" style={{ width: `${Math.round(((progress.sent + progress.failed) / progress.total) * 100)}%` }} />
                 </div>
                 <p className="text-xs text-zinc-500 mt-1">
-                  {progress.sent} sent{progress.failed ? ` · ${progress.failed} failed` : ""} · {progress.remaining} left. Keep this page open.
+                  {progress.sent} sent{progress.failed ? ` · ${progress.failed} failed` : ""} · {progress.remaining} left
+                  {nextAt && new Date(nextAt) > new Date()
+                    ? ` · next batch at ${new Date(nextAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                    : " · sending now"}
+                  . Batches of 45 every 45 minutes; you can close this page.
                 </p>
               </div>
             )}
 
             <Button type="submit" disabled={sending || !count} className="bg-blue-600 hover:bg-blue-700">
               <Send size={18} />
-              {sending ? "Sending…" : `Send to ${count} recipient${count === 1 ? "" : "s"}`}
+              {sending ? "Queuing…" : `Send to ${count} recipient${count === 1 ? "" : "s"}`}
             </Button>
           </form>
         </CardContent>

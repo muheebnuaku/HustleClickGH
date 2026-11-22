@@ -5,6 +5,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { resolveCase, proposeDeletion } from "@/lib/lana";
 import { checkForBouncedWelcomeEmails } from "@/lib/email-bounce-check";
+import { processEmailQueue } from "@/lib/email-queue";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -24,6 +25,7 @@ export async function GET() {
   // In the background: the panel polls every minute and must not wait on the mail server.
   // Cases it finds show up on the next poll.
   after(() => checkForBouncedWelcomeEmails({ throttle: true }).then(() => undefined).catch((err) => console.error("Lana bounce check error:", err)));
+  after(() => processEmailQueue(5).then(() => undefined).catch((e) => console.error("[email-queue] tick failed:", e)));
 
   const [openCases, recentResolved] = await Promise.all([
     prisma.lanaCase.findMany({ where: { status: { in: ["open", "auto_actioned"] } }, orderBy: { createdAt: "desc" } }),
