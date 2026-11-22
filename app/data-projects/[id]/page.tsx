@@ -9,7 +9,7 @@ import { formatDate } from "@/lib/utils";
 import { formatMoney } from "@/lib/currency";
 import {
   Loader2, Mic, Video, ScanFace, ArrowLeft, Upload, Download,
-  CheckCircle2, Clock, XCircle, AlertCircle, Camera, FileAudio, FileVideo, File, MapPin, ImagePlus
+  CheckCircle2, Clock, XCircle, AlertCircle, Camera, FileAudio, FileVideo, File, MapPin, ImagePlus, Crown
 } from "lucide-react";
 import Link from "next/link";
 import { uploadFile, sha256Hex, toDownloadUrl } from "@/lib/upload-file";
@@ -128,7 +128,7 @@ export default function DataProjectDetailPage() {
   const [canSubmitMore, setCanSubmitMore] = useState(true);
   const [bypassSlots, setBypassSlots] = useState(false);
   const [inTeam, setInTeam] = useState(false);
-  const [eligibility, setEligibility] = useState<{ eligible: boolean; reason: string | null; needsLocation: boolean; kind: "location" | "team" | null }>({ eligible: true, reason: null, needsLocation: false, kind: null });
+  const [eligibility, setEligibility] = useState<{ eligible: boolean; reason: string | null; needsLocation: boolean; kind: "location" | "team" | "premium" | null }>({ eligible: true, reason: null, needsLocation: false, kind: null });
   const [isLeader, setIsLeader] = useState(false);
   // In-app capture + per-submission details
   const [captureTrace, setCaptureTrace] = useState<CaptureTrace | null>(null);
@@ -685,7 +685,17 @@ export default function DataProjectDetailPage() {
         )}
 
         {/* Not open to this contributor's location */}
-        {canSubmitMore && !eligibility.eligible && (
+        {canSubmitMore && !eligibility.eligible && eligibility.kind === "premium" && (
+          <Card className="p-6 text-center border-amber-200 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/20">
+            <Crown size={32} className="mx-auto mb-2 text-amber-500" />
+            <p className="font-medium text-foreground">Premium early access</p>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">{eligibility.reason}</p>
+            <Link href="/premium" className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">
+              <Crown size={15} /> Go Premium
+            </Link>
+          </Card>
+        )}
+        {canSubmitMore && !eligibility.eligible && eligibility.kind !== "premium" && (
           <Card className="p-6 text-center">
             <MapPin size={32} className="mx-auto mb-2 text-emerald-600 opacity-70" />
             <p className="font-medium text-foreground">{eligibility.kind === "team" ? "Only for selected field teams" : "Not available in your area"}</p>

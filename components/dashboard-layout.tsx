@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LogOut, LayoutDashboard, User, Users, Menu, X, ClipboardList, Database, Video, MessageCircle,
-  Shield, Wallet, ChevronRight, Network, type LucideIcon,
+  Shield, Wallet, ChevronRight, Network, type LucideIcon, Crown
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { useEffect, useState } from "react";
@@ -36,7 +36,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { href: "/recordings", label: "Recordings", icon: Video },
     ],
   },
-  { title: "Account", items: [{ href: "/profile", label: "Profile", icon: User }] },
+  { title: "Account", items: [{ href: "/profile", label: "Profile", icon: User }, { href: "/premium", label: "Premium", icon: Crown }] },
 ];
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {

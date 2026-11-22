@@ -1,8 +1,9 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { launchProject } from "@/lib/premium";
 import { buildProjectSetupData, validateProjectSetup, parseCaptureConfig, parseMetadataFields, parseStringList, reviewOrgList } from "@/lib/project-config";
 
 // GET: All projects with submission counts
@@ -147,6 +148,11 @@ export async function POST(request: Request) {
         createdBy: session.user.id,
       },
     });
+
+    // A new project is live at once: start the Premium early-access window.
+    if (project.status === "active") {
+      after(() => launchProject(project.id).catch((e) => console.error("[premium] launch failed:", e)));
+    }
 
     return NextResponse.json({ message: "Project created successfully", project });
   } catch (error) {

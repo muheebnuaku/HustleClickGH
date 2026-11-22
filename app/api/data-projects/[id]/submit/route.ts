@@ -11,6 +11,7 @@ import {
   parseStringList, perPersonLimit,
 } from "@/lib/project-config";
 import { teamChain, canTakeAssigned } from "@/lib/field-teams";
+import { premiumLock } from "@/lib/premium";
 
 export async function POST(
   request: Request,
@@ -67,7 +68,7 @@ export async function POST(
     }
 
     // Location targeting — matched on the contributor's profile location.
-    const me = await prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true, teamLeaderId: true, leaderRole: true } });
+    const me = await prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true, teamLeaderId: true, leaderRole: true, premiumUntil: true } });
     // Team leaders are paid through their own bulk payment, so they don't need a leader above them.
     if (project.payoutMode === "via_leader" && !me?.teamLeaderId && !me?.leaderRole && session.user.role !== "admin") {
       return NextResponse.json(
@@ -81,6 +82,8 @@ export async function POST(
       if (!canTakeAssigned(parseStringList(project.assignedLeaderIds), await teamChain(userId))) {
         return NextResponse.json({ message: "This project is run by specific field teams. Ask your supervisor if you can join their team." }, { status: 403 });
       }
+      const lock = premiumLock(project, me, false);
+      if (lock.locked) return NextResponse.json({ message: lock.reason, premiumRequired: true }, { status: 403 });
     }
 
     // Extra details the project asks for with every submission.

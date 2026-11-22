@@ -41,7 +41,12 @@ export type LogType =
   | "password_reset_completed"
   | "fraud_flagged"
   | "lana_auto_action"
-  | "lana_case_resolved";
+  | "lana_case_resolved"
+  | "premium_requested"
+  | "premium_approved"
+  | "premium_rejected"
+  | "premium_granted"
+  | "premium_revoked";
 
 export type LogSeverity = "info" | "success" | "warning" | "error";
 

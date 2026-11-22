@@ -6,7 +6,7 @@ import { PageHeader, Notice, Panel, EmptyState, PageSkeleton } from "@/component
 import { Database } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { formatMoney } from "@/lib/currency";
-import { Mic, Video, ScanFace, ChevronRight, CheckCircle2, Clock, XCircle, MapPin, Camera } from "lucide-react";
+import { Mic, Video, ScanFace, ChevronRight, CheckCircle2, Clock, XCircle, MapPin, Camera, Crown, Lock } from "lucide-react";
 import Link from "next/link";
 
 interface DataProject {
@@ -28,6 +28,8 @@ interface DataProject {
   eligible?: boolean;
   ineligibleReason?: string | null;
   needsLocation?: boolean;
+  ineligibleKind?: "location" | "team" | "premium" | null;
+  openToAllAt?: string | null;
 }
 
 // Static class strings (Tailwind can't see classes built at runtime).
@@ -59,7 +61,9 @@ export default function DataProjectsPage() {
 
   // Projects already submitted to stay visible even if targeting changed later.
   const eligibleProjects = projects.filter((p) => p.eligible !== false || p.userSubmissionStatus);
-  const otherProjects = projects.filter((p) => p.eligible === false && !p.userSubmissionStatus);
+  // Premium early-access projects are shown openly (with a lock), not hidden with the others.
+  const earlyProjects = projects.filter((p) => p.eligible === false && !p.userSubmissionStatus && p.ineligibleKind === "premium");
+  const otherProjects = projects.filter((p) => p.eligible === false && !p.userSubmissionStatus && p.ineligibleKind !== "premium");
 
   if (loading) {
     return (
@@ -152,6 +156,34 @@ export default function DataProjectsPage() {
                 </Panel>
               );
             })}
+          </div>
+        )}
+
+        {earlyProjects.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Crown size={18} className="text-amber-500" />
+              <h2 className="font-semibold text-foreground">Premium early access</h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {earlyProjects.map((p) => (
+                <Panel key={p.id} className="flex flex-col gap-3 border-amber-200 bg-amber-50/60 p-5 dark:border-amber-900 dark:bg-amber-950/20">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-900/40">
+                      <Lock size={20} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-foreground">{p.title}</p>
+                      {p.reward != null && <p className="text-sm font-semibold text-emerald-600 tabular-nums">{formatMoney(p.reward, p.currency)}</p>}
+                    </div>
+                  </div>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">{p.ineligibleReason}</p>
+                  <Link href="/premium" className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600">
+                    <Crown size={15} /> Go Premium to start now
+                  </Link>
+                </Panel>
+              ))}
+            </div>
           </div>
         )}
 

@@ -1,8 +1,9 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { launchProject } from "@/lib/premium";
 import { buildProjectSetupData, validateProjectSetup } from "@/lib/project-config";
 
 // PUT: Full project edit
@@ -96,6 +97,11 @@ export async function PATCH(
       where: { id },
       data: { status },
     });
+
+    // First activation starts the Premium early-access window (no-op afterwards).
+    if (status === "active") {
+      after(() => launchProject(project.id).catch((e) => console.error("[premium] launch failed:", e)));
+    }
 
     return NextResponse.json({ message: "Project updated", project });
   } catch (error) {

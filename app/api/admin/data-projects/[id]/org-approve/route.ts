@@ -1,8 +1,9 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { launchProject } from "@/lib/premium";
 import { allocateToProject } from "@/lib/org";
 import { getUsdToGhsRate, convertUsdToGhs } from "@/lib/fx";
 
@@ -56,5 +57,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     );
   }
   await prisma.dataProject.update({ where: { id }, data: { status: "active", reward } });
+  after(() => launchProject(id).catch((e) => console.error("[premium] launch failed:", e)));
   return NextResponse.json({ ok: true, status: "active", funded: budget, contributorReward: reward, marginGhs: buyerGhs - reward });
 }

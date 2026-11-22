@@ -5,6 +5,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { checkLocationEligibility, parseCaptureConfig, parseMetadataFields, targetingSummary, parseStringList, contributorMoneyView, perPersonLimit } from "@/lib/project-config";
 import { teamChain, canTakeAssigned } from "@/lib/field-teams";
+import { premiumLock } from "@/lib/premium";
 
 // GET: Single project detail + user's submission if any
 export async function GET(
@@ -30,12 +31,16 @@ export async function GET(
         where: { projectId: id, userId },
         orderBy: { submittedAt: "desc" },
       }),
-      prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true, teamLeaderId: true, leaderRole: true } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { country: true, region: true, city: true, teamLeaderId: true, leaderRole: true, premiumUntil: true } }),
     ]);
-    let elig: { eligible: true } | { eligible: false; reason: string; needsLocation: boolean; kind?: "team" } =
+    let elig: { eligible: true } | { eligible: false; reason: string; needsLocation: boolean; kind?: "team" | "premium" } =
       session.user.role === "admin" ? { eligible: true as const } : checkLocationEligibility(project, me);
     if (elig.eligible && session.user.role !== "admin" && !canTakeAssigned(parseStringList(project.assignedLeaderIds), await teamChain(userId))) {
       elig = { eligible: false, reason: "This project is only for selected field teams. Ask your supervisor or country representative if you can join their team.", needsLocation: false, kind: "team" };
+    }
+    if (elig.eligible) {
+      const lock = premiumLock(project, me, session.user.role === "admin");
+      if (lock.locked) elig = { eligible: false, reason: lock.reason, needsLocation: false, kind: "premium" };
     }
     const userSubmission = userSubmissions[0] ?? null; // newest, for back-compat
     // Rejected submissions don't count against the per-user limit (users may retry).
@@ -95,7 +100,7 @@ export async function GET(
       eligible: elig.eligible,
       ineligibleReason: elig.eligible ? null : elig.reason,
       needsLocation: elig.eligible ? false : elig.needsLocation,
-        ineligibleKind: elig.eligible ? null : elig.kind === "team" ? "team" : "location",
+        ineligibleKind: elig.eligible ? null : (elig.kind ?? "location"),
       bypassSlots: isManager, // managers submit beyond the project's total slots/gender quota
     });
   } catch (error) {

@@ -31,6 +31,7 @@ model User {
   // Verification (admin-granted badge shown next to the user's name)
   verified        Boolean       @default(false)
   verifiedAt      DateTime?
+  premiumUntil    DateTime?     // Premium plan is active while this is in the future (see lib/premium.ts)
   // Set by an admin to prompt users who haven't provided their location
   locationRequested Boolean     @default(false)
   // Onboarding / consent
@@ -86,6 +87,7 @@ model User {
   pushSubscriptions PushSubscription[]
 
   @@index([teamLeaderId])
+  premiumRequests PremiumRequest[]
 }
 
 // Browser push subscription (Web Push API). One row per device/browser that
@@ -378,6 +380,9 @@ model DataProject {
   allowUpload        Boolean          @default(false) // in-app capture projects: contributors may also upload a file
   showReward         Boolean          @default(true) // via_leader only: false hides the reward from contributors (their leader pays them)
   createdAt          DateTime         @default(now())
+  launchedAt         DateTime?        // first time it went live; starts the Premium early-access window
+  openToAllAt        DateTime?        // before this only Premium members may take part; null = open to all
+  everyoneNotifiedAt DateTime?        // when non-Premium users were notified that it opened
   updatedAt          DateTime         @updatedAt
 
   submissions        DataSubmission[]
@@ -796,4 +801,27 @@ model BlogPost {
   updatedAt   DateTime  @updatedAt
 
   @@index([published, publishedAt])
+}
+
+// Premium plan upgrade requests: the contributor pays by Mobile Money, uploads
+// the receipt, and an admin approves (extends User.premiumUntil) or rejects.
+model PremiumRequest {
+  id          String    @id @default(cuid())
+  userId      String
+  amount      Float
+  currency    String    @default("GHS")
+  momoNumber  String
+  reference   String    // MoMo transaction ID
+  receiptUrl  String
+  status      String    @default("pending") // pending | approved | rejected
+  adminNote   String?
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([userId])
+  @@index([reference])
 }

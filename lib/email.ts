@@ -276,6 +276,43 @@ export function adminMessageEmail(fullName: string, body: string) {
   };
 }
 
+/** Sent when an admin approves or rejects a Premium payment. */
+export function premiumDecisionEmail(fullName: string, approved: boolean, until: Date | null, note?: string | null) {
+  const firstName = fullName.split(" ")[0] || "there";
+  const untilText = until ? until.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "";
+  const reason = note ? `<p style="color:#3f3f46;font-size:14px;line-height:1.6;">Reason: ${escapeHtml(note)}</p>` : "";
+  return approved
+    ? {
+        subject: "You're now HustleClickGH Premium",
+        html: emailLayout(`Welcome to Premium, ${firstName}!`, `
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        Your payment was confirmed. Premium is active until <strong>${untilText}</strong>.
+      </p>
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        You now get new projects first and are notified before everyone else. Turn on notifications in your dashboard so you don't miss them.
+      </p>
+      <p style="margin:24px 0 0;">
+        <a href="https://hustleclickgh.com/data-projects"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
+          See projects
+        </a>
+      </p>
+    `),
+      }
+    : {
+        subject: "About your HustleClickGH Premium payment",
+        html: emailLayout(`Hi ${firstName},`, `
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        We couldn't confirm your Premium payment, so your account is still on the free Basic plan.
+      </p>
+      ${reason}
+      <p style="color:#3f3f46;font-size:14px;line-height:1.6;">
+        If you paid, reply to this email with your MoMo transaction ID and we'll check again.
+      </p>
+    `),
+      };
+}
+
 /** Sent when an admin provisions an organization/buyer account. */
 export function orgInviteEmail(orgName: string, loginId: string, tempPassword: string) {
   return {
