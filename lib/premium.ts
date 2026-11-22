@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { sendPushToAll } from "@/lib/push";
 import { checkLocationEligibility, parseStringList } from "@/lib/project-config";
+import { initializeTransaction, isPaystackConfigured, verifyTransaction } from "@/lib/paystack";
+import { SITE_CONFIG } from "@/lib/constants";
 
 /**
  * Premium plan. Basic is free; Premium is paid by Mobile Money (receipt +
@@ -127,6 +129,85 @@ export async function reviewPremiumRequest(id: string, adminId: string, approve:
     }
     return { request: req, user: { ...user, premiumUntil } };
   });
+}
+
+// ---------------------------------------------------------------- Paystack
+
+/**
+ * Starts a Paystack checkout for the current price. The amount is fixed on our
+ * side at this moment and checked again when the payment is confirmed.
+ */
+export async function startPaystackCheckout(user: { id: string; email: string }) {
+  const settings = await getPremiumSettings();
+  if (!settings.enabled) throw new PremiumInputError("Premium upgrades are paused right now.");
+  if (!isPaystackConfigured()) throw new PremiumInputError("Online payment isn't available right now.");
+  const reference = `PRM-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+  const req = await prisma.premiumRequest.create({
+    data: { userId: user.id, amount: settings.priceGhs, method: "paystack", status: "initiated", momoNumber: "", receiptUrl: "", reference },
+  });
+  const tx = await initializeTransaction({
+    email: user.email,
+    amountMinor: Math.round(settings.priceGhs * 100),
+    currency: "GHS",
+    reference,
+    callbackUrl: `${SITE_CONFIG.url}/premium?ref=${encodeURIComponent(reference)}`,
+    metadata: { purpose: "premium", requestId: req.id, userId: user.id },
+  });
+  return { url: tx.authorization_url, reference };
+}
+
+/**
+ * Confirms a Paystack payment by asking Paystack directly, then activates
+ * Premium. Safe to call repeatedly (return page, webhook, retries): only the
+ * first successful confirmation extends Premium. `forUserId` limits the
+ * browser-side call to the payer's own reference.
+ */
+export async function confirmPaystackPayment(reference: string, forUserId?: string) {
+  const req = await prisma.premiumRequest.findFirst({ where: { reference, method: "paystack" } });
+  if (!req || (forUserId && req.userId !== forUserId)) return { state: "unknown" as const };
+  if (req.status === "approved") return { state: "approved" as const, justApproved: false, request: req };
+
+  const tx = await verifyTransaction(reference);
+  const meta = typeof tx.metadata === "string" ? JSON.parse(tx.metadata || "{}") : tx.metadata ?? {};
+  const paidEnough = tx.currency === "GHS" && tx.amount >= Math.round(req.amount * 100);
+  if (tx.status !== "success") {
+    if (tx.status === "failed" || tx.status === "abandoned") {
+      await prisma.premiumRequest.updateMany({ where: { id: req.id, status: "initiated" }, data: { status: "rejected", adminNote: `Paystack: payment ${tx.status}`, reviewedAt: new Date(), reviewedBy: "paystack" } });
+      return { state: "failed" as const };
+    }
+    return { state: "pending" as const };
+  }
+  if (!paidEnough || (meta as { requestId?: string }).requestId !== req.id) {
+    // Paid, but not what we asked for: leave it for an admin to look at.
+    await prisma.premiumRequest.updateMany({
+      where: { id: req.id, status: "initiated" },
+      data: { status: "pending", adminNote: `Paystack amount/currency mismatch: ${tx.amount / 100} ${tx.currency}` },
+    });
+    return { state: "review" as const };
+  }
+
+  const settings = await getPremiumSettings();
+  const result = await prisma.$transaction(async (db) => {
+    const claimed = await db.premiumRequest.updateMany({
+      where: { id: req.id, status: { in: ["initiated", "pending"] } },
+      data: { status: "approved", reviewedBy: "paystack", reviewedAt: new Date(), adminNote: tx.channel ? `Paid via Paystack (${tx.channel})` : "Paid via Paystack" },
+    });
+    if (claimed.count !== 1) return null;
+    const user = await db.user.findUniqueOrThrow({ where: { id: req.userId }, select: { id: true, fullName: true, email: true, premiumUntil: true } });
+    const premiumUntil = extendedUntil(user.premiumUntil, settings.durationDays);
+    await db.user.update({ where: { id: user.id }, data: { premiumUntil } });
+    return { ...user, premiumUntil };
+  });
+  if (!result) return { state: "approved" as const, justApproved: false, request: req };
+  return { state: "approved" as const, justApproved: true, request: req, user: result };
+}
+
+/** E-mail + push to the member after an automatic (Paystack) upgrade. */
+export async function notifyPremiumActivated(user: { id: string; fullName: string; email: string; premiumUntil: Date | null }) {
+  const { premiumDecisionEmail, sendEmail } = await import("@/lib/email");
+  const mail = premiumDecisionEmail(user.fullName, true, user.premiumUntil);
+  await sendEmail({ to: user.email, subject: mail.subject, html: mail.html }).catch(() => {});
+  await sendPushToAll({ title: "You're now Premium", body: "You'll get new projects first.", url: "/premium" }, [user.id]).catch(() => {});
 }
 
 // ---------------------------------------------------------- early access

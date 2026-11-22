@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { PremiumInputError, getPremiumSettings, isPremium, submitPremiumRequest } from "@/lib/premium";
+import { isPaystackConfigured } from "@/lib/paystack";
 import { getIp, logActivity } from "@/lib/activity-log";
 
 // The signed-in user's plan, how to pay, and their latest upgrade request.
@@ -15,9 +16,10 @@ export async function GET() {
       prisma.user.findUnique({ where: { id: session.user.id }, select: { premiumUntil: true, verified: true } }),
       getPremiumSettings(),
       prisma.premiumRequest.findFirst({
-        where: { userId: session.user.id },
+        // Unfinished Paystack checkouts ("initiated") are not shown.
+        where: { userId: session.user.id, status: { not: "initiated" } },
         orderBy: { createdAt: "desc" },
-        select: { id: true, status: true, amount: true, reference: true, adminNote: true, createdAt: true, reviewedAt: true },
+        select: { id: true, status: true, method: true, amount: true, reference: true, adminNote: true, createdAt: true, reviewedAt: true },
       }),
     ]);
     return NextResponse.json({
@@ -25,6 +27,7 @@ export async function GET() {
       premiumUntil: user?.premiumUntil ?? null,
       verified: !!user?.verified,
       settings,
+      paystack: isPaystackConfigured(),
       latest,
     });
   } catch (error) {

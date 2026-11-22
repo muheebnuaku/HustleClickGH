@@ -813,7 +813,8 @@ model PremiumRequest {
   momoNumber  String
   reference   String    // MoMo transaction ID
   receiptUrl  String
-  status      String    @default("pending") // pending | approved | rejected
+  method      String    @default("momo") // momo (receipt, admin review) | paystack (verified automatically)
+  status      String    @default("pending") // pending | approved | rejected; Paystack checkouts start as "initiated"
   adminNote   String?
   reviewedBy  String?
   reviewedAt  DateTime?

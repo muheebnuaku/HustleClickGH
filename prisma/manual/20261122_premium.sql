@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS "PremiumRequest" (
   "createdAt"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "PremiumRequest_pkey" PRIMARY KEY ("id")
 );
+-- Paystack payments (added after the first version of this file; safe to re-run).
+ALTER TABLE "PremiumRequest" ADD COLUMN IF NOT EXISTS "method" TEXT NOT NULL DEFAULT 'momo';
 CREATE INDEX IF NOT EXISTS "PremiumRequest_status_createdAt_idx" ON "PremiumRequest"("status", "createdAt");
 CREATE INDEX IF NOT EXISTS "PremiumRequest_userId_idx" ON "PremiumRequest"("userId");
 CREATE INDEX IF NOT EXISTS "PremiumRequest_reference_idx" ON "PremiumRequest"("reference");

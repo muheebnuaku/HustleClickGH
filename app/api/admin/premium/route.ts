@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { adminUserId } from "@/lib/admin-guard";
 import { getPremiumSettings } from "@/lib/premium";
+import { isPaystackConfigured } from "@/lib/paystack";
 
 const USER_FIELDS = {
   id: true, userId: true, fullName: true, email: true, phone: true,
@@ -16,12 +17,12 @@ export async function GET() {
     const now = new Date();
     const [pending, recent, members, earlyProjects, settings] = await Promise.all([
       prisma.premiumRequest.findMany({ where: { status: "pending" }, orderBy: { createdAt: "asc" }, include: { user: { select: USER_FIELDS } } }),
-      prisma.premiumRequest.findMany({ where: { status: { not: "pending" } }, orderBy: { reviewedAt: "desc" }, take: 30, include: { user: { select: USER_FIELDS } } }),
+      prisma.premiumRequest.findMany({ where: { status: { in: ["approved", "rejected"] } }, orderBy: { reviewedAt: "desc" }, take: 30, include: { user: { select: USER_FIELDS } } }),
       prisma.user.findMany({ where: { premiumUntil: { gt: now } }, orderBy: { premiumUntil: "asc" }, select: USER_FIELDS }),
       prisma.dataProject.findMany({ where: { status: "active", openToAllAt: { gt: now } }, orderBy: { openToAllAt: "asc" }, select: { id: true, title: true, openToAllAt: true, launchedAt: true } }),
       getPremiumSettings(),
     ]);
-    return NextResponse.json({ pending, recent, members, earlyProjects, settings });
+    return NextResponse.json({ pending, recent, members, earlyProjects, settings, paystack: isPaystackConfigured() });
   } catch (error) {
     console.error("Admin premium list failed:", error);
     return NextResponse.json({ message: "Could not load Premium data. Has the Premium SQL been run on the database?" }, { status: 500 });

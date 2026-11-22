@@ -6,7 +6,7 @@ import { DashboardLayout } from "@/components/dashboard-layout";
 import { Notice, PageHeader, PageSkeleton, Panel } from "@/components/ui/page-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { BadgeCheck, Bell, CheckCircle2, Clock, Crown, ImagePlus, Loader2, Zap } from "lucide-react";
+import { BadgeCheck, Bell, CheckCircle2, Clock, Crown, CreditCard, ImagePlus, Loader2, Zap } from "lucide-react";
 import { uploadFile } from "@/lib/upload-file";
 import { formatDate } from "@/lib/utils";
 
@@ -14,6 +14,7 @@ interface Status {
   premium: boolean;
   premiumUntil: string | null;
   verified: boolean;
+  paystack: boolean;
   settings: { enabled: boolean; priceGhs: number; durationDays: number; earlyAccessHours: number; momoNumber: string; momoName: string };
   latest: { id: string; status: "pending" | "approved" | "rejected"; amount: number; reference: string; adminNote: string | null; createdAt: string } | null;
 }
@@ -33,6 +34,8 @@ export default function PremiumPage() {
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState("");
+  const [paying, setPaying] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
@@ -47,8 +50,47 @@ export default function PremiumPage() {
   };
 
   useEffect(() => {
-    load();
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    if (!ref) {
+      load();
+      return;
+    }
+    setConfirming(true);
+    (async () => {
+      // Paystack can take a few seconds to settle a Mobile Money payment.
+      for (let i = 0; i < 6; i++) {
+        try {
+          const res = await fetch(`/api/premium/confirm?reference=${encodeURIComponent(ref)}`);
+          const d = await res.json();
+          if (d.state === "approved") { setDone("Payment confirmed. You're now Premium!"); break; }
+          if (d.state === "failed") { setError("The payment didn't go through. You haven't been charged for Premium; you can try again."); break; }
+          if (d.state === "review") { setDone("Payment received. Our team is checking it and will activate Premium shortly."); break; }
+          if (d.state === "unknown") break;
+        } catch {
+          /* retry */
+        }
+        await new Promise((r) => setTimeout(r, 4000));
+        if (i === 5) setDone("We're still waiting for Paystack to confirm. Premium activates automatically once it does; check back in a few minutes.");
+      }
+      window.history.replaceState(null, "", "/premium");
+      setConfirming(false);
+      load();
+    })();
   }, []);
+
+  const payWithPaystack = async () => {
+    setPaying(true);
+    setError("");
+    try {
+      const res = await fetch("/api/premium/checkout", { method: "POST" });
+      const d = await res.json();
+      if (!res.ok || !d.url) throw new Error(d.message || "Could not start the payment");
+      window.location.href = d.url;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start the payment");
+      setPaying(false);
+    }
+  };
 
   const upload = async (file: File) => {
     setError("");
@@ -88,6 +130,16 @@ export default function PremiumPage() {
     }
   };
 
+  if (confirming) {
+    return (
+      <DashboardLayout>
+        <Panel className="flex items-center gap-3 p-6 text-sm text-zinc-600 dark:text-zinc-400">
+          <Loader2 size={18} className="animate-spin text-amber-500" /> Confirming your payment with Paystack…
+        </Panel>
+      </DashboardLayout>
+    );
+  }
+
   if (!data) {
     return (
       <DashboardLayout>
@@ -100,6 +152,7 @@ export default function PremiumPage() {
   const period = periodLabel(settings.durationDays);
   const pending = latest?.status === "pending";
   const canPay = settings.enabled && !!settings.momoNumber && !pending;
+  const canPayOnline = settings.enabled && data.paystack;
   const benefits = [
     {
       icon: Zap,
@@ -159,7 +212,21 @@ export default function PremiumPage() {
           </Notice>
         )}
 
-        {!settings.enabled ? (
+        {canPayOnline ? (
+          <Panel className="space-y-3 p-5">
+            <h2 className="font-semibold text-foreground">{data.premium ? "Renew Premium" : "Upgrade to Premium"}</h2>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Pay <strong>GH₵{settings.priceGhs}</strong> for one {period} with Mobile Money or card on Paystack&apos;s secure page. Premium starts as soon as the payment is confirmed.
+            </p>
+            <Button onClick={payWithPaystack} disabled={paying} className="bg-amber-500 hover:bg-amber-600">
+              {paying ? <Loader2 size={15} className="mr-1.5 animate-spin" /> : <CreditCard size={15} className="mr-1.5" />}
+              Pay GH₵{settings.priceGhs} with Paystack
+            </Button>
+            <p className="text-xs text-zinc-500">
+              Premium does not guarantee any number of projects or earnings; every submission is still reviewed the same way.
+            </p>
+          </Panel>
+        ) : !settings.enabled ? (
           <Notice tone="info">Premium upgrades are paused right now. Check back soon.</Notice>
         ) : !settings.momoNumber ? (
           <Notice tone="info">Premium payments open soon. Check back in a few days.</Notice>

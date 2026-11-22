@@ -28,6 +28,7 @@ interface Req {
   momoNumber: string;
   reference: string;
   receiptUrl: string;
+  method?: string;
   status: string;
   adminNote: string | null;
   createdAt: string;
@@ -50,6 +51,7 @@ interface Data {
   members: Member[];
   earlyProjects: { id: string; title: string; openToAllAt: string }[];
   settings: Settings;
+  paystack: boolean;
 }
 
 async function call(url: string, method: string, body?: unknown) {
@@ -154,9 +156,11 @@ export default function AdminPremiumPage() {
         </div>
 
         {message && <Notice tone={message.tone}>{message.text}</Notice>}
-        {!settings.momoNumber && (
-          <Notice tone="error">Add the MoMo number members should pay into (Settings, below). Until then the upgrade form is hidden.</Notice>
-        )}
+        {data.paystack ? (
+          <Notice tone="success">Paystack is connected: members pay online and are upgraded automatically. Payments below only need you when Paystack reports an unexpected amount, or for manual MoMo payments.</Notice>
+        ) : !settings.momoNumber ? (
+          <Notice tone="error">Paystack isn&apos;t connected and no MoMo number is set (Settings, below), so members can&apos;t pay yet.</Notice>
+        ) : null}
 
         <Panel className="p-5">
           <h2 className="mb-3 font-semibold text-foreground">Payments to review</h2>
@@ -166,16 +170,20 @@ export default function AdminPremiumPage() {
             <div className="space-y-3">
               {data.pending.map((r) => (
                 <div key={r.id} className="flex flex-col gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800 md:flex-row md:items-center">
-                  <a href={r.receiptUrl} target="_blank" rel="noopener noreferrer" className="shrink-0" title="Open receipt">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={r.receiptUrl} alt="Payment receipt" className="h-20 w-20 rounded-lg object-cover ring-1 ring-zinc-200 dark:ring-zinc-700" />
-                  </a>
+                  {r.receiptUrl ? (
+                    <a href={r.receiptUrl} target="_blank" rel="noopener noreferrer" className="shrink-0" title="Open receipt">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={r.receiptUrl} alt="Payment receipt" className="h-20 w-20 rounded-lg object-cover ring-1 ring-zinc-200 dark:ring-zinc-700" />
+                    </a>
+                  ) : (
+                    <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-xs font-medium text-sky-700">Paystack</span>
+                  )}
                   <div className="min-w-0 flex-1 space-y-0.5 text-sm">
                     <p className="font-medium text-foreground">
                       {r.user.fullName} <span className="text-zinc-500">· {r.user.userId}</span>
                     </p>
                     <p className="text-zinc-600 dark:text-zinc-400">
-                      GH₵{r.amount} from <strong>{r.momoNumber}</strong> · Txn <strong>{r.reference}</strong>
+                      GH₵{r.amount}{r.momoNumber ? <> from <strong>{r.momoNumber}</strong></> : " via Paystack"} · Ref <strong>{r.reference}</strong>
                     </p>
                     <p className="text-xs text-zinc-500">Submitted {formatDate(r.createdAt)} · Account phone {r.user.phone}</p>
                     <IdLine u={r.user} />
@@ -299,11 +307,14 @@ export default function AdminPremiumPage() {
                     {r.status}
                   </span>
                   <span className="text-foreground">{r.user.fullName}</span>
+                  {r.method === "paystack" && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800">Paystack</span>}
                   <span className="text-zinc-500">· Txn {r.reference} · {formatDate(r.reviewedAt)}</span>
                   {r.adminNote && <span className="text-zinc-500">· {r.adminNote}</span>}
-                  <a href={r.receiptUrl} target="_blank" rel="noopener noreferrer" className="ml-auto text-zinc-400 hover:text-foreground" title="Receipt">
-                    <ExternalLink size={14} />
-                  </a>
+                  {r.receiptUrl && (
+                    <a href={r.receiptUrl} target="_blank" rel="noopener noreferrer" className="ml-auto text-zinc-400 hover:text-foreground" title="Receipt">
+                      <ExternalLink size={14} />
+                    </a>
+                  )}
                 </div>
               ))}
             </div>

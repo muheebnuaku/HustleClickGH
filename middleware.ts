@@ -36,6 +36,8 @@ export async function middleware(request: NextRequest) {
     path.startsWith("/blog/") ||
     path.startsWith("/api/s/") ||
     path === "/api/partners" ||
+    // Paystack calls this server-to-server; the route checks the HMAC signature.
+    path === "/api/webhooks/paystack" ||
     // Biometric sign-in happens before authentication, so these must be public
     path === "/api/webauthn/auth/options" ||
     path === "/api/webauthn/auth/verify";
