@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Menu, X, Home, Mail, LogIn, Building2 } from "lucide-react";
+import { Menu, X, Home, Mail, LogIn, Building2, Megaphone } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { SITE_CONFIG } from "@/lib/constants";
@@ -24,6 +24,7 @@ export function Navbar() {
   const navLinks = [
     { href: "/", label: "Home", icon: Home },
     { href: "/partners", label: "For Companies", icon: Building2 },
+    { href: "/blog", label: "Updates", icon: Megaphone },
     { href: `mailto:${SITE_CONFIG.contact.email}`, label: "Contact", icon: Mail },
   ];
 

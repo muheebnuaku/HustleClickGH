@@ -28,6 +28,9 @@ export function Footer() {
               <Link href="/partners" className="text-sm hover:text-white transition-colors">
                 For Companies
               </Link>
+              <Link href="/blog" className="text-sm hover:text-white transition-colors">
+                Updates
+              </Link>
               <Link href="/privacy" className="text-sm hover:text-white transition-colors">
                 Privacy Policy
               </Link>

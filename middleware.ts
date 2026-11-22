@@ -32,6 +32,8 @@ export async function middleware(request: NextRequest) {
     publicPaths.includes(path) ||
     path.startsWith("/s/") ||
     path.startsWith("/join/") ||
+    path === "/blog" ||
+    path.startsWith("/blog/") ||
     path.startsWith("/api/s/") ||
     path === "/api/partners" ||
     // Biometric sign-in happens before authentication, so these must be public

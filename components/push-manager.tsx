@@ -19,6 +19,25 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   return output;
 }
 
+function sameKey(a: ArrayBuffer | null | undefined, b: Uint8Array): boolean {
+  if (!a || a.byteLength !== b.byteLength) return false;
+  const x = new Uint8Array(a);
+  return x.every((v, i) => v === b[i]);
+}
+
+/**
+ * Returns a subscription made with the CURRENT server key. A subscription
+ * created under an older key (keys were rotated 2026-11-22) is rejected by the
+ * push service forever, so it is replaced rather than reused.
+ */
+async function currentSubscription(reg: ServiceWorkerRegistration, publicKey: string): Promise<PushSubscription> {
+  const key = urlBase64ToUint8Array(publicKey);
+  const existing = await reg.pushManager.getSubscription();
+  if (existing && sameKey(existing.options.applicationServerKey, key)) return existing;
+  if (existing) await existing.unsubscribe().catch(() => {});
+  return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+}
+
 /**
  * Registers the service worker and offers to turn on browser notifications.
  * Hidden when: push isn't configured, the browser doesn't support it, permission
@@ -33,7 +52,6 @@ export function PushManager() {
     const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     if (!publicKey) return;
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
-    if (localStorage.getItem(DISMISS_KEY) === "1") return;
 
     let cancelled = false;
     (async () => {
@@ -41,13 +59,11 @@ export function PushManager() {
         const reg = await navigator.serviceWorker.register("/sw.js");
 
         if (Notification.permission === "granted") {
-          // Already allowed — make sure the server has this device on file
+          // Already allowed — make sure the server has this device on file,
+          // under the current key
           const existing = await reg.pushManager.getSubscription();
-          if (!existing) {
-            const sub = await reg.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array(publicKey),
-            });
+          const sub = await currentSubscription(reg, publicKey);
+          if (sub !== existing) {
             await fetch("/api/push/subscribe", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -57,8 +73,8 @@ export function PushManager() {
           return;
         }
 
-        // "denied" can't be re-prompted from JS — don't nag
-        if (Notification.permission === "default" && !cancelled) setShow(true);
+        // "denied" can't be re-prompted from JS — don't nag; nor after a dismiss
+        if (Notification.permission === "default" && localStorage.getItem(DISMISS_KEY) !== "1" && !cancelled) setShow(true);
       } catch (err) {
         console.error("[push] setup failed:", err);
       }
@@ -81,12 +97,7 @@ export function PushManager() {
       }
 
       const reg = await navigator.serviceWorker.ready;
-      const sub =
-        (await reg.pushManager.getSubscription()) ||
-        (await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicKey),
-        }));
+      const sub = await currentSubscription(reg, publicKey);
 
       const res = await fetch("/api/push/subscribe", {
         method: "POST",

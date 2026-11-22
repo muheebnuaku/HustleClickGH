@@ -67,13 +67,17 @@ export async function sendPushToAll(
         );
         sent++;
       } catch (err) {
-        const statusCode = (err as { statusCode?: number })?.statusCode;
-        // 404/410 mean the browser dropped the subscription — clean it up
-        if (statusCode === 404 || statusCode === 410) {
+        const { statusCode, body: errBody } = (err as { statusCode?: number; body?: string }) ?? {};
+        // 404/410 mean the browser dropped the subscription. 401/403 with a
+        // VAPID complaint mean it was made with an older key pair (keys were
+        // rotated 2026-11-22) and can never succeed. Clean both up; the
+        // browser re-subscribes with the current key on its next visit.
+        const wrongKey = (statusCode === 401 || statusCode === 403) && /vapid|credential|correspond|mismatch|jwt/i.test(String(errBody ?? ""));
+        if (statusCode === 404 || statusCode === 410 || wrongKey) {
           stale.push(s.id);
         } else {
           failed++;
-          console.error("[push] send failed:", statusCode ?? err);
+          console.error("[push] send failed:", statusCode ?? err, String(errBody ?? "").slice(0, 200));
         }
       }
     })
