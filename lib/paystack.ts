@@ -9,15 +9,35 @@ import crypto from "crypto";
 
 const API = () => (process.env.PAYSTACK_API_BASE || "https://api.paystack.co").replace(/\/$/, "");
 
+/** The secret key, tolerating quotes, spaces or a trailing newline pasted into the dashboard. */
+function secretKey(): string {
+  return (process.env.PAYSTACK_SECRET_KEY || "").trim().replace(/^["']+|["']+$/g, "").trim();
+}
+
 export function isPaystackConfigured(): boolean {
-  return /^sk_(live|test)_\w+/.test(process.env.PAYSTACK_SECRET_KEY || "");
+  return /^sk_(live|test)_\w+$/.test(secretKey());
+}
+
+/** Why online payment is off, in words an admin can act on (null when it's fine). Never reveals the key. */
+export function paystackProblem(): string | null {
+  const key = secretKey();
+  if (!key) return "PAYSTACK_SECRET_KEY is not set for this deployment (check it's ticked for this environment, then redeploy).";
+  if (key.startsWith("pk_")) return "PAYSTACK_SECRET_KEY contains the PUBLIC key (pk_…). Paste the SECRET key (sk_live_… or sk_test_…).";
+  if (!/^sk_(live|test)_/.test(key)) return `PAYSTACK_SECRET_KEY doesn't look like a Paystack secret key (it starts with "${key.slice(0, 3)}…", expected "sk_live_" or "sk_test_").`;
+  if (!/^sk_(live|test)_\w+$/.test(key)) return "PAYSTACK_SECRET_KEY has extra characters (spaces or line breaks inside it). Paste it again on one line.";
+  return null;
+}
+
+export function paystackMode(): "live" | "test" | null {
+  const key = secretKey();
+  return key.startsWith("sk_live_") ? "live" : key.startsWith("sk_test_") ? "test" : null;
 }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(API() + path, {
     ...init,
     headers: {
-      Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+      Authorization: `Bearer ${secretKey()}`,
       "Content-Type": "application/json",
       ...(init.headers || {}),
     },
@@ -65,7 +85,7 @@ export function verifyTransaction(reference: string) {
 
 /** Paystack signs webhooks with HMAC-SHA512 of the raw body using the secret key. */
 export function isValidWebhookSignature(rawBody: string, signature: string | null): boolean {
-  const secret = process.env.PAYSTACK_SECRET_KEY;
+  const secret = secretKey();
   if (!secret || !signature) return false;
   const expected = crypto.createHmac("sha512", secret).update(rawBody).digest("hex");
   const a = Buffer.from(expected);

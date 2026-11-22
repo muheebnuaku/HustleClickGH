@@ -52,6 +52,8 @@ interface Data {
   earlyProjects: { id: string; title: string; openToAllAt: string }[];
   settings: Settings;
   paystack: boolean;
+  paystackProblem: string | null;
+  paystackMode: "live" | "test" | null;
 }
 
 async function call(url: string, method: string, body?: unknown) {
@@ -156,6 +158,12 @@ export default function AdminPremiumPage() {
         </div>
 
         {message && <Notice tone={message.tone}>{message.text}</Notice>}
+        {data.paystack && data.paystackMode === "test" && (
+          <Notice tone="info">Paystack is in TEST mode (sk_test_ key): checkouts use Paystack&apos;s test payments and no real money moves. Switch to the sk_live_ key to take real payments.</Notice>
+        )}
+        {!data.paystack && data.paystackProblem && (
+          <Notice tone="error">Paystack not connected: {data.paystackProblem}</Notice>
+        )}
         {data.paystack ? (
           <Notice tone="success">Paystack is connected: members pay online and are upgraded automatically. Payments below only need you when Paystack reports an unexpected amount, or for manual MoMo payments.</Notice>
         ) : !settings.momoNumber ? (
