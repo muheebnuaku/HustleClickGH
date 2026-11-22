@@ -13,7 +13,12 @@ const SOCIAL_CHIP: Record<string, string> = {
   whatsapp: "bg-emerald-500 text-white",
 };
 
-export function BlogCommunity({ links, className }: { links: CommunityLink[]; className?: string }) {
+const DEFAULT_GROUP: CommunityLink = { label: "HustleClickGH Community", url: SITE_CONFIG.contact.whatsappGroup, note: "New projects and updates" };
+
+export function BlogCommunity({ links: saved, className }: { links: CommunityLink[]; className?: string }) {
+  const links = saved.length ? saved : [DEFAULT_GROUP];
+  // On this page WhatsApp means the community group, not a private chat.
+  const groupUrl = links.find((l) => isWhatsAppUrl(l.url))?.url ?? SITE_CONFIG.contact.whatsappGroup;
   return (
     <div className={cn("space-y-5", className)}>
       <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-950/30">
@@ -26,8 +31,7 @@ export function BlogCommunity({ links, className }: { links: CommunityLink[]; cl
             <p className="text-xs text-zinc-600 dark:text-zinc-400">New projects and updates, first.</p>
           </div>
         </div>
-        {links.length ? (
-          <ul className="space-y-2">
+        <ul className="space-y-2">
             {links.map((l) => (
               <li key={l.url}>
                 <a
@@ -52,16 +56,6 @@ export function BlogCommunity({ links, className }: { links: CommunityLink[]; cl
               </li>
             ))}
           </ul>
-        ) : (
-          <a
-            href={SITE_CONFIG.contact.whatsapp}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
-          >
-            <SocialIcon name="whatsapp" size={16} /> Chat with us on WhatsApp
-          </a>
-        )}
       </section>
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -70,7 +64,7 @@ export function BlogCommunity({ links, className }: { links: CommunityLink[]; cl
           {SITE_CONFIG.social.map((s) => (
             <li key={s.key}>
               <a
-                href={s.url}
+                href={s.key === "whatsapp" ? groupUrl : s.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="group flex items-center gap-3 rounded-xl px-2 py-2 transition hover:bg-zinc-50 dark:hover:bg-zinc-800"
@@ -80,7 +74,7 @@ export function BlogCommunity({ links, className }: { links: CommunityLink[]; cl
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium text-foreground">{s.label}</span>
-                  <span className="block truncate text-xs text-zinc-500">{s.handle}</span>
+                  <span className="block truncate text-xs text-zinc-500">{s.key === "whatsapp" ? "Join the community group" : s.handle}</span>
                 </span>
                 <ArrowUpRight size={16} className="shrink-0 text-zinc-400 group-hover:text-zinc-600" />
               </a>

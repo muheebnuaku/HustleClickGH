@@ -383,7 +383,7 @@ export default function AdminBlogPage() {
             </Button>
           </div>
           {links.length === 0 && (
-            <p className="text-xs text-zinc-500">No groups saved yet. Until you add one, the page shows a &quot;Chat with us on WhatsApp&quot; button.</p>
+            <p className="text-xs text-zinc-500">No groups saved yet. Until you add one, the page links to the main HustleClickGH Community group.</p>
           )}
         </Panel>
       </div>

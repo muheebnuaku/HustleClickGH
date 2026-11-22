@@ -8,6 +8,8 @@ export const SITE_CONFIG = {
     email: "info@hustleclickgh.com",
     phone: "+233592405403",
     whatsapp: "https://wa.me/233592405403",
+    // Main community group; the Updates page links here when no groups are saved in admin.
+    whatsappGroup: "https://chat.whatsapp.com/ERPm4PVlf9SAMDJfliwdAm",
     linkedin: "https://www.linkedin.com/in/muheeb-nuaku-30923b25a/",
   },
   // Official social accounts — shown on the landing page + footer and listed
