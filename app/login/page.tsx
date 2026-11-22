@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signIn, signOut } from "next-auth/react";
+import { signIn, signOut, getProviders } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -62,6 +62,11 @@ export default function AuthPage() {
   const [consentName, setConsentName] = useState("");
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [bioLoading, setBioLoading] = useState(false);
+  // Apple sign-in is offered only when the server has it configured.
+  const [hasApple, setHasApple] = useState(false);
+  useEffect(() => {
+    getProviders().then((p) => setHasApple(!!p?.apple)).catch(() => {});
+  }, []);
 
   const loginForm = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -433,7 +438,7 @@ export default function AuthPage() {
                     </div>
 
                     {/* OAuth Buttons */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className={hasApple ? "grid grid-cols-2 gap-3" : "grid grid-cols-1 gap-3"}>
                       <button
                         type="button"
                         onClick={() => signIn("google", { callbackUrl: "/setup-biometrics" })}
@@ -448,6 +453,7 @@ export default function AuthPage() {
                         </svg>
                         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Google</span>
                       </button>
+                      {hasApple && (
                       <button
                         type="button"
                         onClick={() => signIn("apple", { callbackUrl: "/setup-biometrics" })}
@@ -459,6 +465,7 @@ export default function AuthPage() {
                         </svg>
                         <span className="text-sm font-medium text-white">Apple</span>
                       </button>
+                      )}
                     </div>
 
                     {/* Biometric sign-in */}
@@ -721,7 +728,7 @@ export default function AuthPage() {
                     </div>
 
                     {/* OAuth Buttons */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className={hasApple ? "grid grid-cols-2 gap-3" : "grid grid-cols-1 gap-3"}>
                       <button
                         type="button"
                         onClick={() => signIn("google", { callbackUrl: "/setup-biometrics" })}
@@ -736,6 +743,7 @@ export default function AuthPage() {
                         </svg>
                         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Google</span>
                       </button>
+                      {hasApple && (
                       <button
                         type="button"
                         onClick={() => signIn("apple", { callbackUrl: "/setup-biometrics" })}
@@ -747,6 +755,7 @@ export default function AuthPage() {
                         </svg>
                         <span className="text-sm font-medium text-white">Apple</span>
                       </button>
+                      )}
                     </div>
                   </form>
 

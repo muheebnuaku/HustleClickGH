@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
@@ -21,7 +21,9 @@ export async function GET() {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 403 });
 
-  await checkForBouncedWelcomeEmails({ throttle: true }).catch((err) => console.error("Lana bounce check error:", err));
+  // In the background: the panel polls every minute and must not wait on the mail server.
+  // Cases it finds show up on the next poll.
+  after(() => checkForBouncedWelcomeEmails({ throttle: true }).then(() => undefined).catch((err) => console.error("Lana bounce check error:", err)));
 
   const [openCases, recentResolved] = await Promise.all([
     prisma.lanaCase.findMany({ where: { status: { in: ["open", "auto_actioned"] } }, orderBy: { createdAt: "desc" } }),

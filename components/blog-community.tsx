@@ -11,6 +11,7 @@ const SOCIAL_CHIP: Record<string, string> = {
   tiktok: "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900",
   youtube: "bg-red-600 text-white",
   whatsapp: "bg-emerald-500 text-white",
+  linkedin: "bg-sky-700 text-white",
 };
 
 const DEFAULT_GROUP: CommunityLink = { label: "HustleClickGH Community", url: SITE_CONFIG.contact.whatsappGroup, note: "New projects and updates" };

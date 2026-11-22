@@ -63,7 +63,7 @@ export function SocialIconRow({ className }: { className?: string }) {
 /** Full cards with handle + call to action (landing page). */
 export function SocialCards() {
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {SITE_CONFIG.social.map((s) => (
         <a
           key={s.key}

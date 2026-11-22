@@ -79,6 +79,23 @@ export function lastChars(value: string, n = 4): string {
 }
 
 /** Whether field encryption is configured (key present). */
+/**
+ * True only when FIELD_ENCRYPTION_KEY is set AND decodes to a valid 32-byte key.
+ * A malformed key (e.g. a placeholder copied from a hidden Vercel variable) is
+ * reported once and treated as "not configured", so registration falls back
+ * to the documented unencrypted path instead of failing for every new user.
+ */
+let badKeyReported = false;
 export function isEncryptionConfigured(): boolean {
-  return !!process.env.FIELD_ENCRYPTION_KEY;
+  if (!process.env.FIELD_ENCRYPTION_KEY) return false;
+  try {
+    getKey();
+    return true;
+  } catch (err) {
+    if (!badKeyReported) {
+      badKeyReported = true;
+      console.error("[crypto] FIELD_ENCRYPTION_KEY is invalid; ID numbers will be stored unencrypted until it is fixed:", err instanceof Error ? err.message : err);
+    }
+    return false;
+  }
 }

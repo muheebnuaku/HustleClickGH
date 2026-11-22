@@ -19,6 +19,7 @@ export const SITE_CONFIG = {
     { key: "tiktok", label: "TikTok", handle: "@hustleclickgh", url: "https://www.tiktok.com/@hustleclickgh", cta: "Watch on TikTok", blurb: "Quick tips, payouts and new projects." },
     { key: "youtube", label: "YouTube", handle: "Hustle Click Gh", url: "https://www.youtube.com/@hustleclickgh", cta: "Subscribe", blurb: "Walkthroughs and how-to videos." },
     { key: "whatsapp", label: "WhatsApp", handle: "+233 59 240 5403", url: "https://wa.me/233592405403", cta: "Chat with us", blurb: "Questions? Talk to our team directly." },
+    { key: "linkedin", label: "LinkedIn", handle: "HustleClickGH", url: "https://www.linkedin.com/in/hustle-clickgh-a0a77636b", cta: "Follow us", blurb: "Company news, partnerships and new projects." },
   ],
   survey: {
     minWithdrawal: 10,

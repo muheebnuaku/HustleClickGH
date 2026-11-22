@@ -35,8 +35,14 @@ let lastCheckStartedAt = 0;
 const BOUNCE_SENDER_PATTERN = /mailer-daemon|postmaster|mail delivery subsystem/i;
 const BOUNCE_SUBJECT_PATTERN = /undeliver|delivery status notification|delivery has failed|failure notice|returned mail|mail delivery failed/i;
 
-function imapHostFromSmtpHost(smtpHost: string): string {
-  return smtpHost.replace(/^smtp\./i, "imap.");
+// After a failed connection, wait this long before trying again, so an
+// unreachable mailbox doesn't time out (and log) on every admin page poll.
+const FAILURE_BACKOFF_MS = 30 * 60 * 1000;
+let lastFailureAt = 0;
+
+/** smtp.zoho.com → imap.zoho.com, smtppro.zoho.com → imappro.zoho.com (Zoho for custom domains). */
+export function imapHostFromSmtpHost(smtpHost: string): string {
+  return smtpHost.replace(/^smtp(pro)?\./i, (_m, pro: string | undefined) => `imap${pro ?? ""}.`);
 }
 
 function extractBouncedRecipient(bodyText: string, knownEmails: Set<string>): string | null {
@@ -60,6 +66,9 @@ export async function checkForBouncedWelcomeEmails(opts: { throttle?: boolean } 
   if (opts.throttle && Date.now() - lastCheckStartedAt < MIN_CHECK_INTERVAL_MS) {
     return { checked: 0, bouncesFound: 0, deleted: 0, skipped: "throttled" };
   }
+  if (opts.throttle && Date.now() - lastFailureAt < FAILURE_BACKOFF_MS) {
+    return { checked: 0, bouncesFound: 0, deleted: 0, skipped: "backing off after a failed connection" };
+  }
   lastCheckStartedAt = Date.now();
 
   const { SMTP_HOST, SMTP_USER, SMTP_PASS, IMAP_HOST, IMAP_PORT } = process.env;
@@ -76,6 +85,8 @@ export async function checkForBouncedWelcomeEmails(opts: { throttle?: boolean } 
     secure: true,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
     logger: false,
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
   });
 
   let checked = 0;
@@ -175,7 +186,8 @@ export async function checkForBouncedWelcomeEmails(opts: { throttle?: boolean } 
       lock.release();
     }
   } catch (err) {
-    console.error("[lana] bounce-mailbox check failed:", err);
+    lastFailureAt = Date.now();
+    console.error(`[lana] bounce-mailbox check failed (${host}:${port}); retrying in 30 min:`, err instanceof Error ? err.message : err);
     return { checked, bouncesFound, deleted, skipped: err instanceof Error ? err.message : "IMAP connection failed" };
   } finally {
     await client.logout().catch(() => {});
