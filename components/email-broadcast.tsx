@@ -167,7 +167,8 @@ export function EmailBroadcast() {
 
   const resend = async (b: Broadcast) => {
     setError(""); setResult("");
-    if (!confirm(`Resend to the ${b.failedCount} recipient${b.failedCount === 1 ? "" : "s"} who didn't get "${b.subject}"?`)) return;
+    const unsent = b.total - b.sentCount;
+    if (!confirm(`Send "${b.subject}" to the ${unsent} recipient${unsent === 1 ? "" : "s"} who haven't received it? It goes out in batches of 45 every 45 minutes.`)) return;
     setResendingId(b.id);
     try {
       const res = await fetch("/api/admin/emails", {
@@ -318,10 +319,10 @@ export function EmailBroadcast() {
                       <span className="text-zinc-400">/ {b.total}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {b.failedCount > 0 && (
+                      {b.status !== "sending" && b.total - b.sentCount > 0 && (
                         <Button size="sm" variant="outline" disabled={sending || resendingId === b.id} onClick={() => resend(b)}>
                           {resendingId === b.id ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                          <span className="ml-1">Resend {b.failedCount}</span>
+                          <span className="ml-1">Resend {b.total - b.sentCount}</span>
                         </Button>
                       )}
                       <button onClick={() => openDetail(b.id)} className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="Toggle details">

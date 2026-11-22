@@ -180,16 +180,18 @@ export async function POST(request: Request) {
         : null;
       if (!broadcast) return NextResponse.json({ message: "Broadcast not found" }, { status: 404 });
 
-      const reset = await prisma.emailRecipient.updateMany({
+      // Everyone who hasn't received it: failed rows, plus rows a stopped
+      // (pre-queue) broadcast never attempted. Already-sent rows are untouched.
+      await prisma.emailRecipient.updateMany({
         where: { broadcastId, status: "failed" },
         data: { status: "pending", error: null },
       });
-      await prisma.emailBroadcast.update({
-        where: { id: broadcastId },
-        data: { status: reset.count > 0 ? "sending" : broadcast.status },
-      });
-      if (reset.count) after(() => processEmailQueue().then(() => undefined).catch((e) => console.error("[email-queue] resend failed:", e)));
-      return NextResponse.json({ pending: reset.count });
+      const pending = await prisma.emailRecipient.count({ where: { broadcastId, status: "pending" } });
+      if (pending > 0) {
+        await prisma.emailBroadcast.update({ where: { id: broadcastId }, data: { status: "sending" } });
+        after(() => processEmailQueue().then(() => undefined).catch((e) => console.error("[email-queue] resend failed:", e)));
+      }
+      return NextResponse.json({ pending });
     }
 
     // ── PROCESS: send the next queued slice if the batch window allows ──────────
