@@ -5,7 +5,7 @@ import { NextResponse, after } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
-import { EMAIL_BATCH_INTERVAL_MIN, EMAIL_BATCH_SIZE, nextBatchAt, processEmailQueue, refreshBroadcast } from "@/lib/email-queue";
+import { getQueueSettings, nextBatchAt, processEmailQueue, queueStatus, refreshBroadcast, saveQueueSettings, setQueuePaused } from "@/lib/email-queue";
 
 type Target = "all" | "verified" | "unverified" | "no_location" | "country" | "custom";
 
@@ -65,6 +65,11 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
+
+  // Queue controls: pause state, limits, today's usage, next batch
+  if (searchParams.get("queue")) {
+    return NextResponse.json(await queueStatus());
+  }
 
   // History list
   if (searchParams.get("list")) {
@@ -169,7 +174,8 @@ export async function POST(request: Request) {
 
       // Sending happens server-side in batches; the first one starts now.
       after(() => processEmailQueue().then(() => undefined).catch((e) => console.error("[email-queue] start failed:", e)));
-      return NextResponse.json({ broadcastId: broadcast.id, total: recipients.length, batchSize: EMAIL_BATCH_SIZE, intervalMin: EMAIL_BATCH_INTERVAL_MIN });
+      const qs = await getQueueSettings();
+      return NextResponse.json({ broadcastId: broadcast.id, total: recipients.length, batchSize: qs.batchSize, intervalMin: qs.intervalMin, dailyCap: qs.dailyCap, queuePaused: qs.paused });
     }
 
     // ── RESEND (failed → pending) ────────────────────────────────────────────
@@ -194,6 +200,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ pending });
     }
 
+    // ── PAUSE / RESUME one broadcast ────────────────────────────────────────
+    if (action === "pause" || action === "resume") {
+      const { broadcastId } = body;
+      const from = action === "pause" ? "sending" : "paused";
+      const r = await prisma.emailBroadcast.updateMany({
+        where: { id: broadcastId, status: from },
+        data: { status: action === "pause" ? "paused" : "sending" },
+      });
+      if (!r.count) return NextResponse.json({ message: action === "pause" ? "This broadcast isn't sending." : "This broadcast isn't paused." }, { status: 409 });
+      if (action === "resume") after(() => processEmailQueue().then(() => undefined).catch((e) => console.error("[email-queue] resume failed:", e)));
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── PAUSE / RESUME all sending, and the rate limits ────────────────────
+    if (action === "pauseAll") return NextResponse.json({ settings: await setQueuePaused(true, `Paused by ${session.user.name || "an admin"}`) });
+    if (action === "resumeAll") {
+      const settings = await setQueuePaused(false);
+      after(() => processEmailQueue().then(() => undefined).catch((e) => console.error("[email-queue] resume failed:", e)));
+      return NextResponse.json({ settings });
+    }
+    if (action === "settings") {
+      const { batchSize, intervalMin, dailyCap } = body.settings || {};
+      return NextResponse.json({ settings: await saveQueueSettings({ batchSize, intervalMin, dailyCap }) });
+    }
+
     // ── PROCESS: send the next queued slice if the batch window allows ──────────
     if (action === "process") {
       const { broadcastId } = body;
@@ -213,8 +244,7 @@ export async function POST(request: Request) {
         done: agg.pending === 0,
         paused: run.paused,
         nextBatchAt: agg.pending ? (run.nextBatchAt ?? (await nextBatchAt())) : null,
-        batchSize: EMAIL_BATCH_SIZE,
-        intervalMin: EMAIL_BATCH_INTERVAL_MIN,
+        queuePaused: (await getQueueSettings()).paused,
       });
     }
 

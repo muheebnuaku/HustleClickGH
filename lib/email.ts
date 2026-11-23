@@ -30,6 +30,8 @@ interface SendEmailOptions {
   subject: string;
   html: string;
   replyTo?: string;
+  /** Broadcast mail: goes through the BULK_SMTP_* service when configured, keeping the main mailbox safe. */
+  bulk?: boolean;
 }
 
 /** Shared branded wrapper so all outgoing mail looks consistent. */
@@ -416,9 +418,14 @@ async function sendViaResend(from: string, opts: SendEmailOptions): Promise<Send
  * on. Covers Resend 429 and Zoho's "550 5.4.6 Unusual sending activity".
  */
 export function isRateLimitError(msg = ""): boolean {
-  return /429|451|quota|rate.?limit|too many requests|sending limit|unusual sending activity|5\.4\.6|usage-policy|try after/i.test(
+  return /429|451|quota|rate.?limit|too many requests|sending limit|limit exceeded|daily limit|unusual sending activity|5\.4\.6|usage-policy|try after|(account|sender|sending|outgoing|user).{0,30}(blocked|suspended|locked|disabled)|temporarily (rejected|unavailable)/i.test(
     msg
   );
+}
+
+/** True when broadcasts use a separate bulk SMTP service (BULK_SMTP_HOST/USER/PASS). */
+export function usingBulkTransport(): boolean {
+  return !!(process.env.BULK_SMTP_HOST && process.env.BULK_SMTP_USER && process.env.BULK_SMTP_PASS);
 }
 
 export async function sendEmail(opts: SendEmailOptions): Promise<SendResult> {
@@ -429,9 +436,14 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendResult> {
     return sendViaResend(from, opts);
   }
 
-  const smtpHost = process.env.SMTP_HOST;
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPass = process.env.SMTP_PASS;
+  // Broadcasts go through a dedicated bulk service (Brevo, Amazon SES,
+  // ZeptoMail… any SMTP relay) when one is set up, so a big send can't get
+  // the main mailbox (welcome e-mails, password resets) blocked.
+  const bulk = opts.bulk && usingBulkTransport();
+  const smtpHost = bulk ? process.env.BULK_SMTP_HOST : process.env.SMTP_HOST;
+  const smtpUser = bulk ? process.env.BULK_SMTP_USER : process.env.SMTP_USER;
+  const smtpPass = bulk ? process.env.BULK_SMTP_PASS : process.env.SMTP_PASS;
+  const sender = bulk ? process.env.BULK_EMAIL_FROM || from : from;
 
   // Fail loudly and specifically rather than silently doing nothing — a
   // half-configured mailbox is the most common cause of "no email arrived".
@@ -448,7 +460,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendResult> {
 
   try {
     const nodemailer = (await import("nodemailer")).default;
-    const port = Number(process.env.SMTP_PORT || 465);
+    const port = Number((bulk ? process.env.BULK_SMTP_PORT : process.env.SMTP_PORT) || (bulk ? 587 : 465));
     const transporter = nodemailer.createTransport({
       host: smtpHost,
       port,
@@ -457,7 +469,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendResult> {
     });
 
     await transporter.sendMail({
-      from,
+      from: sender,
       to: opts.to,
       subject: opts.subject,
       html: opts.html,

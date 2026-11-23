@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Mail, Send, History, RefreshCw, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { Mail, Send, History, RefreshCw, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2, Pause, Play, Save, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/page-kit";
 
 type Target = "all" | "verified" | "unverified" | "no_location" | "country" | "custom";
@@ -40,13 +40,155 @@ const STATUS_STYLE: Record<string, string> = {
   partial: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
   stopped: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
   sending: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  paused: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
 };
 const STATUS_LABEL: Record<string, string> = {
   completed: "Delivered",
   partial: "Partly delivered",
   stopped: "Stopped (limit)",
   sending: "Sending",
+  paused: "Paused",
 };
+
+interface QueueStatus {
+  settings: { paused: boolean; pausedReason: string | null; pausedAt: string | null; batchSize: number; intervalMin: number; dailyCap: number };
+  sentThisBatch: number;
+  sentToday: number;
+  pending: number;
+  nextBatchAt: string | null;
+  transport: "bulk" | "main";
+}
+
+async function post(body: unknown) {
+  const res = await fetch("/api/admin/emails", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.message || "Request failed");
+  return d;
+}
+
+/** Pause/resume all sending and set the sending limits. */
+function QueueControls({ onChanged }: { onChanged: () => void }) {
+  const [q, setQ] = useState<QueueStatus | null>(null);
+  const [form, setForm] = useState({ batchSize: 45, intervalMin: 45, dailyCap: 250 });
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/emails?queue=1");
+      if (!res.ok) return;
+      const d: QueueStatus = await res.json();
+      setQ(d);
+      setForm((f) => (busy ? f : { batchSize: d.settings.batchSize, intervalMin: d.settings.intervalMin, dailyCap: d.settings.dailyCap }));
+    } catch {
+      /* keep last state */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 20_000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const act = async (body: unknown, done: string) => {
+    setBusy(true);
+    setMsg("");
+    try {
+      await post(body);
+      setMsg(done);
+      await load();
+      onChanged();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!q) return null;
+  const s = q.settings;
+  const cap = s.dailyCap > 0 ? s.dailyCap : null;
+  const perDay = Math.round((24 * 60) / s.intervalMin) * s.batchSize;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          {s.paused ? <Pause size={18} className="text-amber-500" /> : <Play size={18} className="text-green-600" />} Sending
+        </CardTitle>
+        <CardDescription>Broadcasts go out in batches from the server. Pause any time; nothing is lost.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {s.paused ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            <p className="font-semibold">Sending is paused{s.pausedAt ? ` since ${new Date(s.pausedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}` : ""}.</p>
+            {s.pausedReason && <p className="mt-1 break-words">{s.pausedReason}</p>}
+            {s.pausedReason?.startsWith("Mail provider refused") && (
+              <p className="mt-2 text-xs">
+                The mail provider blocked sending. Wait until it lifts (Zoho blocks usually last up to 24 hours) and lower the daily limit before resuming;
+                resuming early makes the block longer and also stops welcome and password-reset e-mails.
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Sending is on · {q.sentToday}{cap ? ` of ${cap}` : ""} sent today · {q.pending} waiting
+            {q.nextBatchAt ? ` · next batch ${new Date(q.nextBatchAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
+          </p>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          {s.paused ? (
+            <Button onClick={() => act({ action: "resumeAll" }, "Sending resumed.")} disabled={busy} className="bg-green-600 hover:bg-green-700">
+              <Play size={16} /> <span className="ml-1">Resume sending</span>
+            </Button>
+          ) : (
+            <Button variant="outline" onClick={() => act({ action: "pauseAll" }, "All sending paused.")} disabled={busy}>
+              <Pause size={16} /> <span className="ml-1">Pause all sending</span>
+            </Button>
+          )}
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="space-y-1 text-sm">
+            <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">E-mails per batch</span>
+            <Input type="number" min={1} max={500} value={form.batchSize} onChange={(e) => setForm({ ...form, batchSize: Number(e.target.value) })} />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Minutes between batches</span>
+            <Input type="number" min={1} max={1440} value={form.intervalMin} onChange={(e) => setForm({ ...form, intervalMin: Number(e.target.value) })} />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Max per day (0 = no limit)</span>
+            <Input type="number" min={0} value={form.dailyCap} onChange={(e) => setForm({ ...form, dailyCap: Number(e.target.value) })} />
+          </label>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-zinc-500">
+            Up to {cap ? Math.min(cap, perDay) : perDay} e-mails a day with these settings.
+          </p>
+          <Button size="sm" variant="outline" onClick={() => act({ action: "settings", settings: form }, "Limits saved.")} disabled={busy}>
+            <Save size={14} /> <span className="ml-1">Save limits</span>
+          </Button>
+        </div>
+
+        {q.transport === "main" && (
+          <div className="flex gap-2 rounded-xl bg-zinc-50 p-3 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-500" />
+            <span>
+              Broadcasts are sent from your main mailbox (info@). Mailbox providers like Zoho limit daily volume and block the whole mailbox
+              if it looks like bulk mail, which also stops welcome and password-reset e-mails. Keep the daily limit low, or connect a bulk
+              e-mail service (BULK_SMTP_* settings) so broadcasts can&apos;t affect info@.
+            </span>
+          </div>
+        )}
+        {msg && <p className="text-sm text-zinc-600 dark:text-zinc-400">{msg}</p>}
+      </CardContent>
+    </Card>
+  );
+}
 
 export function EmailBroadcast() {
   const [counts, setCounts] = useState<Counts>({ all: 0, verified: 0, unverified: 0, noLocation: 0, countries: [] });
@@ -207,8 +349,21 @@ export function EmailBroadcast() {
 
   const count = recipientCount();
 
+  const pauseOne = async (b: Broadcast, action: "pause" | "resume") => {
+    setError(""); setResult("");
+    try {
+      await post({ action, broadcastId: b.id });
+      setResult(action === "pause" ? `Paused "${b.subject}".` : `Resumed "${b.subject}".`);
+      if (action === "resume") setWatch({ id: b.id, total: b.total });
+      loadHistory();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+    }
+  };
+
   return (
     <div className="space-y-6">
+      <QueueControls onChanged={loadHistory} />
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Mail size={20} /> Email broadcast</CardTitle>
@@ -277,7 +432,7 @@ export function EmailBroadcast() {
                   {nextAt && new Date(nextAt) > new Date()
                     ? ` · next batch at ${new Date(nextAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
                     : " · sending now"}
-                  . Batches of 45 every 45 minutes; you can close this page.
+                  . Sent in batches from the server; you can close this page.
                 </p>
               </div>
             )}
@@ -319,7 +474,17 @@ export function EmailBroadcast() {
                       <span className="text-zinc-400">/ {b.total}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {b.status !== "sending" && b.total - b.sentCount > 0 && (
+                      {b.status === "sending" && (
+                        <Button size="sm" variant="outline" onClick={() => pauseOne(b, "pause")}>
+                          <Pause size={14} /> <span className="ml-1">Pause</span>
+                        </Button>
+                      )}
+                      {b.status === "paused" && (
+                        <Button size="sm" variant="outline" onClick={() => pauseOne(b, "resume")}>
+                          <Play size={14} /> <span className="ml-1">Resume</span>
+                        </Button>
+                      )}
+                      {b.status !== "sending" && b.status !== "paused" && b.total - b.sentCount > 0 && (
                         <Button size="sm" variant="outline" disabled={sending || resendingId === b.id} onClick={() => resend(b)}>
                           {resendingId === b.id ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
                           <span className="ml-1">Resend {b.total - b.sentCount}</span>
